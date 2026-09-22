@@ -32,6 +32,15 @@ Polypus itself lives outside this tree (typical checkout: `~/Xynova/ai/polypus`)
 
 5. Keep the first unwanted-mail milestone report-only: [docs/report-only-eval.md](docs/report-only-eval.md).
 
+## Architecture
+
+Always-on Cursor rule: [`.cursor/rules/architecture.mdc`](.cursor/rules/architecture.mdc).
+
+- Use provider submodules (EmailOps) as black boxes; do not patch them for host needs.
+- Host product and orchestration code is Go.
+- All AI goes through Polypus (`http://127.0.0.1:1320`).
+- Unwanted-mail automation stays report-only until evaluation exit criteria pass.
+
 ## Milestone boundary
 
-This host currently pins EmailOps and documents the Polypus-only contract. Jev classification, clustering, and any mailbox mutation are follow-ups after the provider adapter lands.
+This host pins EmailOps and documents the Polypus-only contract. Next work is host Go that exports mail via the EmailOps CLI and classifies through Polypus; no EmailOps fork required.
