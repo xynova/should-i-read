@@ -1,0 +1,17 @@
+# Local secrets and operator overrides
+.env
+.env.local
+config/emailops-polypus.env
+*.pem
+*.key
+
+# Host-local EmailOps / Polypus working dirs
+tmp/
+logs/
+data/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

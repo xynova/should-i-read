@@ -1,0 +1,6 @@
+[submodule ".cursor/packs/shared"]
+	path = .cursor/packs/shared
+	url = https://github.com/xynova/cursor-packs.git
+[submodule "providers/emailops"]
+	path = providers/emailops
+	url = https://github.com/emailops/emailops.git
