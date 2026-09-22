@@ -55,11 +55,12 @@ Until the adapter lands:
 
 ## Preferred host path (no nested EmailOps change)
 
-This host **does not** modify EmailOps. See `.cursor/rules/architecture.mdc`.
+This host **does not** modify EmailOps. See `.cursor/rules/architecture.mdc` and skill `should-i-read-operator`.
 
-1. Use EmailOps CLI for sync and export only (`sync`, `emails`, `show`, `search`, `doctor`).
-2. Implement classify / Jev / cluster / TLDR as **host Go** that calls Polypus at `POLYPUS_BASE_URL`.
+1. Use host CLI: `make build` then `./bin/should-i-read doctor|sync|emails|export`.
+2. Use EmailOps only as a black-box binary for sync and export (`emailops-cli --json`).
 3. Leave EmailOps AI settings unused for product features (embedded llama.cpp, OpenRouter, and Ollama stay off for this host).
+4. Implement classify / Jev / cluster / TLDR as later host Go that calls Polypus at `POLYPUS_BASE_URL`.
 
 ## Optional upstream contribution (out of scope unless requested)
 
