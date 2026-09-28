@@ -10,7 +10,7 @@ alwaysApply: true
 
 **Moral:** This repo consumes providers. It does not fork them. Host logic is Go. AI exits only through Polypus.
 
-Detail lives in [docs/ai-provider-seam.md](docs/ai-provider-seam.md), [docs/emailops-setup.md](docs/emailops-setup.md), and [docs/report-only-eval.md](docs/report-only-eval.md). Go quality: skill `golang-quality`. Operator workflow: skill `should-i-read-operator`.
+Detail lives in [docs/ai-provider-seam.md](docs/ai-provider-seam.md), [docs/emailops-setup.md](docs/emailops-setup.md), and [docs/report-only-eval.md](docs/report-only-eval.md). Go quality: skill `golang-quality`. Operator workflow: skill `should-i-read-operator`. Operator home config: skill `operator-config` (`make init` → `~/.config/should-i-read/config.yaml`).
 
 ## Provider boundaries
 

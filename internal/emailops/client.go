@@ -33,6 +33,8 @@ type Client struct {
 	Bin     string
 	DataDir string
 	Quiet   bool
+	// ExtraEnv is KEY=VALUE pairs merged into the child process environment.
+	ExtraEnv []string
 }
 
 // Create returns a Client. bin and dataDir must be non-empty.
@@ -80,6 +82,7 @@ func (c *Client) Run(ctx context.Context, args ...string) (*Envelope, error) {
 	cmdArgs = append(cmdArgs, args...)
 
 	cmd := exec.CommandContext(ctx, c.Bin, cmdArgs...)
+	cmd.Env = mergeEnv(os.Environ(), c.ExtraEnv)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -250,4 +253,47 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+func mergeEnv(base, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	out := make([]string, 0, len(base)+len(extra))
+	out = append(out, base...)
+	out = append(out, extra...)
+	return out
+}
+
+// LaunchUI starts the EmailOps desktop app via make destin (or npm run tauri destin)
+// in repoPath, with ExtraEnv injected. Blocks until the process exits.
+func LaunchUI(ctx context.Context, repoPath string, extraEnv []string) error {
+	const op = "emailops.LaunchUI"
+	if ctx == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	dir := strings.TrimSpace(repoPath)
+	if dir == "" {
+		return sirerr.New(sirerr.CodeInvalid, op, "emailops repo path is empty")
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return sirerr.New(sirerr.CodeUnavailable, op, "emailops repo path missing").With("path", dir)
+	}
+
+	var cmd *exec.Cmd
+	if _, err := exec.LookPath("make"); err == nil {
+		// destin is the EmailOps Makefile target for the desktop app.
+		cmd = exec.CommandContext(ctx, "make", "destin")
+	} else {
+		cmd = exec.CommandContext(ctx, "npm", "run", "tauri", "destin")
+	}
+	cmd.Dir = dir
+	cmd.Env = mergeEnv(os.Environ(), extraEnv)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	if err := cmd.Run(); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "launch EmailOps UI failed").With("dir", dir)
+	}
+	return nil
 }

@@ -9,10 +9,11 @@ Host project for local inbox triage: EmailOps for mail (black box), Polypus as t
 | [`cmd/should-i-read`](cmd/should-i-read) | Host Go CLI |
 | [`providers/emailops`](providers/emailops) | Git submodule: [emailops/emailops](https://github.com/emailops/emailops) |
 | [`docs/`](docs/) | Setup, provider seam, report-only evaluation |
-| [`config/`](config/) | Example env (no secrets) |
-| [`.cursor/skills/should-i-read-operator`](.cursor/skills/should-i-read-operator) | Operator skill for agents |
+| [`config/`](config/) | Example YAML / env (no secrets) |
+| [`AGENTS.md`](AGENTS.md) | Agent entry: load order into ai-copilots |
+| [`ai-copilots/`](ai-copilots/) | Canonical operator skill + BOOTSTRAP |
 
-Polypus lives outside this tree (typical checkout: `~/Xynova/ai/polypus`). Clients call only `http://127.0.0.1:1320`.
+Agents start at [`AGENTS.md`](AGENTS.md). Operator settings live in `~/.config/should-i-read/config.yaml` (see `make init`). Polypus lives outside this tree (typical checkout: `~/Xynova/ai/polypus`). Clients call only `http://127.0.0.1:1320`.
 
 ## Quick start
 
@@ -21,19 +22,21 @@ git submodule update --init --recursive
 make emailops-install    # once: Node deps inside submodule
 make emailops-cli        # build emailops-cli without llama.cpp
 make build
+make init                # ~/.config/should-i-read + default data dir
+make setup               # product OAuth if present; else BYO / guided DIY
 make polypus-check       # Polypus must be up (make serve in Polypus repo)
 
-# Platform default data dir, or set EMAILOPS_DATA_DIR / --data-dir
 ./bin/should-i-read doctor
 ./bin/should-i-read sync
 ./bin/should-i-read export --limit 50
+# optional: make ui  (EmailOps desktop with config-injected env)
 ```
 
-Connect a mailbox once via the EmailOps desktop app or upstream `emailops-cli accounts add`. Do not use EmailOps `classify` / `chat` / `embed` for product AI on this host.
+Connect a mailbox once via `make ui` or upstream `emailops-cli accounts add`. Prefer `make setup` for OAuth *client* credentials (product-owned default, BYO override). Do not put secrets in YAML. Do not use EmailOps `classify` / `chat` / `embed` for product AI on this host.
 
 ## Architecture
 
-Always-on rule: [`.cursor/rules/architecture.mdc`](.cursor/rules/architecture.mdc). Operator skill: `should-i-read-operator`.
+Always-on rule: [`.cursor/rules/architecture.mdc`](.cursor/rules/architecture.mdc). Agents: [`AGENTS.md`](AGENTS.md). Operator skill: `should-i-read-operator`.
 
 - Use EmailOps as a black box; do not patch `providers/emailops`.
 - Host product code is Go (`should-i-read` CLI).

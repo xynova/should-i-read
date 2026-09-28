@@ -7,13 +7,16 @@ LDFLAGS := -X github.com/xynova/should-i-read/internal/cli.Version=$(VERSION)
 
 .PHONY: help build test tidy check-polypus polypus-check \
 	emailops-submodule emailops-install emailops-cli \
-	doctor accounts sync emails export version
+	doctor accounts sync emails export version init setup ui
 
 help:
 	@echo "Targets:"
 	@echo "  build               Build $(BIN)"
 	@echo "  test                go test ./..."
 	@echo "  tidy                go mod tidy"
+	@echo "  init                Create ~/.config/should-i-read/config.yaml + data dir"
+	@echo "  setup               Interactive mail OAuth setup (product / BYO / guided DIY)"
+	@echo "  ui                  Launch EmailOps desktop with host config env"
 	@echo "  version             Print CLI version"
 	@echo "  doctor              should-i-read doctor"
 	@echo "  accounts            should-i-read accounts"
@@ -38,6 +41,15 @@ tidy:
 
 version: build
 	./$(BIN) version
+
+init: build
+	./$(BIN) init
+
+setup: build
+	./$(BIN) setup
+
+ui: build
+	./$(BIN) ui
 
 doctor: build
 	./$(BIN) doctor
