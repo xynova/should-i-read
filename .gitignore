@@ -9,6 +9,7 @@ config/emailops-polypus.env
 tmp/
 logs/
 data/
+bin/
 
 # OS / editor
 .DS_Store

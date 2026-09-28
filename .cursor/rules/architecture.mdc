@@ -1,0 +1,132 @@
+---
+description: >-
+  Host architecture for should-i-read: use provider submodules as black boxes,
+  write host tooling in Go, route all AI through Polypus. Apply when planning
+  features, adding code, touching providers/, EmailOps, Jev, or AI wiring.
+alwaysApply: true
+---
+
+# Host architecture
+
+**Moral:** This repo consumes providers. It does not fork them. Host logic is Go. AI exits only through Polypus.
+
+Detail lives in [docs/ai-provider-seam.md](docs/ai-provider-seam.md), [docs/emailops-setup.md](docs/emailops-setup.md), and [docs/report-only-eval.md](docs/report-only-eval.md). Go quality: skill `golang-quality`. Operator workflow: skill `should-i-read-operator`. Operator home config: skill `operator-config` (`make init` → `~/.config/should-i-read/config.yaml`).
+
+## Provider boundaries
+
+**CONSTRAINT:** Paths under `providers/` (including `providers/emailops`) are nested repositories. Agents MUST treat them as read-only black boxes for product work.
+
+- MUST: use provider CLIs, configs, and documented surfaces from the host (sync, export, doctor)
+- MUST: resolve ownership with `git -C <path> rev-parse --show-toplevel` before any write in that tree
+- MUST NOT: edit, patch, or add features inside a provider to satisfy a host need
+- MUST NOT: stage provider file bytes as ordinary host files
+- NEVER: propose "just this once" changes to EmailOps (or any provider) so classify/chat can hit Polypus
+
+Enforcement: planned diff paths; `git -C providers/emailops status` stays clean for host tasks
+Violation: STOP, move the work to host Go under this repo, re-verify
+
+CORRECT:
+```text
+Host Go CLI exports mail via emailops-cli --json, then calls Polypus.
+providers/emailops working tree unchanged.
+```
+
+PROHIBITED:
+```text
+Edit providers/emailops/src-tauri/src/ai/openrouter.rs to inject POLYPUS_BASE_URL.
+```
+
+## Host language
+
+**CONSTRAINT:** New host product and orchestration code MUST be Go.
+
+- MUST: put host binaries, packages, and tests in this repository (for example `cmd/`, `internal/`)
+- MUST: follow skill `golang-quality` when generating or completing Go
+- MUST NOT: add host feature logic in TypeScript, Python, or shell beyond thin wrappers that invoke Go or documented Make targets
+- MUST NOT: implement unwanted-mail / Jev / clustering logic inside EmailOps
+
+Enforcement: new feature files are `.go` (or Go module scaffolding) under the host root
+Violation: STOP, rewrite as Go on the host, delete the non-Go host feature path
+
+CORRECT:
+```text
+cmd/unwanted-report/main.go talks to Polypus and writes tmp/unwanted-report-*.json
+```
+
+PROHIBITED:
+```text
+scripts/classify_with_jev.py as the product path for classification
+```
+
+## AI gateway
+
+**CONSTRAINT:** All host AI HTTP MUST use Polypus only (`POLYPUS_BASE_URL`, default `http://127.0.0.1:1320`).
+
+- MUST: call OpenAI-compatible Polypus routes (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`, `/health`)
+- MUST: fail closed when `./scripts/check-polypus.sh` fails before AI work
+- MUST NOT: dial OpenRouter cloud, Ollama, Cloudflare, LM Studio, or TypeSafe/Jev from host or EmailOps
+- MUST NOT: enable EmailOps embedded llama.cpp, OpenRouter, or Ollama for this host's AI features
+- NEVER: store remote provider base URLs in EmailOps client config for this project
+
+Enforcement: grep new code for `openrouter.ai`, `11434`, `typesafe.ai`, and non-loopback AI bases; require Polypus health before AI runs
+Violation: STOP, route through Polypus (or document blocked until Polypus is up), re-verify
+
+CORRECT:
+```text
+Go client: POST http://127.0.0.1:1320/v1/chat/completions with allow-listed model id
+```
+
+PROHIBITED:
+```text
+Set OPENROUTER_API_KEY so EmailOps in-app classify "just works" against openrouter.ai
+```
+
+## Unwanted mail (Jev path)
+
+**CONSTRAINT:** Until evaluation exit criteria in [docs/report-only-eval.md](docs/report-only-eval.md) pass, unwanted-mail automation MUST stay report-only.
+
+- MUST: produce decisions, clusters, and TLDRs as host artifacts (for example under `tmp/`)
+- MUST: keep Jev as typed decisions via Polypus; keep TLDR on a chat model via Polypus
+- MUST NOT: delete, trash, spam-folder, or mark-read mail as part of the first milestone
+- MUST NOT: call Jev/TypeSafe directly from EmailOps
+
+Enforcement: no EmailOps mailbox-mutation calls in the report pipeline; mode flag `report_only`
+Violation: STOP, remove mutation, keep report artifact only
+
+CORRECT:
+```text
+Go report runner writes tmp/unwanted-report-<ts>.json; mailbox unchanged
+```
+
+PROHIBITED:
+```text
+Auto-move high-confidence spam to Trash from the first Jev integration
+```
+
+## Dos and don'ts (summary)
+
+| Do | Don't |
+|----|-------|
+| Use EmailOps for sync, list, show, search, doctor | Fork or patch EmailOps AI providers |
+| Write host orchestration in Go | Put product logic in provider trees |
+| Send all AI through Polypus `:1320` | Point clients at leaf AI vendors |
+| Keep unwanted-mail report-only until eval | Delete or quarantine mail early |
+
+## Pre-change checklist
+
+- [ ] **Provider untouched:** No planned writes under `providers/`
+      Method: Review the change list
+      Pass: Only host paths (and docs/rules in this repo)
+      Fail: STOP, redesign as host Go + provider CLI use
+- [ ] **Go host code:** New feature code is Go
+      Method: File extensions and module layout
+      Pass: `.go` under host `cmd/` / `internal/` (or agreed host layout)
+      Fail: STOP, rewrite in Go
+- [ ] **Polypus only:** AI base URL is Polypus
+      Method: Grep for foreign AI bases and keys
+      Pass: Only `POLYPUS_BASE_URL` / `127.0.0.1:1320`
+      Fail: STOP, remove direct vendor dials
+- [ ] **Report-only:** Unwanted-mail path does not mutate mail
+      Method: Scan for trash/spam/delete/mark-read in the new path
+      Pass: Artifact output only
+      Fail: STOP, strip mutations

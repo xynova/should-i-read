@@ -1,37 +1,48 @@
 # should-i-read
 
-Host project for local inbox triage: EmailOps for mail, Polypus as the only AI gateway, and a later Jev decision path for unwanted-mail filtering.
+Host project for local inbox triage: EmailOps for mail (black box), Polypus as the only AI gateway, and a later Jev decision path for unwanted-mail filtering.
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| [`providers/emailops`](providers/emailops) | Git submodule: [emailops/emailops](https://github.com/emailops/emailops) desktop client and CLI |
-| [`docs/`](docs/) | Host-owned setup, provider seam, and report-only evaluation contract |
-| [`config/`](config/) | Example env for Polypus-only AI wiring (no secrets) |
+| [`cmd/should-i-read`](cmd/should-i-read) | Host Go CLI |
+| [`providers/emailops`](providers/emailops) | Git submodule: [emailops/emailops](https://github.com/emailops/emailops) |
+| [`docs/`](docs/) | Setup, provider seam, report-only evaluation |
+| [`config/`](config/) | Example YAML / env (no secrets) |
+| [`AGENTS.md`](AGENTS.md) | Agent entry: load order into ai-copilots |
+| [`ai-copilots/`](ai-copilots/) | Canonical operator skill + BOOTSTRAP |
 
-Polypus itself lives outside this tree (typical checkout: `~/Xynova/ai/polypus`). Clients call only `http://127.0.0.1:1320`.
+Agents start at [`AGENTS.md`](AGENTS.md). Operator settings live in `~/.config/should-i-read/config.yaml` (see `make init`). Polypus lives outside this tree (typical checkout: `~/Xynova/ai/polypus`). Clients call only `http://127.0.0.1:1320`.
 
 ## Quick start
 
-1. Initialize submodules (after clone):
+```bash
+git submodule update --init --recursive
+make emailops-install    # once: Node deps inside submodule
+make emailops-cli        # build emailops-cli without llama.cpp
+make build
+make init                # ~/.config/should-i-read + default data dir
+make setup               # product OAuth if present; else BYO / guided DIY
+make polypus-check       # Polypus must be up (make serve in Polypus repo)
 
-   ```bash
-   git submodule update --init --recursive
-   ```
+./bin/should-i-read doctor
+./bin/should-i-read sync
+./bin/should-i-read export --limit 50
+# optional: make ui  (EmailOps desktop with config-injected env)
+```
 
-2. Start Polypus from its repo (`make serve`). Confirm health:
+Connect a mailbox once via `make ui` or upstream `emailops-cli accounts add`. Prefer `make setup` for OAuth *client* credentials (product-owned default, BYO override). Do not put secrets in YAML. Do not use EmailOps `classify` / `chat` / `embed` for product AI on this host.
 
-   ```bash
-   ./scripts/check-polypus.sh
-   ```
+## Architecture
 
-3. Follow [docs/emailops-setup.md](docs/emailops-setup.md) for EmailOps prerequisites, OAuth, and CLI.
+Always-on rule: [`.cursor/rules/architecture.mdc`](.cursor/rules/architecture.mdc). Agents: [`AGENTS.md`](AGENTS.md). Operator skill: `should-i-read-operator`.
 
-4. Read [docs/ai-provider-seam.md](docs/ai-provider-seam.md) before pointing EmailOps at any model. Embedded llama.cpp and direct OpenRouter are not allowed for this host.
-
-5. Keep the first unwanted-mail milestone report-only: [docs/report-only-eval.md](docs/report-only-eval.md).
+- Use EmailOps as a black box; do not patch `providers/emailops`.
+- Host product code is Go (`should-i-read` CLI).
+- All AI goes through Polypus.
+- Unwanted-mail automation stays report-only until eval exit criteria pass ([docs/report-only-eval.md](docs/report-only-eval.md)).
 
 ## Milestone boundary
 
-This host currently pins EmailOps and documents the Polypus-only contract. Jev classification, clustering, and any mailbox mutation are follow-ups after the provider adapter lands.
+Mail sync and JSON export run from this host. Jev clustering and TLDR are the next slice after export + Polypus check.

@@ -1,0 +1,28 @@
+# should-i-read operator config (example / init template)
+#
+# Live file: ~/.config/should-i-read/config.yaml (mode 0600)
+# Override: --config or SHOULD_I_READ_CONFIG
+#
+# Secrets MUST use ${ENV_NAME} placeholders. Values resolve from environment,
+# platform keyring (service should-i-read), then optional secrets.enc.yaml (SOPS).
+# Store keyring values: should-i-read secret set ENV_NAME
+
+secrets:
+  - EMAILOPS_GMAIL_CLIENT_ID
+  - EMAILOPS_GMAIL_CLIENT_SECRET
+  - EMAILOPS_OUTLOOK_CLIENT_ID
+
+polypus:
+  base_url: "http://127.0.0.1:1320"
+
+emailops:
+  # Empty → ~/Library/Application Support/should-i-read/emailops (macOS)
+  data_dir: ""
+  # Empty → PATH / cargo debug under providers/emailops
+  cli_path: ""
+  # Empty → <repo>/providers/emailops
+  repo_path: ""
+  default_account: ""
+  gmail_client_id: "${EMAILOPS_GMAIL_CLIENT_ID}"
+  gmail_client_secret: "${EMAILOPS_GMAIL_CLIENT_SECRET}"
+  outlook_client_id: "${EMAILOPS_OUTLOOK_CLIENT_ID}"

@@ -53,16 +53,18 @@ Until the adapter lands:
 3. Do not use embedded llama.cpp as a temporary bypass.
 4. Probe Polypus with `./scripts/check-polypus.sh` and stop if health or models fail.
 
-## Required follow-up (nested EmailOps change)
+## Preferred host path (no nested EmailOps change)
 
-Portable change in the EmailOps repository (not host spill):
+This host **does not** modify EmailOps. See `.cursor/rules/architecture.mdc` and skill `should-i-read-operator`.
 
-1. Add an OpenAI-compatible HTTP provider (or make OpenRouter's base URL configurable).
-2. Default or document `base_url = POLYPUS_BASE_URL` for host consumers.
-3. Accept Polypus-prefixed model ids (`cf_local/…`, `lm_studio/…`, `router/…`).
-4. Keep retries on the client for 503/429 only; Polypus owns circuit breaking.
+1. Use host CLI: `make build` then `./bin/should-i-read doctor|sync|emails|export`.
+2. Use EmailOps only as a black-box binary for sync and export (`emailops-cli --json`).
+3. Leave EmailOps AI settings unused for product features (embedded llama.cpp, OpenRouter, and Ollama stay off for this host).
+4. Implement classify / Jev / cluster / TLDR as later host Go that calls Polypus at `POLYPUS_BASE_URL`.
 
-Host then: set preferences / env from `config/emailops-polypus.example.env`, re-pin the submodule gitlink.
+## Optional upstream contribution (out of scope unless requested)
+
+A portable EmailOps change (OpenAI-compatible injectable base URL) would let the desktop app talk to Polypus. That is a nested-repo contribution, not required for the host report-only pipeline.
 
 ## Verification checklist
 
