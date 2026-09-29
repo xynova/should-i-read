@@ -121,6 +121,8 @@ github.com/behaviorengineering/olly v0.2.0 h1:x8eQgaDc57osizV63XzQAPZtUIVUqJdJlK
 github.com/behaviorengineering/olly v0.2.0/go.mod h1:cIptv3Cao2WE2/KvF4Ekkml4QrqYI38Iua+hvB7SIp4=
 github.com/behaviorengineering/operatorconfig v0.1.2 h1:j2xhS+WmWT2VThXOslZNjd6hZH7Ap8aZfWtECJZ3IXI=
 github.com/behaviorengineering/operatorconfig v0.1.2/go.mod h1:YK48fp+pItReAvi+CubwdtVMFdVM9DivhIuo0fVb1/Y=
+github.com/behaviorengineering/strop v0.5.9 h1:eEU5H1nRjOFndsuBqkR4Ig5R1qnQ+iI5BpiyGn/TtAU=
+github.com/behaviorengineering/strop v0.5.9/go.mod h1:9q5ityg3GeKtip5HMoq6G4h9ar5U2tID13UAXBM2Guw=
 github.com/blang/semver v3.5.1+incompatible h1:cQNTCjp13qL8KC3Nbxr/y2Bqb63oX6wdnnjpJbkM4JQ=
 github.com/blang/semver v3.5.1+incompatible/go.mod h1:kRBLl5iJ+tD4TcOOxsy/0fnwebNt5EWlYSAyrTnjyyk=
 github.com/catppuccin/go v0.3.0 h1:d+0/YicIq+hSTo5oPuRi5kOpqkVA5tAsU6dNhvRu+aY=

@@ -17,9 +17,16 @@ That runs [`scripts/wire-cursor-skills.sh`](../scripts/wire-cursor-skills.sh), w
 
 Shared pack skills (golang-quality, operator-config, etc.) are separate symlinks into `.cursor/packs/shared/` and are already tracked in git.
 
-## Optional strop skills
+## Strop skills
 
-When you work on strop pipelines in this host, add the module and re-wire:
+`go.mod` pins `github.com/behaviorengineering/strop` (indirect) so `make wire-ai-copilots` can link pipeline skills after `go mod download`:
+
+```bash
+go mod download
+make wire-ai-copilots
+```
+
+To bump the pin:
 
 ```bash
 go get github.com/behaviorengineering/strop@latest

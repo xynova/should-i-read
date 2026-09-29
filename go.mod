@@ -3,8 +3,10 @@ module github.com/xynova/should-i-read
 go 1.27.0
 
 require (
+	github.com/AzureAD/microsoft-authentication-library-for-go v1.7.2
 	github.com/behaviorengineering/olly v0.2.0
 	github.com/behaviorengineering/operatorconfig v0.1.2
+	github.com/behaviorengineering/strop v0.5.9
 	github.com/charmbracelet/huh v1.0.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/spf13/cobra v1.9.1
@@ -35,7 +37,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.5.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.2.0 // indirect
-	github.com/AzureAD/microsoft-authentication-library-for-go v1.7.2 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.34.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.58.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.58.0 // indirect

@@ -30,9 +30,24 @@ for name in "${HOST_SKILLS[@]}"; do
   wire_host_skill "$name"
 done
 
+resolve_strop_mod() {
+  if ! go list -m github.com/behaviorengineering/strop >/dev/null 2>&1; then
+    return 1
+  fi
+  local ver gomod path
+  ver="$(go list -m -f '{{.Version}}' github.com/behaviorengineering/strop)"
+  gomod="$(go env GOMODCACHE)"
+  path="$gomod/github.com/behaviorengineering/strop@${ver}"
+  if [ -d "$path/ai-copilots/skills" ]; then
+    printf '%s' "$path"
+    return 0
+  fi
+  go list -m -f '{{.Dir}}' github.com/behaviorengineering/strop 2>/dev/null || true
+}
+
 STROP_MOD="${STROP_MOD:-}"
 if [ -z "$STROP_MOD" ]; then
-  STROP_MOD="$(go list -m -f '{{.Dir}}' github.com/behaviorengineering/strop 2>/dev/null || true)"
+  STROP_MOD="$(resolve_strop_mod || true)"
 fi
 if [ -n "$STROP_MOD" ] && [ -d "$STROP_MOD/ai-copilots/skills" ]; then
   for name in "${STROP_SKILLS[@]}"; do
