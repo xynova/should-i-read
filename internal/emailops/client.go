@@ -265,7 +265,7 @@ func mergeEnv(base, extra []string) []string {
 	return out
 }
 
-// LaunchUI starts the EmailOps desktop app via make destin (or npm run tauri destin)
+// LaunchUI starts the EmailOps desktop app via make dev (or npm run tauri dev)
 // in repoPath, with ExtraEnv injected. Blocks until the process exits.
 func LaunchUI(ctx context.Context, repoPath string, extraEnv []string) error {
 	const op = "emailops.LaunchUI"
@@ -282,10 +282,10 @@ func LaunchUI(ctx context.Context, repoPath string, extraEnv []string) error {
 
 	var cmd *exec.Cmd
 	if _, err := exec.LookPath("make"); err == nil {
-		// destin is the EmailOps Makefile target for the desktop app.
-		cmd = exec.CommandContext(ctx, "make", "destin")
+		// dev is the EmailOps Makefile target for the desktop app (npm run tauri dev).
+		cmd = exec.CommandContext(ctx, "make", "dev")
 	} else {
-		cmd = exec.CommandContext(ctx, "npm", "run", "tauri", "destin")
+		cmd = exec.CommandContext(ctx, "npm", "run", "tauri", "dev")
 	}
 	cmd.Dir = dir
 	cmd.Env = mergeEnv(os.Environ(), extraEnv)

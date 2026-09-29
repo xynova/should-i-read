@@ -60,7 +60,7 @@ scripts/classify_with_jev.py as the product path for classification
 
 ## AI gateway
 
-**CONSTRAINT:** All host AI HTTP MUST use Polypus only (`POLYPUS_BASE_URL`, default `http://127.0.0.1:1320`).
+**CONSTRAINT:** All host AI HTTP MUST use Polypus only: resolve `polypus.base_url`, then `POLYPUS_BASE_URL`, then default `http://127.0.0.1:1320`.
 
 - MUST: call OpenAI-compatible Polypus routes (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`, `/health`)
 - MUST: fail closed when `./scripts/check-polypus.sh` fails before AI work
@@ -109,7 +109,7 @@ Auto-move high-confidence spam to Trash from the first Jev integration
 |----|-------|
 | Use EmailOps for sync, list, show, search, doctor | Fork or patch EmailOps AI providers |
 | Write host orchestration in Go | Put product logic in provider trees |
-| Send all AI through Polypus `:1320` | Point clients at leaf AI vendors |
+| Send all AI through Polypus (`POLYPUS_BASE_URL` / config) | Point clients at leaf AI vendors |
 | Keep unwanted-mail report-only until eval | Delete or quarantine mail early |
 
 ## Pre-change checklist

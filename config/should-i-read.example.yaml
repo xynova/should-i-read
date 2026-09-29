@@ -11,9 +11,16 @@ secrets:
   - EMAILOPS_GMAIL_CLIENT_ID
   - EMAILOPS_GMAIL_CLIENT_SECRET
   - EMAILOPS_OUTLOOK_CLIENT_ID
-
 polypus:
-  base_url: "http://127.0.0.1:1320"
+  # Resolves from env when unset in YAML; fallback http://127.0.0.1:1320
+  base_url: "${POLYPUS_BASE_URL}"
+
+pimalaya:
+  neverest_bin: ""
+  neverest_config: ""
+  default_account: ""
+  # Directory containing pimdir.db (Neverest account store)
+  pimdir_path: ""
 
 emailops:
   # Empty → ~/Library/Application Support/should-i-read/emailops (macOS)

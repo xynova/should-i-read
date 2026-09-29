@@ -39,6 +39,12 @@ func Execute(ctx context.Context, repoRoot string) int {
 		Short:         "Host operator CLI for EmailOps (black box) and Polypus",
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return startTelemetry(cmd.Root().Name())
+		},
+		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			return stopTelemetry()
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_ = cmd.Help()
 			return sirerr.New(sirerr.CodeInvalid, "cli.root", "command required")
@@ -62,6 +68,8 @@ func Execute(ctx context.Context, repoRoot string) int {
 	root.AddCommand(newShowCmd(opts, repoRoot))
 	root.AddCommand(newExportCmd(opts, repoRoot))
 	root.AddCommand(newPolypusCmd(opts, repoRoot))
+	root.AddCommand(newPimCmd(opts, repoRoot))
+	root.AddCommand(newTokenCmd(opts, repoRoot))
 	root.AddCommand(newUICmd(opts, repoRoot))
 
 	if err := root.ExecuteContext(ctx); err != nil {

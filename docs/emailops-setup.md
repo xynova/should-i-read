@@ -128,7 +128,7 @@ make polypus-check
 ./scripts/check-polypus.sh
 ```
 
-See [ai-provider-seam.md](ai-provider-seam.md). Unwanted-mail stays report-only: [report-only-eval.md](report-only-eval.md).
+See [ai-provider-seam.md](ai-provider-seam.md). EmailOps AI capability inventory and host roadmap: [emailops-ai-capabilities-roadmap.md](emailops-ai-capabilities-roadmap.md). Unwanted-mail stays report-only: [report-only-eval.md](report-only-eval.md).
 
 ## Fail-closed rules
 

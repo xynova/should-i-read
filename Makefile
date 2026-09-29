@@ -7,7 +7,8 @@ LDFLAGS := -X github.com/xynova/should-i-read/internal/cli.Version=$(VERSION)
 
 .PHONY: help build test tidy check-polypus polypus-check \
 	emailops-submodule emailops-install emailops-cli \
-	doctor accounts sync emails export version init setup ui
+	doctor accounts sync emails export version init setup ui \
+	pim-doctor pim-sync pim-snapshot
 
 help:
 	@echo "Targets:"
@@ -24,6 +25,9 @@ help:
 	@echo "  emails              should-i-read emails"
 	@echo "  export              should-i-read export"
 	@echo "  polypus-check       should-i-read polypus check"
+	@echo "  pim-doctor          should-i-read pim doctor"
+	@echo "  pim-sync            should-i-read pim sync"
+	@echo "  pim-snapshot        should-i-read pim snapshot"
 	@echo "  check-polypus       Alias for polypus-check (also runs scripts/check-polypus.sh)"
 	@echo "  emailops-submodule  Init/update providers/emailops"
 	@echo "  emailops-install    npm install inside EmailOps submodule"
@@ -68,6 +72,15 @@ export: build
 
 polypus-check: build
 	./$(BIN) polypus check
+
+pim-doctor: build
+	./$(BIN) pim doctor
+
+pim-sync: build
+	./$(BIN) pim sync $(ARGS)
+
+pim-snapshot: build
+	./$(BIN) pim snapshot $(ARGS)
 
 check-polypus: polypus-check
 	./scripts/check-polypus.sh

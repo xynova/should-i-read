@@ -16,6 +16,7 @@ const (
 	CodeAI          Code = "ai"
 	CodeAuth        Code = "auth"
 	CodeNetwork     Code = "network"
+	CodeNeedsReview Code = "needs_review"
 )
 
 // Error is a typed domain error with op and optional fields.
@@ -95,6 +96,8 @@ func ExitCode(err error) int {
 		return 5
 	case CodeAI:
 		return 6
+	case CodeNeedsReview:
+		return 7
 	case CodeUnavailable:
 		return 5
 	default:

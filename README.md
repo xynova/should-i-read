@@ -36,7 +36,7 @@ Connect a mailbox once via `make ui` or upstream `emailops-cli accounts add`. Pr
 
 ## Architecture
 
-Always-on rule: [`.cursor/rules/architecture.mdc`](.cursor/rules/architecture.mdc). Agents: [`AGENTS.md`](AGENTS.md). Operator skill: `should-i-read-operator`.
+Always-on rule: [`.cursor/rules/architecture.mdc`](.cursor/rules/architecture.mdc). Agents: [`AGENTS.md`](AGENTS.md). Operator skill: `should-i-read-operator`. Mail-store direction (Pimalaya / pimdir): [`docs/pimalaya-ecosystem/INDEX.md`](docs/pimalaya-ecosystem/INDEX.md). Operator setup: [`docs/pimalaya-setup.md`](docs/pimalaya-setup.md).
 
 - Use EmailOps as a black box; do not patch `providers/emailops`.
 - Host product code is Go (`should-i-read` CLI).
