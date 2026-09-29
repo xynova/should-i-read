@@ -11,6 +11,12 @@ logs/
 data/
 bin/
 
+# Machine-local Cursor wires to Go module trees (see docs/ai-copilots-setup.md)
+.cursor/skills/strop-pipeline-pattern
+.cursor/skills/strop-orchestration
+.cursor/skills/strop-human-review
+.cursor/skills/inference-pace
+
 # OS / editor
 .DS_Store
 *.swp

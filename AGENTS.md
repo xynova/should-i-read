@@ -17,7 +17,7 @@ This host is the should-i-read operator CLI (EmailOps black box + Polypus). Huma
 
 ## Wire Cursor discovery
 
-Canonical operator skill lives under `ai-copilots/`. Execute [`ai-copilots/BOOTSTRAP.md`](ai-copilots/BOOTSTRAP.md) in **wire mode** so `.cursor/skills/should-i-read-operator` symlinks to that tree.
+Canonical operator skill lives under `ai-copilots/`. After clone or pull, run `make wire-ai-copilots` (or [`scripts/wire-cursor-skills.sh`](scripts/wire-cursor-skills.sh)). Human notes: [`docs/ai-copilots-setup.md`](docs/ai-copilots-setup.md). Agents may also execute [`ai-copilots/BOOTSTRAP.md`](ai-copilots/BOOTSTRAP.md) in **wire mode** (phases 0 → 2 → 3).
 
 For operatorconfig library skills, resolve the module with `go list -m -f '{{.Dir}}' github.com/behaviorengineering/operatorconfig` and execute that tree's `ai-copilots/BOOTSTRAP.md` (same as [polypus-local](https://gitlab.com/xynova/polypus-local) AGENTS).
 

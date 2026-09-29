@@ -19,6 +19,7 @@ Agents start at [`AGENTS.md`](AGENTS.md). Operator settings live in `~/.config/s
 
 ```bash
 git submodule update --init --recursive
+make wire-ai-copilots    # Cursor symlinks to ai-copilots/skills (see docs/ai-copilots-setup.md)
 make emailops-install    # once: Node deps inside submodule
 make emailops-cli        # build emailops-cli without llama.cpp
 make build

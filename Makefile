@@ -8,7 +8,7 @@ LDFLAGS := -X github.com/xynova/should-i-read/internal/cli.Version=$(VERSION)
 .PHONY: help build test tidy check-polypus polypus-check \
 	emailops-submodule emailops-install emailops-cli \
 	doctor accounts sync emails export version init setup ui \
-	pim-doctor pim-sync pim-snapshot
+	pim-doctor pim-sync pim-snapshot wire-ai-copilots bootstrap-ai-copilots
 
 help:
 	@echo "Targets:"
@@ -32,6 +32,8 @@ help:
 	@echo "  emailops-submodule  Init/update providers/emailops"
 	@echo "  emailops-install    npm install inside EmailOps submodule"
 	@echo "  emailops-cli        Build emailops-cli without llama.cpp"
+	@echo "  wire-ai-copilots    Symlink .cursor/skills to ai-copilots (and optional strop)"
+	@echo "  bootstrap-ai-copilots  Alias for wire-ai-copilots"
 
 build:
 	mkdir -p bin
@@ -98,3 +100,8 @@ emailops-cli: emailops-submodule
 		--no-default-features \
 		--features cli \
 		--bin emailops-cli
+
+wire-ai-copilots:
+	bash scripts/wire-cursor-skills.sh
+
+bootstrap-ai-copilots: wire-ai-copilots

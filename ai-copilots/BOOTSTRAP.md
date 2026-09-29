@@ -41,47 +41,13 @@ Only when the user asked to refresh or regenerate skill bodies. Edit files under
 
 ## Phase 2 — Wire Cursor
 
-Symlink host skills into Cursor discovery:
+From the repository root:
 
 ```bash
-ROOT="$(git rev-parse --show-toplevel)"
-mkdir -p "$ROOT/.cursor/skills"
-
-wire_skill() {
-  local name="$1"
-  local TARGET="$ROOT/ai-copilots/skills/$name"
-  local LINK="$ROOT/.cursor/skills/$name"
-  if [ -L "$LINK" ]; then
-    ln -sfn "$TARGET" "$LINK"
-  elif [ -e "$LINK" ]; then
-    echo "Refusing to replace non-symlink $LINK; remove it or approve copy fallback"
-    exit 1
-  else
-    ln -s "$TARGET" "$LINK"
-  fi
-  test -f "$LINK/SKILL.md" && echo "Wired: $LINK -> $TARGET"
-}
-
-wire_skill should-i-read-operator
-wire_skill pimalaya-ecosystem
-
-# strop module skills (collision-safe; do not replace pack-owned skills)
-STROP_MOD="$(go list -m -f '{{.Dir}}' github.com/behaviorengineering/strop 2>/dev/null || true)"
-if [ -n "$STROP_MOD" ] && [ -d "$STROP_MOD/ai-copilots/skills" ]; then
-  for name in strop-pipeline-pattern strop-orchestration strop-human-review inference-pace; do
-    TARGET="$STROP_MOD/ai-copilots/skills/$name"
-    LINK="$ROOT/.cursor/skills/$name"
-    if [ -d "$TARGET" ]; then
-      if [ -L "$LINK" ] || [ ! -e "$LINK" ]; then
-        ln -sfn "$TARGET" "$LINK"
-        echo "Wired strop: $LINK -> $TARGET"
-      else
-        echo "Skip strop wire (exists): $LINK"
-      fi
-    fi
-  done
-fi
+make wire-ai-copilots
 ```
+
+Implementation: [`scripts/wire-cursor-skills.sh`](../scripts/wire-cursor-skills.sh). Host skills use **relative** symlinks (committed). Strop skills are optional and machine-local (gitignored); see [`docs/ai-copilots-setup.md`](../docs/ai-copilots-setup.md).
 
 Optional other IDEs (same target path):
 
