@@ -20,6 +20,7 @@ const (
 	AppName               = "should-i-read"
 	defaultPolypusBaseURL = "http://127.0.0.1:1320"
 	envConfigPath         = "SHOULD_I_READ_CONFIG"
+	envPolypusBaseURL     = "POLYPUS_BASE_URL"
 )
 
 var placeholderRE = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
@@ -29,11 +30,20 @@ type File struct {
 	Secrets  []operatorconfig.Secret `yaml:"secrets"`
 	Polypus  PolypusFile             `yaml:"polypus"`
 	EmailOps EmailOpsFile            `yaml:"emailops"`
+	Pimalaya PimalayaFile            `yaml:"pimalaya"`
 }
 
 // PolypusFile is the polypus YAML section.
 type PolypusFile struct {
 	BaseURL string `yaml:"base_url"`
+}
+
+// PimalayaFile is the Neverest / pimdir YAML section.
+type PimalayaFile struct {
+	NeverestBin     string `yaml:"neverest_bin"`
+	NeverestConfig  string `yaml:"neverest_config"`
+	DefaultAccount  string `yaml:"default_account"`
+	PimdirPath      string `yaml:"pimdir_path"`
 }
 
 // EmailOpsFile is the emailops YAML section.
@@ -59,6 +69,15 @@ type Config struct {
 	GmailClientID     string
 	GmailClientSecret string
 	OutlookClientID   string
+	Pimalaya        PimalayaConfig
+}
+
+// PimalayaConfig is resolved Neverest / pimdir settings.
+type PimalayaConfig struct {
+	NeverestBin    string
+	NeverestConfig string
+	DefaultAccount string
+	PimdirPath     string
 }
 
 // ChildEnv returns env vars to inject into EmailOps child processes.
@@ -88,6 +107,12 @@ func (c Config) Redacted() map[string]any {
 		"path": c.Path,
 		"polypus": map[string]string{
 			"base_url": c.PolypusBaseURL,
+		},
+		"pimalaya": map[string]string{
+			"neverest_bin":     c.Pimalaya.NeverestBin,
+			"neverest_config":  c.Pimalaya.NeverestConfig,
+			"default_account":  c.Pimalaya.DefaultAccount,
+			"pimdir_path":      c.Pimalaya.PimdirPath,
 		},
 		"emailops": map[string]string{
 			"data_dir":            c.EmailOpsDataDir,
@@ -159,7 +184,13 @@ func DefaultEmailOpsDataDir() string {
 func DefaultFile() File {
 	return File{
 		Secrets: DefaultSecrets(),
-		Polypus: PolypusFile{BaseURL: defaultPolypusBaseURL},
+		Polypus: PolypusFile{BaseURL: "${POLYPUS_BASE_URL}"},
+		Pimalaya: PimalayaFile{
+			NeverestBin:    "",
+			NeverestConfig: "",
+			DefaultAccount: "",
+			PimdirPath:     "",
+		},
 		EmailOps: EmailOpsFile{
 			DataDir:           "",
 			CLIPath:           "",
@@ -258,9 +289,29 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	if err != nil {
 		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand emailops.outlook_client_id")
 	}
+	neverestBin, err := ExpandString(file.Pimalaya.NeverestBin, resolve, false)
+	if err != nil {
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand pimalaya.neverest_bin")
+	}
+	neverestCfg, err := ExpandString(file.Pimalaya.NeverestConfig, resolve, false)
+	if err != nil {
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand pimalaya.neverest_config")
+	}
+	pimAccount, err := ExpandString(file.Pimalaya.DefaultAccount, resolve, false)
+	if err != nil {
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand pimalaya.default_account")
+	}
+	pimdirPath, err := ExpandString(file.Pimalaya.PimdirPath, resolve, false)
+	if err != nil {
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand pimalaya.pimdir_path")
+	}
 
 	if strings.TrimSpace(baseURL) == "" {
-		baseURL = defaultPolypusBaseURL
+		if v := strings.TrimSpace(os.Getenv(envPolypusBaseURL)); v != "" {
+			baseURL = v
+		} else {
+			baseURL = defaultPolypusBaseURL
+		}
 	}
 	if strings.TrimSpace(dataDir) == "" {
 		if v := strings.TrimSpace(os.Getenv("EMAILOPS_DATA_DIR")); v != "" {
@@ -275,6 +326,12 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	if strings.TrimSpace(repoPath) == "" {
 		repoPath = filepath.Join(repoRoot, "providers", "emailops")
 	}
+	if strings.TrimSpace(neverestBin) == "" {
+		neverestBin = strings.TrimSpace(os.Getenv("NEVEREST_BIN"))
+	}
+	if strings.TrimSpace(neverestCfg) == "" {
+		neverestCfg = strings.TrimSpace(os.Getenv("NEVEREST_CONFIG"))
+	}
 
 	return Config{
 		Path:              path,
@@ -287,6 +344,12 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 		GmailClientID:     gmailID,
 		GmailClientSecret: gmailSecret,
 		OutlookClientID:   outlookID,
+		Pimalaya: PimalayaConfig{
+			NeverestBin:    neverestBin,
+			NeverestConfig: neverestCfg,
+			DefaultAccount: pimAccount,
+			PimdirPath:     pimdirPath,
+		},
 	}, nil
 }
 

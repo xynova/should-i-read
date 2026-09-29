@@ -1,0 +1,77 @@
+# Deterministic shallow-clone list for local evidence under tmp/pimalaya/.
+# Host-owned; see ai-copilots/skills/pimalaya-ecosystem/reference.md for refresh.
+org: https://github.com/pimalaya
+default_depth: 1
+root: tmp/pimalaya
+
+tiers:
+  A_must:
+    - pimdir
+    - io-pimdir
+    - neverest
+    - himalaya
+    - ortie
+    - sirup
+    - mml
+    - io-pim-discovery
+    - io-oauth
+    - io-imap
+    - io-smtp
+    - stream
+
+  B_core:
+    - io-http
+    - io-jmap
+    - io-gmail
+    - io-msgraph
+    - io-maildir
+    - io-m2dir
+    - m2m
+    - io-managesieve
+    - carillon
+    - io-sasl
+    - io-starttls
+
+  C_adjacent:
+    - cardamum
+    - calendula
+    - tcard
+    - tcal
+    - io-webdav
+    - vcard
+    - ical
+    - io-gpeople
+    - io-gcal
+    - io-vdir
+
+  D_index_only:
+    - io-email
+    - io-addressbook
+    - io-calendar
+    - io-process
+    - io-keyring
+    - io-fs
+    - mimosa
+    - android
+    - himalaya-tui
+    - himalaya-vim
+    - himalaya-repl
+    - comodoro
+    - mirador
+    - _www
+    - _blog
+    - websites
+    - nix
+    - cairn
+    - toolbox
+    - cli
+    - config
+    - core
+    - tui
+    - carillon-core
+    - imap-client
+    - maildirs
+    - io-replica
+
+# Default execute slice: A_must + B_core (clone script uses this key).
+clone_default: [A_must, B_core]

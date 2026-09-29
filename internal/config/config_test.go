@@ -168,6 +168,26 @@ emailops:
 	}
 }
 
+func TestLoadPolypusBaseURLFromEnvWhenYAMLEmpty(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	body := `
+polypus:
+  base_url: ""
+`
+	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envPolypusBaseURL, "http://example.test:9999")
+	cfg, err := Load("/repo", cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PolypusBaseURL != "http://example.test:9999" {
+		t.Fatalf("polypus: %q", cfg.PolypusBaseURL)
+	}
+}
+
 func TestRedacted(t *testing.T) {
 	t.Parallel()
 	cfg := Config{

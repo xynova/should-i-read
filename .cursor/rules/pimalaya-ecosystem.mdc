@@ -1,0 +1,17 @@
+---
+description: >-
+  Pimalaya mail store and CLI orchestration context — load pimalaya-ecosystem
+  skill and docs/pimalaya-ecosystem when designing sync, pimdir, Neverest,
+  Himalaya, or host tool allow-lists (not EmailOps-as-platform).
+alwaysApply: false
+---
+
+# Pimalaya ecosystem (host context pack)
+
+When designing mail storage, sync, watch, or MCP-like CLI orchestration for should-i-read:
+
+- Load `.cursor/skills/pimalaya-ecosystem/SKILL.md`.
+- Prefer [docs/pimalaya-ecosystem/INDEX.md](docs/pimalaya-ecosystem/INDEX.md) over EmailOps product capabilities for architecture.
+- Treat `tmp/pimalaya/**` as read-only upstream clones; MUST NOT commit them.
+- MUST NOT edit `providers/emailops` for host mail-layer needs (see `.cursor/rules/architecture.mdc`).
+- Product AI remains Polypus-only (`docs/ai-provider-seam.md`).

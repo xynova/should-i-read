@@ -41,25 +41,13 @@ Only when the user asked to refresh or regenerate skill bodies. Edit files under
 
 ## Phase 2 — Wire Cursor
 
-Symlink the host operator skill into Cursor discovery:
+From the repository root:
 
 ```bash
-ROOT="$(git rev-parse --show-toplevel)"
-mkdir -p "$ROOT/.cursor/skills"
-TARGET="$ROOT/ai-copilots/skills/should-i-read-operator"
-LINK="$ROOT/.cursor/skills/should-i-read-operator"
-
-if [ -L "$LINK" ]; then
-  ln -sfn "$TARGET" "$LINK"
-elif [ -e "$LINK" ]; then
-  echo "Refusing to replace non-symlink $LINK; remove it or approve copy fallback"
-  exit 1
-else
-  ln -s "$TARGET" "$LINK"
-fi
-
-test -f "$LINK/SKILL.md" && echo "Wired: $LINK -> $TARGET"
+make wire-ai-copilots
 ```
+
+Implementation: [`scripts/wire-cursor-skills.sh`](../scripts/wire-cursor-skills.sh). Host skills use **relative** symlinks (committed). Strop skills are optional and machine-local (gitignored); see [`docs/ai-copilots-setup.md`](../docs/ai-copilots-setup.md).
 
 Optional other IDEs (same target path):
 
@@ -77,6 +65,8 @@ Optional other IDEs (same target path):
 ROOT="$(git rev-parse --show-toplevel)"
 test -L "$ROOT/.cursor/skills/should-i-read-operator"
 test -f "$ROOT/.cursor/skills/should-i-read-operator/SKILL.md"
+test -L "$ROOT/.cursor/skills/pimalaya-ecosystem"
+test -f "$ROOT/.cursor/skills/pimalaya-ecosystem/SKILL.md"
 test -f "$ROOT/AGENTS.md"
 git -C "$ROOT/providers/emailops" status --short
 ```

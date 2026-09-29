@@ -2,9 +2,11 @@
 
 Audit of how [`providers/emailops`](../providers/emailops) reaches models today, and what this host requires. No Jev wiring yet.
 
+**See also:** [emailops-ai-capabilities-roadmap.md](emailops-ai-capabilities-roadmap.md) (capability inventory and host roadmap), [pimalaya-ecosystem/INDEX.md](pimalaya-ecosystem/INDEX.md) (target mail store and CLI orchestration context).
+
 ## Constraint
 
-Every EmailOps AI call for this host MUST go through Polypus at `http://127.0.0.1:1320` (`POLYPUS_BASE_URL`). Clients MUST NOT dial Cloudflare, LM Studio, OpenRouter cloud, or Ollama directly.
+Every host AI call MUST go through Polypus at the configured base URL: `polypus.base_url` in `~/.config/should-i-read/config.yaml`, expanded from `${POLYPUS_BASE_URL}` when set, otherwise `POLYPUS_BASE_URL` in the process environment, otherwise `http://127.0.0.1:1320`. Clients MUST NOT dial Cloudflare, LM Studio, OpenRouter cloud, or Ollama directly.
 
 ## Upstream providers (as shipped)
 

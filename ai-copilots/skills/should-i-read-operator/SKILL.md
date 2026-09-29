@@ -2,7 +2,8 @@
 name: should-i-read-operator
 description: >-
   Operates the should-i-read host CLI against EmailOps (black box) and Polypus:
-  init, setup, config, secret, ui, build, doctor, sync, export, polypus check.
+  init, setup, config, secret, ui, build, doctor, sync, export, polypus check,
+  pim doctor/sync/snapshot, token gmail|outlook login|status|logout.
   Use when managing inbox sync from this repo, wiring Make targets, guiding
   first-time setup or multi-Gmail accounts, or agents would otherwise edit
   providers/emailops.
@@ -77,7 +78,7 @@ PROHIBITED:
 
 **CONSTRAINT:** Product EmailOps operations MUST go through `make` / `bin/should-i-read`, not ad-hoc cargo in the submodule for host workflows.
 
-- MUST: `make build` then `./bin/should-i-read <cmd>` (or Make aliases `init`, `setup`, `ui`, `doctor`, `sync`, `export`, `polypus-check`)
+- MUST: `make build` then `./bin/should-i-read <cmd>` (or Make aliases `init`, `setup`, `ui`, `doctor`, `sync`, `export`, `polypus-check`, `pim-doctor`, `pim-sync`, `pim-snapshot`)
 - MUST: use host config (`make init` → `~/.config/should-i-read/config.yaml`); override with `--config` / `SHOULD_I_READ_CONFIG`
 - MUST NOT: put secret literals in YAML; use `${EMAILOPS_*}`, `make setup` / `secret set`, env, or product release embeds
 - MUST NOT: edit files under `providers/emailops` for host needs

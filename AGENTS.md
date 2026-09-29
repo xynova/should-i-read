@@ -10,10 +10,14 @@ This host is the should-i-read operator CLI (EmailOps black box + Polypus). Huma
 4. [`ai-copilots/skills/should-i-read-operator/SKILL.md`](ai-copilots/skills/should-i-read-operator/SKILL.md) (init, setup, secret, ui, doctor, sync, export, multi-account)
 5. [`docs/emailops-setup.md`](docs/emailops-setup.md) (human setup notes)
 6. [`docs/oauth-product-apps.md`](docs/oauth-product-apps.md) (product-owned OAuth apps vs BYO)
+7. [`ai-copilots/skills/pimalaya-ecosystem/SKILL.md`](ai-copilots/skills/pimalaya-ecosystem/SKILL.md) and [`docs/pimalaya-ecosystem/INDEX.md`](docs/pimalaya-ecosystem/INDEX.md) (mail store / Pimalaya CLI architecture context; not EmailOps-as-platform)
+8. [`docs/pimalaya-setup.md`](docs/pimalaya-setup.md) (Neverest + pimdir lane; `pim doctor|sync|snapshot`, `token gmail`)
+9. **strop** (`github.com/behaviorengineering/strop`): run that module's `ai-copilots/BOOTSTRAP.md` wire phase (or host `ai-copilots/BOOTSTRAP.md` strop block) for `strop-*` skills before JobRunner work
+10. **olly** (`github.com/behaviorengineering/olly`): CLI telemetry via `internal/cli/telemetry.go` (failure dumps under `logs/failures`)
 
 ## Wire Cursor discovery
 
-Canonical operator skill lives under `ai-copilots/`. Execute [`ai-copilots/BOOTSTRAP.md`](ai-copilots/BOOTSTRAP.md) in **wire mode** so `.cursor/skills/should-i-read-operator` symlinks to that tree.
+Canonical operator skill lives under `ai-copilots/`. After clone or pull, run `make wire-ai-copilots` (or [`scripts/wire-cursor-skills.sh`](scripts/wire-cursor-skills.sh)). Human notes: [`docs/ai-copilots-setup.md`](docs/ai-copilots-setup.md). Agents may also execute [`ai-copilots/BOOTSTRAP.md`](ai-copilots/BOOTSTRAP.md) in **wire mode** (phases 0 → 2 → 3).
 
 For operatorconfig library skills, resolve the module with `go list -m -f '{{.Dir}}' github.com/behaviorengineering/operatorconfig` and execute that tree's `ai-copilots/BOOTSTRAP.md` (same as [polypus-local](https://gitlab.com/xynova/polypus-local) AGENTS).
 
