@@ -1,4 +1,4 @@
-# Host operator surface: should-i-read CLI + EmailOps (black box) + Polypus
+# Host operator surface: should-i-read CLI (Pimalaya default) + Polypus + optional EmailOps legacy
 
 BIN := bin/should-i-read
 EMAILOPS_DIR := providers/emailops
@@ -7,33 +7,37 @@ LDFLAGS := -X github.com/xynova/should-i-read/internal/cli.Version=$(VERSION)
 
 .PHONY: help build test tidy check-polypus polypus-check \
 	emailops-submodule emailops-install emailops-cli \
-	doctor accounts sync emails export version init setup ui \
+	doctor sync export version init setup \
+	emailops-doctor emailops-sync emailops-export emailops-accounts emailops-emails emailops-ui \
 	pim-doctor pim-sync pim-snapshot wire-ai-copilots bootstrap-ai-copilots
 
 help:
-	@echo "Targets:"
+	@echo "Pimalaya (default operator path):"
+	@echo "  init                Create ~/.config/should-i-read/config.yaml + data dir"
+	@echo "  setup               OAuth client credentials (Gmail/Outlook apps)"
 	@echo "  build               Build $(BIN)"
+	@echo "  doctor              should-i-read pim doctor (Neverest check)"
+	@echo "  sync                should-i-read pim sync"
+	@echo "  export              should-i-read pim snapshot"
+	@echo "  polypus-check       should-i-read polypus check"
+	@echo "  check-polypus       polypus check + scripts/check-polypus.sh"
+	@echo "  wire-ai-copilots    Symlink .cursor/skills (see docs/ai-copilots-setup.md)"
+	@echo ""
+	@echo "Other:"
 	@echo "  test                go test ./..."
 	@echo "  tidy                go mod tidy"
-	@echo "  init                Create ~/.config/should-i-read/config.yaml + data dir"
-	@echo "  setup               Interactive mail OAuth setup (product / BYO / guided DIY)"
-	@echo "  ui                  Launch EmailOps desktop with host config env"
 	@echo "  version             Print CLI version"
-	@echo "  doctor              should-i-read doctor"
-	@echo "  accounts            should-i-read accounts"
-	@echo "  sync                should-i-read sync"
-	@echo "  emails              should-i-read emails"
-	@echo "  export              should-i-read export"
-	@echo "  polypus-check       should-i-read polypus check"
-	@echo "  pim-doctor          should-i-read pim doctor"
-	@echo "  pim-sync            should-i-read pim sync"
-	@echo "  pim-snapshot        should-i-read pim snapshot"
-	@echo "  check-polypus       Alias for polypus-check (also runs scripts/check-polypus.sh)"
+	@echo ""
+	@echo "EmailOps legacy (submodule; optional custody):"
+	@echo "  emailops-ui         Launch EmailOps desktop (make dev)"
+	@echo "  emailops-doctor     emailops-cli doctor"
+	@echo "  emailops-sync       emailops-cli sync"
+	@echo "  emailops-export     Host mail export JSON"
+	@echo "  emailops-accounts   List EmailOps accounts"
+	@echo "  emailops-emails     List messages via EmailOps"
 	@echo "  emailops-submodule  Init/update providers/emailops"
 	@echo "  emailops-install    npm install inside EmailOps submodule"
 	@echo "  emailops-cli        Build emailops-cli without llama.cpp"
-	@echo "  wire-ai-copilots    Symlink .cursor/skills to ai-copilots (and optional strop)"
-	@echo "  bootstrap-ai-copilots  Alias for wire-ai-copilots"
 
 build:
 	mkdir -p bin
@@ -54,26 +58,12 @@ init: build
 setup: build
 	./$(BIN) setup
 
-ui: build
-	./$(BIN) ui
+# Default lane aliases (Neverest + pimdir)
+doctor: pim-doctor
 
-doctor: build
-	./$(BIN) doctor
+sync: pim-sync
 
-accounts: build
-	./$(BIN) accounts
-
-sync: build
-	./$(BIN) sync $(ARGS)
-
-emails: build
-	./$(BIN) emails $(ARGS)
-
-export: build
-	./$(BIN) export $(ARGS)
-
-polypus-check: build
-	./$(BIN) polypus check
+export: pim-snapshot
 
 pim-doctor: build
 	./$(BIN) pim doctor
@@ -84,10 +74,31 @@ pim-sync: build
 pim-snapshot: build
 	./$(BIN) pim snapshot $(ARGS)
 
-# polypus-check: Go probe (operator config). check-polypus: same URL + curl transcript for scripts/docs.
+polypus-check: build
+	./$(BIN) polypus check
+
 check-polypus: build
 	./$(BIN) polypus check
 	./scripts/check-polypus.sh
+
+# EmailOps legacy targets
+emailops-ui: build
+	./$(BIN) ui
+
+emailops-doctor: build
+	./$(BIN) doctor
+
+emailops-accounts: build
+	./$(BIN) accounts
+
+emailops-sync: build
+	./$(BIN) sync $(ARGS)
+
+emailops-emails: build
+	./$(BIN) emails $(ARGS)
+
+emailops-export: build
+	./$(BIN) export $(ARGS)
 
 emailops-submodule:
 	git submodule update --init --recursive $(EMAILOPS_DIR)

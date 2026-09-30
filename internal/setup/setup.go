@@ -249,9 +249,11 @@ func (w *Wizard) Run(ctx context.Context) (Result, error) {
 		Mode:       mode,
 		Status:     status,
 		NextSteps: []string{
-			"make ui  # add each mailbox (browser consent)",
-			"./bin/should-i-read accounts",
-			"./bin/should-i-read doctor",
+			"docs/pimalaya-setup.md — install Neverest, set pimalaya.pimdir_path",
+			"./bin/should-i-read token gmail login  # or token outlook login",
+			"./bin/should-i-read config bump  # Polypus ${POLYPUS_BASE_URL} when needed",
+			"make polypus-check && make doctor && make sync",
+			"Legacy EmailOps: make emailops-ui then make emailops-sync (optional)",
 		},
 	}
 

@@ -1,6 +1,18 @@
 # Pimalaya lane setup (Neverest + pimdir)
 
-Parallel mail path for should-i-read: **Neverest** syncs into a local **pimdir** store; the host Go CLI reads SQLite and writes report-only artifacts. **EmailOps** remains the current custody path until migration.
+**Default mail path for should-i-read.** Neverest syncs into a local **pimdir** store; the host Go CLI reads SQLite and writes report-only artifacts. EmailOps is optional legacy custody ([emailops-setup.md](emailops-setup.md)).
+
+## Operator checklist
+
+```bash
+make init && make setup
+./bin/should-i-read config bump    # when Polypus URL was literal localhost in YAML
+export POLYPUS_BASE_URL=...        # or keyring; expands ${POLYPUS_BASE_URL} in config
+./bin/should-i-read token gmail login
+make polypus-check
+# set pimalaya.pimdir_path in ~/.config/should-i-read/config.yaml
+make doctor && make sync && make export
+```
 
 ## Install Neverest
 

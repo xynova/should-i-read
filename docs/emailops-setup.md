@@ -1,6 +1,6 @@
-# EmailOps setup (host)
+# EmailOps setup (legacy)
 
-Host-owned notes for driving the [`providers/emailops`](../providers/emailops) submodule via the **host** Go CLI. Upstream product docs remain in the submodule README. Agents: start at [`AGENTS.md`](../AGENTS.md) and load skill `should-i-read-operator`.
+**Default operator path is Pimalaya (Neverest + pimdir).** Use [`pimalaya-setup.md`](pimalaya-setup.md) and `make doctor` / `make sync` / `make export` (pim snapshot). This doc is for optional EmailOps custody via the [`providers/emailops`](../providers/emailops) submodule. Make targets: `make emailops-*`. Agents: [`AGENTS.md`](../AGENTS.md), skill `should-i-read-operator`.
 
 ## Prerequisites
 
@@ -10,31 +10,23 @@ Host-owned notes for driving the [`providers/emailops`](../providers/emailops) s
 - Tauri OS prerequisites only if you run the desktop GUI: https://tauri.app/start/prerequisites/
 - A running Polypus gateway on `http://127.0.0.1:1320` before AI work
 
-## Preferred path (top repo)
+## Legacy operator path (EmailOps only)
+
+Shared steps with the default lane: `make init`, `make setup`, `make polypus-check` (see [pimalaya-setup.md](pimalaya-setup.md)).
 
 ```bash
-# from host repo root
 make emailops-submodule
 make emailops-install
 make emailops-cli
-make build
-make init                 # ~/.config/should-i-read/config.yaml + data dir
-make setup                # product OAuth if present; else BYO paste or guided DIY
-
-# Optional manual keyring (same vars setup stores):
-# ./bin/should-i-read secret set EMAILOPS_GMAIL_CLIENT_ID --stdin
-# Linux/CI/containers: export env vars (no keyring in typical Docker images)
-
-make ui                   # EmailOps desktop with injected EMAILOPS_* env
-./bin/should-i-read doctor
-./bin/should-i-read accounts
-./bin/should-i-read sync          # prefer desktop app closed
-./bin/should-i-read emails --limit 20
-./bin/should-i-read export --limit 50 --mailbox inbox
-make polypus-check
+make emailops-ui
+make emailops-doctor
+make emailops-accounts
+make emailops-sync
+make emailops-emails ARGS="--limit 20"
+make emailops-export ARGS="--limit 50 --mailbox inbox"
 ```
 
-Make aliases: `make init`, `make setup`, `make ui`, `make doctor`, `make sync`, `make emails`, `make export`, `make polypus-check`.
+Make aliases: `make emailops-ui`, `make emailops-doctor`, `make emailops-sync`, `make emailops-export`, `make emailops-accounts`, `make emailops-emails`.
 
 ### Mail OAuth (product-owned default)
 

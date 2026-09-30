@@ -1,49 +1,67 @@
 # should-i-read
 
-Host project for local inbox triage: EmailOps for mail (black box), Polypus as the only AI gateway, and a later Jev decision path for unwanted-mail filtering.
+Host Go CLI for local inbox triage: **Neverest + pimdir** (default mail lane), **Polypus** as the only AI gateway, and report-only unwanted-mail evaluation (Jev path later).
 
 ## Layout
 
 | Path | Role |
 |------|------|
 | [`cmd/should-i-read`](cmd/should-i-read) | Host Go CLI |
-| [`providers/emailops`](providers/emailops) | Git submodule: [emailops/emailops](https://github.com/emailops/emailops) |
-| [`docs/`](docs/) | Setup, provider seam, report-only evaluation |
+| [`docs/pimalaya-setup.md`](docs/pimalaya-setup.md) | Default operator path (Neverest, tokens, pim) |
+| [`providers/emailops`](providers/emailops) | Optional legacy submodule ([emailops/emailops](https://github.com/emailops/emailops)) |
+| [`docs/`](docs/) | Polypus seam, report-only eval, ecosystem index |
 | [`config/`](config/) | Example YAML / env (no secrets) |
 | [`AGENTS.md`](AGENTS.md) | Agent entry: load order into ai-copilots |
 | [`ai-copilots/`](ai-copilots/) | Canonical operator skill + BOOTSTRAP |
 
-Agents start at [`AGENTS.md`](AGENTS.md). Operator settings live in `~/.config/should-i-read/config.yaml` (see `make init`). Polypus lives outside this tree (typical checkout: `~/Xynova/ai/polypus`). Clients call only `http://127.0.0.1:1320`.
+Agents start at [`AGENTS.md`](AGENTS.md). Operator settings: `~/.config/should-i-read/config.yaml` (`make init`). Polypus: `POLYPUS_BASE_URL` / `polypus.base_url` in config (see `make config bump` / [`docs/ai-provider-seam.md`](docs/ai-provider-seam.md)).
 
-## Quick start
+## Quick start (Pimalaya default)
 
 ```bash
-git submodule update --init --recursive
-make wire-ai-copilots    # Cursor symlinks to ai-copilots/skills (see docs/ai-copilots-setup.md)
-make emailops-install    # once: Node deps inside submodule
-make emailops-cli        # build emailops-cli without llama.cpp
+git submodule update --init --recursive   # optional: only for EmailOps legacy
+make wire-ai-copilots
 make build
-make init                # ~/.config/should-i-read + default data dir
-make setup               # product OAuth if present; else BYO / guided DIY
-make polypus-check       # Polypus must be up (make serve in Polypus repo)
+make init
+make setup                    # OAuth *client* ids (Gmail/Outlook apps) into keyring
+./bin/should-i-read config bump   # Polypus placeholder when YAML still has localhost
 
-./bin/should-i-read doctor
-./bin/should-i-read sync
-./bin/should-i-read export --limit 50
-# optional: make ui  (EmailOps desktop with config-injected env)
+# Neverest: install on PATH, neverest init, wire token.command (see docs/pimalaya-setup.md)
+./bin/should-i-read token gmail login
+make polypus-check
+
+make doctor                   # pim doctor (Neverest check)
+make sync                     # pim sync
+make export                   # pim snapshot → tmp/pim-snapshot-*.json
 ```
 
-Connect a mailbox once via `make ui` or upstream `emailops-cli accounts add`. Prefer `make setup` for OAuth *client* credentials (product-owned default, BYO override). Do not put secrets in YAML. Do not use EmailOps `classify` / `chat` / `embed` for product AI on this host.
+Set `pimalaya.pimdir_path` in config to the directory that contains `pimdir.db`. Multi-account: `token gmail --account <label>` and matching Neverest `token.command_args`.
+
+Do not use EmailOps `classify` / `chat` / `embed` for product AI on this host.
+
+## EmailOps legacy (optional)
+
+Custody via EmailOps SQLite + desktop UI is still available but not the default path.
+
+```bash
+make emailops-install && make emailops-cli
+make emailops-ui              # add mailboxes in the app
+make emailops-doctor
+make emailops-sync
+make emailops-export
+```
+
+See [`docs/emailops-setup.md`](docs/emailops-setup.md).
 
 ## Architecture
 
-Always-on rule: [`.cursor/rules/architecture.mdc`](.cursor/rules/architecture.mdc). Agents: [`AGENTS.md`](AGENTS.md). Operator skill: `should-i-read-operator`. Mail-store direction (Pimalaya / pimdir): [`docs/pimalaya-ecosystem/INDEX.md`](docs/pimalaya-ecosystem/INDEX.md). Operator setup: [`docs/pimalaya-setup.md`](docs/pimalaya-setup.md).
+Always-on rule: [`.cursor/rules/architecture.mdc`](.cursor/rules/architecture.mdc). Mail store direction: [`docs/pimalaya-ecosystem/INDEX.md`](docs/pimalaya-ecosystem/INDEX.md). Operator skill: `should-i-read-operator`.
 
-- Use EmailOps as a black box; do not patch `providers/emailops`.
 - Host product code is Go (`should-i-read` CLI).
+- Do not patch `providers/emailops` for host needs.
 - All AI goes through Polypus.
 - Unwanted-mail automation stays report-only until eval exit criteria pass ([docs/report-only-eval.md](docs/report-only-eval.md)).
 
 ## Milestone boundary
 
-Mail sync and JSON export run from this host. Jev clustering and TLDR are the next slice after export + Polypus check.
+Report-only pipeline: pim snapshot (or legacy export) plus Polypus; Jev clustering and TLDR are the next slice after `polypus-check` passes.

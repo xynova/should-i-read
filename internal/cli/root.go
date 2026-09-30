@@ -175,13 +175,15 @@ func newInitCmd(repoRoot string) *cobra.Command {
 func newSetupCmd(repoRoot string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "setup",
-		Short: "Interactive mail OAuth setup (product creds, BYO, or guided DIY)",
-		Long: `Interactive installer for EmailOps OAuth *client* credentials.
+		Short: "Interactive OAuth client setup (Gmail/Outlook apps for token brokers)",
+		Long: `Interactive installer for OAuth *client* credentials used by should-i-read
+token gmail/outlook (Neverest XOAUTH2) and optional legacy EmailOps.
 
 Product-owned client ids are the default when present (env, Keychain, or release
 embed). Otherwise choose BYO paste or advanced guided Cloud Console / Entra DIY.
 
-Mailbox tokens stay in EmailOps on this machine. Client secrets are never printed.`,
+Per-mailbox tokens: token gmail login (keyring), not this wizard. Client secrets
+are never printed.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			const op = "cli.setup"
 			// Caller deadline for optional gcloud / process work.
