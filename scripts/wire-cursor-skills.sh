@@ -36,12 +36,21 @@ resolve_strop_mod() {
   fi
   local ver gomod path
   ver="$(go list -m -f '{{.Version}}' github.com/behaviorengineering/strop)"
+  local gomod path caches=()
   gomod="$(go env GOMODCACHE)"
-  path="$gomod/github.com/behaviorengineering/strop@${ver}"
-  if [ -d "$path/ai-copilots/skills" ]; then
-    printf '%s' "$path"
-    return 0
+  if [[ "$gomod" == *cursor-sandbox-cache* ]]; then
+    caches=("${HOME}/go/pkg/mod" "$gomod")
+  else
+    caches=("$gomod" "${HOME}/go/pkg/mod")
   fi
+  for gomod in "${caches[@]}"; do
+    [ -n "$gomod" ] || continue
+    path="$gomod/github.com/behaviorengineering/strop@${ver}"
+    if [ -d "$path/ai-copilots/skills" ]; then
+      printf '%s' "$path"
+      return 0
+    fi
+  done
   go list -m -f '{{.Dir}}' github.com/behaviorengineering/strop 2>/dev/null || true
 }
 
