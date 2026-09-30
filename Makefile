@@ -84,7 +84,9 @@ pim-sync: build
 pim-snapshot: build
 	./$(BIN) pim snapshot $(ARGS)
 
-check-polypus: polypus-check
+# polypus-check: Go probe (operator config). check-polypus: same URL + curl transcript for scripts/docs.
+check-polypus: build
+	./$(BIN) polypus check
 	./scripts/check-polypus.sh
 
 emailops-submodule:
