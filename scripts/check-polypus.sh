@@ -5,26 +5,26 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${SHOULD_I_READ_BIN:-$ROOT/bin/should-i-read}"
 ENV_FILE="${EMAILOPS_POLYPUS_ENV:-$ROOT/config/emailops-polypus.env}"
-EXAMPLE="$ROOT/config/emailops-polypus.example.env"
 
+# Optional EmailOps-sidecar env (gitignored). Do not auto-source the example file:
+# it sets POLYPUS_BASE_URL=127.0.0.1:1320 and would override operator config.
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
-elif [[ -f "$EXAMPLE" ]]; then
-  # shellcheck disable=SC1090
-  set -a
-  # shellcheck disable=SC1090
-  source "$EXAMPLE"
-  set +a
 fi
 
 resolve_base_url() {
-  if [[ -x "$BIN" ]] && command -v jq >/dev/null 2>&1; then
+  # Match should-i-read polypus check: operator config (placeholder + secrets/env).
+  if [[ -x "$BIN" ]]; then
     local cfg_url
-    cfg_url="$( "$BIN" config show 2>/dev/null | jq -r '.polypus.base_url // empty' )"
+    if command -v jq >/dev/null 2>&1; then
+      cfg_url="$( "$BIN" config show 2>/dev/null | jq -r '.polypus.base_url // empty' )"
+    else
+      cfg_url="$( "$BIN" config show 2>/dev/null | sed -n 's/.*"base_url": "\([^"]*\)".*/\1/p' | head -1 )"
+    fi
     if [[ -n "$cfg_url" && "$cfg_url" != "null" ]]; then
       printf '%s' "$cfg_url"
       return 0
