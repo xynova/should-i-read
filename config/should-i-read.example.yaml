@@ -8,6 +8,7 @@
 # Store keyring values: should-i-read secret set ENV_NAME
 
 secrets:
+  - POLYPUS_BASE_URL
   - EMAILOPS_GMAIL_CLIENT_ID
   - EMAILOPS_GMAIL_CLIENT_SECRET
   - EMAILOPS_OUTLOOK_CLIENT_ID

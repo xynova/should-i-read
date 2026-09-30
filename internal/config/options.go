@@ -21,6 +21,7 @@ func Options(flagPath string) operatorconfig.Options {
 // DefaultSecrets is the init template secrets: list (OAuth client env names only).
 func DefaultSecrets() []operatorconfig.Secret {
 	return []operatorconfig.Secret{
+		{Env: envPolypusBaseURL},
 		{Env: oauthcred.EnvGmailClientID},
 		{Env: oauthcred.EnvGmailClientSecret},
 		{Env: oauthcred.EnvOutlookClientID},

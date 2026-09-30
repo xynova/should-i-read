@@ -249,6 +249,28 @@ func newConfigCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 			return enc.Encode(cfg.Redacted())
 		},
 	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "bump",
+		Short: "Patch live config toward the current template (non-destructive)",
+		Long: `Updates ~/.config/should-i-read/config.yaml in place when safe:
+adds POLYPUS_BASE_URL to secrets: and replaces a literal http://127.0.0.1:1320
+polypus.base_url with ${POLYPUS_BASE_URL}. Does not overwrite custom Polypus URLs.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, changed, notes, err := config.BumpOperatorConfig()
+			if err != nil {
+				return err
+			}
+			out := map[string]any{
+				"ok":      true,
+				"config":  path,
+				"changed": changed,
+				"notes":   notes,
+			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(out)
+		},
+	})
 	return cmd
 }
 
