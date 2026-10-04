@@ -22,6 +22,7 @@ func newMailCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd.AddCommand(newMailReadinessCmd(opts, repoRoot))
 	cmd.AddCommand(newMailSyncCmd(opts, repoRoot))
 	cmd.AddCommand(newMailExportCmd(opts, repoRoot))
+	cmd.AddCommand(newMailReportCmd(opts, repoRoot))
 	cmd.AddCommand(newMailShowCmd(opts, repoRoot))
 	return cmd
 }
@@ -41,7 +42,7 @@ func newMailSetupCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 		Hidden:     true,
 		Short:      "Onboard a mailbox (deprecated: use configure)",
 		Deprecated: "use should-i-read configure",
-		Long: `Deprecated. Use should-i-read configure instead.`,
+		Long:       `Deprecated. Use should-i-read configure instead.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Fprint(cmd.ErrOrStderr(), deprecationConfigure)
 			return runMailSetup(cmd, repoRoot, mailSetupFlags{
@@ -62,7 +63,7 @@ func newMailSetupCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 
 type mailSetupFlags struct {
 	provider, account, email, storeRoot string
-	force, skipLogin                      bool
+	force, skipLogin                    bool
 }
 
 func runMailSetup(cmd *cobra.Command, repoRoot string, flags mailSetupFlags, wizardFlag bool) error {

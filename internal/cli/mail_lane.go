@@ -45,18 +45,20 @@ func runMailReadiness(cmd *cobra.Command, opts *rootOptions, repoRoot string) er
 
 func newMailSyncCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var account string
+	var noClassify bool
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Sync mail into the local store",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMailSync(cmd, opts, repoRoot, account)
+			return runMailSync(cmd, opts, repoRoot, account, noClassify)
 		},
 	}
 	cmd.Flags().StringVar(&account, "account", "", "Mail account id from sync config")
+	cmd.Flags().BoolVar(&noClassify, "no-classify", false, "Skip taxonomy classify after a successful sync")
 	return cmd
 }
 
-func runMailSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, account string) error {
+func runMailSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, account string, noClassify bool) error {
 	ctx := cmd.Context()
 	cfg, err := opts.mustLoad(repoRoot)
 	if err != nil {
@@ -71,7 +73,13 @@ func runMailSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, account
 		return err
 	}
 	res, err := nev.Sync(ctx, acct)
-	return finishPimalaya(cmd, opts, res, err, acct)
+	if err != nil {
+		return finishPimalaya(cmd, opts, res, err, acct)
+	}
+	if err := finishPimalaya(cmd, opts, res, nil, acct); err != nil {
+		return err
+	}
+	return runMailClassifyAfterSync(cmd, opts, repoRoot, res, noClassify, 8192)
 }
 
 func finishPimalaya(cmd *cobra.Command, opts *rootOptions, res *pimalaya.Result, err error, accountHint string) error {

@@ -28,8 +28,10 @@ Operator CLI stdout is human-first by default; use `should-i-read --json <cmd>` 
 | `make configure` / `should-i-read configure` | Operator onboarding hub (config, OAuth apps, mailbox) |
 | `make mail-status` / `should-i-read mail status` | Onboarding checklist (JSON) |
 | `make readiness` / `should-i-read mail readiness` | Sync engine check (IMAP); `make doctor` is an alias |
-| `make sync` / `make export` | `mail sync` and `mail export` |
-| `make polypus-check` | Fail closed before host AI work |
+| `make sync` / `make report` / `make export` | `mail sync` (may classify via strop JobRunner + taxonomy), `mail report`, `mail export` |
+| `make polypus-check` | Fail closed before host AI work (`mail report` needs JEV + chat models) |
+
+Nested provider checkouts (read-only for product patches): `providers/taxonomy`, `providers/strop`. Bump submodule gitlinks and `go.mod` after upstream tags; local dev may use `replace` to `./providers/taxonomy` until `v0.2.0` is published.
 
 MUST NOT treat a missing mail sync dependency as a host Go build bug; run `make configure` so the host installs the dependency as part of onboarding.
 MUST NOT tell operators to run bare `neverest` or add `~/.cargo/bin` to PATH for product workflows.

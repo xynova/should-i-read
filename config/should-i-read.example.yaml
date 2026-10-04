@@ -15,6 +15,16 @@ secrets:
 polypus:
   # Resolves from env when unset in YAML; fallback http://127.0.0.1:1320
   base_url: "${POLYPUS_BASE_URL}"
+  # Optional; after polypus check, first non-jev /v1/models id is used when empty
+  classify_model: ""
+  # Optional JEV / SystemOne model; first typesafe/jev id from /v1/models when empty
+  judge_model: ""
+
+taxonomy:
+  # Optional; default ~/.config/should-i-read/vocabularies/inbox-mail.yaml
+  catalog_path: ""
+  # Max unique messages classified per sync or report invocation (default 50)
+  classify_max: 0
 
 pimalaya:
   neverest_bin: ""

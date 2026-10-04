@@ -5,8 +5,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X github.com/xynova/should-i-read/internal/cli.Version=$(VERSION)
 
 .PHONY: help build test tidy check-polypus polypus-check \
-	readiness doctor sync export version init setup mail-setup mail-status ensure configure \
-	mail-readiness mail-sync mail-export pim-ensure pim-deps-check wire-ai-copilots bootstrap-ai-copilots
+	readiness doctor sync export report version init setup mail-setup mail-status ensure configure \
+	mail-readiness mail-sync mail-export mail-report pim-ensure pim-deps-check wire-ai-copilots bootstrap-ai-copilots \
+	hooks-install
 
 help:
 	@echo "Pimalaya (default operator path):"
@@ -18,9 +19,11 @@ help:
 	@echo "  doctor              alias for readiness"
 	@echo "  sync                mail-deps check + should-i-read mail sync"
 	@echo "  export              should-i-read mail export"
+	@echo "  report              should-i-read mail report (taxonomy classify)"
 	@echo "  polypus-check       should-i-read polypus check"
 	@echo "  check-polypus       polypus check + scripts/check-polypus.sh"
 	@echo "  wire-ai-copilots    Symlink .cursor/skills (see docs/ai-copilots-setup.md)"
+	@echo "  hooks-install       Install Lefthook git hooks"
 	@echo ""
 	@echo "Other:"
 	@echo "  test                go test ./..."
@@ -61,6 +64,8 @@ sync: mail-sync
 
 export: mail-export
 
+report: mail-report
+
 ensure: pim-ensure
 
 pim-ensure: build
@@ -85,12 +90,18 @@ mail-sync: build pim-deps-check
 mail-export: build
 	./$(BIN) mail export $(ARGS)
 
+mail-report: build
+	./$(BIN) mail report $(ARGS)
+
 polypus-check: build
 	./$(BIN) polypus check
 
 check-polypus: build
 	./$(BIN) polypus check
 	./scripts/check-polypus.sh
+
+hooks-install:
+	lefthook install
 
 wire-ai-copilots:
 	bash scripts/wire-cursor-skills.sh

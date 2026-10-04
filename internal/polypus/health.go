@@ -25,6 +25,7 @@ type HealthResult struct {
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	ChatHTTP   *http.Client
 }
 
 // Create returns a Client for baseURL (must be non-empty).
@@ -37,7 +38,8 @@ func Create(baseURL string, httpClient *http.Client) (*Client, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &Client{BaseURL: baseURL, HTTPClient: httpClient}, nil
+	chatHTTP := &http.Client{Timeout: 90 * time.Second}
+	return &Client{BaseURL: baseURL, HTTPClient: httpClient, ChatHTTP: chatHTTP}, nil
 }
 
 type modelsResponse struct {
@@ -109,7 +111,7 @@ func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err

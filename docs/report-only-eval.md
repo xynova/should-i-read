@@ -4,43 +4,39 @@ First milestone after Polypus wiring: classify and cluster unwanted mail, produc
 
 ## Goal
 
-Decide whether a Jev-backed filter is accurate enough to justify quarantine later. Done looks like a reproducible report: per-message decisions, cluster membership, and short cluster summaries, with no deletes, moves, or mark-read side effects.
+Decide whether taxonomy-backed classification is accurate enough to justify quarantine later. Done looks like a reproducible report: per-message leaf assignments (and optional catalog aliases), then later cluster membership and short cluster summaries, with no deletes, moves, or mark-read side effects.
 
 ## Roles
 
 | Component | Owns | Does not own |
 |-----------|------|--------------|
-| Host mail lane (Neverest + pimdir) | Sync, local storage, mail export of headers/bodies | Direct Jev or OpenRouter calls |
+| Host mail lane (Neverest + pimdir) | Sync, local storage, post-sync classify, mail export | Direct OpenRouter or TypeSafe calls |
 | Polypus | All model HTTP (`/v1/*`), allow-lists, breakers | Mailbox semantics |
-| Jev (later, via Polypus) | Typed decisions (noul / choice / score) for spam, phishing, newsletter, urgency | Free-form TLDR prose |
-| Chat/summary model (via Polypus) | Cluster TLDR text | Binary keep/drop decisions |
+| Taxonomy harness (host seats) | Judge via Polypus SystemOne (JEV); Author via chat; catalog `inbox-mail` | Mailbox mutation |
+| Chat/summary model (via Polypus, later) | Cluster TLDR text | Per-message leaf assignment (current slice) |
 
 ## Pipeline (report only)
 
 ```mermaid
 flowchart TD
   sync[mail sync]
-  export[mail export]
-  jev[Jev via Polypus]
-  cluster[Cluster by features]
-  tldr[TLDR via Polypus chat]
-  report[Write report artifact]
-  sync --> export
-  export --> jev
-  jev --> cluster
+  classify[Taxonomy classify via Polypus chat]
+  report[tmp/unwanted-report-*.json]
+  export[mail export optional]
+  cluster[Cluster by features later]
+  tldr[TLDR via Polypus chat later]
+  sync --> classify
+  classify --> report
+  export --> classify
+  report --> cluster
   cluster --> tldr
-  tldr --> report
 ```
 
-1. Sync mail with `make sync` (pim). Prefer a bounded sample (account + date window).
-2. Snapshot message ids, subject, from, list-id, and a truncated body into a host-owned artifact under `tmp/` (gitignored) via `make export`.
-3. For each message, ask Jev (through Polypus) structured questions, for example:
-   - `is_unwanted` (noul)
-   - `category` (choice: legitimate, spam, phishing, newsletter, promo, other)
-   - `urgency` (score)
-4. Cluster high-`is_unwanted` messages by normalized sender domain and/or embedding similarity (embeddings also via Polypus). Assign `cluster_id`.
-5. For each cluster, call a chat model through Polypus with representatives only; ask for a short TLDR (why unwanted, common senders, suggested future action).
-6. Write `tmp/unwanted-report-<timestamp>.json` and a human-readable markdown summary. **No mailbox trash/spam/delete API calls.**
+1. Sync mail with `make sync`. After a successful fetch, the host classifies newly fetched unique messages (cap per `taxonomy.classify_max`; use `--no-classify` to skip). Polypus down after sync: replica stays; classify skipped; exit 0.
+2. Resume or backfill with `make report` / `should-i-read mail report` (lists recent pimdir rows or reads `--in` export JSON). Requires Polypus up (fail closed).
+3. For each message, taxonomy `Operate` walks the catalog (Judge SystemOne noul per sibling at each hop) then optional Author + gate through Polypus chat JSON. Report rows include `path` (branch ids to leaf). Accepted drafts update `~/.config/should-i-read/vocabularies/inbox-mail.yaml` unless `--no-apply`.
+4. **Later:** cluster by sender domain and/or embeddings via Polypus; TLDR per cluster.
+5. Write `tmp/unwanted-report-<timestamp>.json`. **No mailbox trash/spam/delete API calls.**
 
 ## Output schema (minimum)
 
@@ -95,7 +91,13 @@ flowchart TD
 - Zero false-positive phishing misses on the eval set for the auto-flag band, or documented accepted risk
 - Operator can reproduce the report from CLI with Polypus up and mail synced
 
-## Next implementation slice (after this docs milestone)
+## Shipped slice (taxonomy v0.1.1)
 
-1. Add a host report runner that reads mail export JSON and writes the artifact above.
-2. Wire Jev behind Polypus; keep TypeSafe URLs out of mail tooling.
+- Post-sync classify on fetch hunks; `mail report` for resume/backfill.
+- Strop `JobRunner` generator `mail_classify` wraps taxonomy `Operate`; Polypus HTTP only inside Judge/Author seats.
+- Artifacts: `tmp/unwanted-report-*.json`, progress `tmp/mail-classify-progress.json`.
+
+## Next implementation slice
+
+1. Clustering + cluster TLDR via Polypus embeddings and chat.
+2. Tune eval thresholds against labeled samples (schema below is aspirational for clustering).

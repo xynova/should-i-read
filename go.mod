@@ -4,9 +4,11 @@ go 1.27.0
 
 require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.7.2
+	github.com/XiaoConstantine/dspy-go v0.89.0
 	github.com/behaviorengineering/olly v0.2.0
 	github.com/behaviorengineering/operatorconfig v0.1.2
-	github.com/behaviorengineering/strop v0.5.9
+	github.com/behaviorengineering/strop v0.5.13
+	github.com/behaviorengineering/taxonomy v0.2.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
@@ -42,6 +44,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.58.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.58.0 // indirect
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
+	github.com/XiaoConstantine/mcp-go v0.3.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.45.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 // indirect
@@ -151,6 +154,7 @@ require (
 	github.com/spiffe/go-spiffe/v2 v2.8.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
+	github.com/traefik/yaegi v0.16.1 // indirect
 	github.com/urfave/cli v1.22.17 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/zalando/go-keyring v0.2.6 // indirect
@@ -168,7 +172,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
+	golang.org/x/exp v0.0.0-20251009144603-d2f985daa21b // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
@@ -186,3 +190,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/behaviorengineering/taxonomy => ./providers/taxonomy

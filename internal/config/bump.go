@@ -72,6 +72,7 @@ func secretDeclared(secrets []operatorconfig.Secret, env string) bool {
 type fileWrite struct {
 	Secrets  []operatorconfig.Secret `yaml:"secrets"`
 	Polypus  PolypusFile             `yaml:"polypus"`
+	Taxonomy TaxonomyFile            `yaml:"taxonomy,omitempty"`
 	OAuth    OAuthFile               `yaml:"oauth,omitempty"`
 	Pimalaya PimalayaFile            `yaml:"pimalaya"`
 }
@@ -80,6 +81,7 @@ func fileForWrite(f File) fileWrite {
 	return fileWrite{
 		Secrets:  f.Secrets,
 		Polypus:  f.Polypus,
+		Taxonomy: f.Taxonomy,
 		OAuth:    f.OAuth,
 		Pimalaya: f.Pimalaya,
 	}

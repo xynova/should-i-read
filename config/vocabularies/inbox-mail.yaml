@@ -1,0 +1,41 @@
+vocabulary:
+  id: inbox-mail
+  label: Inbox mail
+  description: Report-only classification for a personal IMAP inbox.
+  terms:
+    - id: keep
+      label: Keep
+      description: Mail the operator may want to read or act on.
+    - id: unwanted
+      label: Unwanted
+      description: Mail that is low priority, bulk, or likely spam-like.
+    - id: actionable
+      label: Actionable
+      parent: keep
+      description: Requires a reply, decision, or task this week.
+    - id: personal
+      label: Personal
+      parent: keep
+      description: From people you know; not automated bulk.
+    - id: newsletter
+      label: Newsletter
+      parent: unwanted
+      description: Mailing lists, digests, and editorial subscriptions.
+    - id: notification
+      label: Notification
+      parent: unwanted
+      description: Automated alerts from services (CI, billing, account security).
+      aliases:
+        - github-notification
+    - id: promo
+      label: Promo
+      parent: unwanted
+      description: Marketing and retail promotions.
+    - id: cold-outreach
+      label: Cold outreach
+      parent: unwanted
+      description: Unsolicited sales or recruiting pitches.
+    - id: spam
+      label: Spam
+      parent: unwanted
+      description: Obvious junk or phishing patterns.

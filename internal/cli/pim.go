@@ -102,7 +102,7 @@ func newPimConfigureCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 
 type pimConfigureFlags struct {
 	provider, account, email, storeRoot string
-	force, skipInit                      bool
+	force, skipInit                     bool
 }
 
 func runPimConfigure(cmd *cobra.Command, repoRoot string, opts *rootOptions, flags pimConfigureFlags) error {
@@ -276,7 +276,7 @@ func newPimSyncCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 		Deprecated: "use should-i-read mail sync",
 		Short:      "Sync mail into the local pimdir store",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMailSync(cmd, opts, repoRoot, account)
+			return runMailSync(cmd, opts, repoRoot, account, false)
 		},
 	}
 	cmd.Flags().StringVar(&account, "account", "", "Mail account id from sync config")
@@ -314,9 +314,9 @@ func newPimSnapshotCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 
 func newPimShowCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var (
-		store    string
-		raw      bool
-		maxBody  int
+		store   string
+		raw     bool
+		maxBody int
 	)
 	cmd := &cobra.Command{
 		Use:        "show <ref>",
@@ -341,4 +341,3 @@ func newPimShowCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd.Flags().IntVar(&maxBody, "max-body", 8192, "Max body bytes in default preview mode")
 	return cmd
 }
-

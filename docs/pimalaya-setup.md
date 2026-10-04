@@ -127,9 +127,13 @@ should-i-read token gmail login --account work
 
 Optional alignment with host config: set `pimalaya.default_account` to the same label you use in docs or scripts (Neverest TOML still needs explicit `command_args` per account).
 
-## Sync vs export vs show
+## Sync vs export vs show vs report
 
-`mail sync` (Neverest) stores full message bytes under the pimdir `objects/` tree plus metadata in `pimdir.db`. `mail export` / `make export` only writes summary fields into JSON (subject, sender, date, `object_hash`, etc.). To read body text for one message after sync, use `should-i-read mail show <object_hash>` (copy `object_hash` from the export file). Use `--raw` to dump the full RFC822 blob.
+`mail sync` (Neverest) stores full message bytes under the pimdir `objects/` tree plus metadata in `pimdir.db`. After a successful sync with new fetch hunks, the host may classify up to `taxonomy.classify_max` unique messages (default 50) via Polypus + taxonomy; pass `--no-classify` to skip. `--json mail sync` stdout remains the Neverest engine JSON only; classify writes `tmp/unwanted-report-*.json` separately.
+
+Fetch hunk `collection` + `id` (IMAP UID string) resolve in pimdir by `imap/<collection>` or `collection` with `items.seq = atoi(id)`, then `link_id = id`. Unresolved hunks are counted in the report artifact.
+
+`mail report` / `make report` classifies recent pimdir rows or `--in` export JSON (requires Polypus). `mail export` / `make export` only writes summary fields into JSON (subject, sender, date, `object_hash`, etc.). To read body text for one message after sync, use `should-i-read mail show <object_hash>` (copy `object_hash` from the export file). Use `--raw` to dump the full RFC822 blob.
 
 `mail status` is the configure onboarding checklist; `mail readiness` is the Neverest sync-engine check (credentials and IMAP).
 
@@ -140,7 +144,8 @@ Optional alignment with host config: set `pimalaya.default_account` to the same 
 | `should-i-read mail setup` | Mailbox onboarding (deprecated: use configure) |
 | `should-i-read mail status` | Onboarding checklist (JSON) |
 | `should-i-read mail readiness` | Check sync engine (credentials and IMAP) |
-| `should-i-read mail sync` | Sync remote mail into local store |
+| `should-i-read mail sync` | Sync remote mail into local store (optional post-sync classify; `--no-classify`) |
+| `should-i-read mail report` | Taxonomy classify → `tmp/unwanted-report-<ts>.json` (report-only) |
 | `should-i-read mail export` | Read local store → `tmp/mail-export-<ts>.json` (summaries only; default 25 rows) |
 | `should-i-read mail show <ref>` | Show one synced message body (`object_hash` or Message-ID from export JSON; `--raw` for full RFC822) |
 | `should-i-read token gmail login` | One-time browser login; keyring stores refresh material |
@@ -155,7 +160,7 @@ Exit **7** means the sync engine returned exit **2** (needs human review: confli
 
 ## Polypus
 
-All AI uses `POLYPUS_BASE_URL` (default `http://127.0.0.1:1320` when unset). See [ai-provider-seam.md](ai-provider-seam.md).
+All AI uses `POLYPUS_BASE_URL` (default `http://127.0.0.1:1320` when unset). Classify Judge uses `POST /v1/systemone` (`polypus.judge_model` or first `typesafe/jev` model). Author uses chat (`polypus.classify_model` or first non-jev model). See [ai-provider-seam.md](ai-provider-seam.md).
 
 ## Maintainer mapping
 

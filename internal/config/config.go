@@ -28,6 +28,7 @@ var placeholderRE = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 type File struct {
 	Secrets        []operatorconfig.Secret `yaml:"secrets"`
 	Polypus        PolypusFile             `yaml:"polypus"`
+	Taxonomy       TaxonomyFile            `yaml:"taxonomy"`
 	OAuth          OAuthFile               `yaml:"oauth"`
 	EmailOpsLegacy OAuthFile               `yaml:"emailops"` // deprecated; merged into oauth on load
 	Pimalaya       PimalayaFile            `yaml:"pimalaya"`
@@ -35,7 +36,9 @@ type File struct {
 
 // PolypusFile is the polypus YAML section.
 type PolypusFile struct {
-	BaseURL string `yaml:"base_url"`
+	BaseURL       string `yaml:"base_url"`
+	ClassifyModel string `yaml:"classify_model"`
+	JudgeModel    string `yaml:"judge_model"`
 }
 
 // PimalayaFile is the Neverest / pimdir YAML section.
@@ -55,13 +58,16 @@ type OAuthFile struct {
 
 // Config is the resolved runtime config used by the CLI.
 type Config struct {
-	Path              string
-	RepoRoot          string
-	PolypusBaseURL    string
-	GmailClientID     string
-	GmailClientSecret string
-	OutlookClientID   string
-	Pimalaya          PimalayaConfig
+	Path                 string
+	RepoRoot             string
+	PolypusBaseURL       string
+	PolypusClassifyModel string
+	PolypusJudgeModel    string
+	GmailClientID        string
+	GmailClientSecret    string
+	OutlookClientID      string
+	Pimalaya             PimalayaConfig
+	Taxonomy             TaxonomyConfig
 }
 
 // PimalayaConfig is resolved Neverest / pimdir settings.
@@ -95,7 +101,12 @@ func (c Config) Redacted() map[string]any {
 	return map[string]any{
 		"path": c.Path,
 		"polypus": map[string]string{
-			"base_url": c.PolypusBaseURL,
+			"base_url":       c.PolypusBaseURL,
+			"classify_model": setUnset(c.PolypusClassifyModel),
+			"judge_model":    setUnset(c.PolypusJudgeModel),
+		},
+		"taxonomy": map[string]string{
+			"catalog_path": c.Taxonomy.CatalogPath,
 		},
 		"pimalaya": map[string]string{
 			"neverest_bin":    c.Pimalaya.NeverestBin,
@@ -278,20 +289,29 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	if strings.TrimSpace(neverestCfg) == "" {
 		neverestCfg = strings.TrimSpace(os.Getenv("NEVEREST_CONFIG"))
 	}
+	classifyModel := strings.TrimSpace(file.Polypus.ClassifyModel)
+	judgeModel := strings.TrimSpace(file.Polypus.JudgeModel)
+	taxonomyCfg, err := resolveTaxonomy(file.Taxonomy)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
-		Path:              path,
-		RepoRoot:          repoRoot,
-		PolypusBaseURL:    strings.TrimRight(baseURL, "/"),
-		GmailClientID:     gmailID,
-		GmailClientSecret: gmailSecret,
-		OutlookClientID:   outlookID,
+		Path:                 path,
+		RepoRoot:             repoRoot,
+		PolypusBaseURL:       strings.TrimRight(baseURL, "/"),
+		PolypusClassifyModel: classifyModel,
+		PolypusJudgeModel:    judgeModel,
+		GmailClientID:        gmailID,
+		GmailClientSecret:    gmailSecret,
+		OutlookClientID:      outlookID,
 		Pimalaya: PimalayaConfig{
 			NeverestBin:    neverestBin,
 			NeverestConfig: neverestCfg,
 			DefaultAccount: pimAccount,
 			PimdirPath:     pimdirPath,
 		},
+		Taxonomy: taxonomyCfg,
 	}, nil
 }
 

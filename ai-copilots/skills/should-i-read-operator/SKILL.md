@@ -1,7 +1,7 @@
 ---
 name: should-i-read-operator
 description: >-
-  Operates the should-i-read host CLI: configure hub, mail status/readiness/sync/export/show,
+  Operates the should-i-read host CLI: configure hub, mail status/readiness/sync/report/export/show,
   token gmail|outlook for scripts, Polypus check, init/config.
 ---
 
@@ -15,7 +15,7 @@ Architecture: `.cursor/rules/architecture.mdc`. **Setup:** [`docs/pimalaya-setup
 
 - First-time operator setup (`make configure`, `configure --json`)
 - Polypus health before AI work
-- Day-2 `make readiness|sync|export`, token brokers for multi-account labels
+- Day-2 `make readiness|sync|report|export`, token brokers for multi-account labels
 
 ## CLI output
 
@@ -33,7 +33,8 @@ Token bare invoke (`token gmail`) still prints only the access token for Neveres
 |-----------------|-----|------|
 | Onboarding checklist (config, token, store) | `mail status` | `make mail-status` |
 | Sync engine check (IMAP, credentials) | `mail readiness` | `make readiness` (`make doctor` alias) |
-| Pull mail into local store | `mail sync` | `make sync` |
+| Pull mail into local store | `mail sync` (`--no-classify` optional) | `make sync` |
+| Classify mail (report-only) | `mail report` | `make report` |
 | Export summary JSON | `mail export` | `make export` |
 | Read one message body | `mail show <ref>` | (CLI only) |
 
@@ -86,7 +87,7 @@ neverest check   # operators use make readiness
 pim doctor       # use mail readiness
 ```
 
-**CONSTRAINT:** Before host AI work, MUST fail closed on Polypus (`make polypus-check`).
+**CONSTRAINT:** Before host AI work, MUST fail closed on Polypus (`make polypus-check`). Classify Judge uses `polypus.judge_model` (or first `typesafe/jev` id from `/v1/models`). Author uses `polypus.classify_model` (or first non-jev id).
 
 ## Operator recipe
 
@@ -99,4 +100,4 @@ pim doctor       # use mail readiness
 
 - [ ] **Onboarding:** `configure --json` shows `ready` (or clear steps) before claiming sync ready
 - [ ] **Secrets out of YAML:** `config show` uses `(set)` / `(unset)`; no literals
-- [ ] **Polypus:** `polypus check` passes before AI steps
+- [ ] **Polypus:** `polypus check` passes before AI steps (classify needs a JEV model and a chat model)

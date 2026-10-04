@@ -1,0 +1,2 @@
+extends:
+  - .cursor/packs/shared/lefthook/lefthook.yml
