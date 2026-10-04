@@ -8,7 +8,6 @@ import (
 
 	operatorconfig "github.com/behaviorengineering/operatorconfig/pkg/operatorconfig"
 
-	"github.com/xynova/should-i-read/internal/oauthcred"
 )
 
 func TestExpandString(t *testing.T) {
@@ -86,7 +85,7 @@ secrets:
   - EMAILOPS_GMAIL_CLIENT_ID
 polypus:
   base_url: "http://127.0.0.1:1320"
-emailops:
+oauth:
   gmail_client_id: "${EMAILOPS_GMAIL_CLIENT_ID}"
 `
 	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
@@ -113,8 +112,7 @@ func TestLoadExpandsAndDefaults(t *testing.T) {
 	body := `
 polypus:
   base_url: "http://127.0.0.1:1320"
-emailops:
-  data_dir: "` + filepath.ToSlash(dir) + `/mail"
+oauth:
   gmail_client_id: "${TEST_GMAIL_ID}"
 `
 	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
@@ -130,41 +128,42 @@ emailops:
 	if cfg.GmailClientID != "client-from-env" {
 		t.Fatalf("gmail id: %q", cfg.GmailClientID)
 	}
-	if cfg.EmailOpsDataDir != filepath.ToSlash(dir)+"/mail" && cfg.EmailOpsDataDir != filepath.Join(dir, "mail") {
-		t.Fatalf("data dir: %q", cfg.EmailOpsDataDir)
-	}
-	if cfg.EmailOpsRepoPath != filepath.Join("/repo", "providers", "emailops") {
-		t.Fatalf("repo path: %q", cfg.EmailOpsRepoPath)
-	}
 	if cfg.PolypusBaseURL != "http://127.0.0.1:1320" {
 		t.Fatalf("polypus: %q", cfg.PolypusBaseURL)
 	}
 }
 
-func TestLoadUsesOAuthProductEmbed(t *testing.T) {
+func TestLoadMergesLegacyEmailOpsOAuthSection(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "config.yaml")
 	body := `
 polypus:
   base_url: "http://127.0.0.1:1320"
 emailops:
-  gmail_client_id: "${EMAILOPS_GMAIL_CLIENT_ID}"
+  gmail_client_id: "${LEGACY_GMAIL_ID}"
 `
 	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("EMAILOPS_GMAIL_CLIENT_ID", "")
-
-	prev := oauthcred.ProductGmailClientID
-	oauthcred.ProductGmailClientID = "product-gmail-client-id"
-	t.Cleanup(func() { oauthcred.ProductGmailClientID = prev })
+	t.Setenv("LEGACY_GMAIL_ID", "legacy-client")
 
 	cfg, err := Load("/repo", cfgFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.GmailClientID != "product-gmail-client-id" {
+	if cfg.GmailClientID != "legacy-client" {
 		t.Fatalf("gmail id: %q", cfg.GmailClientID)
+	}
+}
+
+func TestMergeOAuthFieldsPrefersOAuthSection(t *testing.T) {
+	t.Parallel()
+	merged := mergeOAuthFields(File{
+		OAuth:          OAuthFile{GmailClientID: "from-oauth"},
+		EmailOpsLegacy: OAuthFile{GmailClientID: "from-legacy"},
+	})
+	if merged.GmailClientID != "from-oauth" {
+		t.Fatalf("gmail id: %q", merged.GmailClientID)
 	}
 }
 
@@ -193,26 +192,22 @@ func TestRedacted(t *testing.T) {
 	cfg := Config{
 		Path:              "/tmp/c.yaml",
 		PolypusBaseURL:    "http://127.0.0.1:1320",
-		EmailOpsDataDir:   "/data",
 		GmailClientID:     "id",
 		GmailClientSecret: "sekrit",
 		OutlookClientID:   "",
 	}
 	r := cfg.Redacted()
-	emailops, ok := r["emailops"].(map[string]string)
+	oauth, ok := r["oauth"].(map[string]string)
 	if !ok {
-		t.Fatalf("emailops type: %T", r["emailops"])
+		t.Fatalf("oauth type: %T", r["oauth"])
 	}
-	if emailops["gmail_client_id"] != "(set)" {
-		t.Fatalf("id: %q", emailops["gmail_client_id"])
+	if oauth["gmail_client_id"] != "(set)" {
+		t.Fatalf("id: %q", oauth["gmail_client_id"])
 	}
-	if emailops["gmail_client_secret"] != "(set)" {
-		t.Fatalf("secret: %q", emailops["gmail_client_secret"])
+	if oauth["gmail_client_secret"] != "(set)" {
+		t.Fatalf("secret: %q", oauth["gmail_client_secret"])
 	}
-	if emailops["outlook_client_id"] != "(unset)" {
-		t.Fatalf("outlook: %q", emailops["outlook_client_id"])
-	}
-	if emailops["data_dir"] != "/data" {
-		t.Fatalf("data_dir should not be redacted: %q", emailops["data_dir"])
+	if oauth["outlook_client_id"] != "(unset)" {
+		t.Fatalf("outlook: %q", oauth["outlook_client_id"])
 	}
 }

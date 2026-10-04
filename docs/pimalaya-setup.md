@@ -1,46 +1,59 @@
-# Pimalaya lane setup (Neverest + pimdir)
+# Pimalaya lane setup (mail sync + pimdir)
 
-**Default mail path for should-i-read.** Neverest syncs into a local **pimdir** store; the host Go CLI reads SQLite and writes report-only artifacts. EmailOps is optional legacy custody ([emailops-setup.md](emailops-setup.md)).
+**Default mail path for should-i-read.** The host installs and invokes a mail sync dependency (Neverest) that writes a local **pimdir** store; the Go CLI reads SQLite and writes report-only artifacts. Operators use `should-i-read` / Make only, starting with `make configure`.
 
 ## Operator checklist
 
 ```bash
-make init && make setup
+make init && make build
+make configure
+# or: make configure ARGS='--apply --provider gmail --email you@example.com'
 ./bin/should-i-read config bump    # when Polypus URL was literal localhost in YAML
-export POLYPUS_BASE_URL=...        # or keyring; expands ${POLYPUS_BASE_URL} in config
-./bin/should-i-read token gmail login
+make configure --json
 make polypus-check
-# set pimalaya.pimdir_path in ~/.config/should-i-read/config.yaml
-make doctor && make sync && make export
+make readiness && make sync && make export
 ```
 
-## Install Neverest
+`make build` does not install the mail sync dependency. `configure` installs or verifies it as part of onboarding. Agents: see [AGENTS.md](../AGENTS.md) operator setup.
 
-Neverest is beta (`v0.x`). Pick one:
+## Mailbox onboarding (`configure`)
 
-- CI artifacts from [pimalaya/neverest](https://github.com/pimalaya/neverest) releases
-- `cargo install --git https://github.com/pimalaya/neverest`
-
-Confirm on `PATH`:
+One hub for host config, OAuth clients, mail dependency, sync profile, mailbox login, and local store init:
 
 ```bash
-neverest --version
+make configure
+# or: make configure ARGS='--apply --provider gmail --email you@example.com'
+./bin/should-i-read configure --json   # readiness checklist
+./bin/should-i-read mail status        # mail-only JSON checklist
 ```
 
-## First-time Neverest config
+`configure` writes `~/.config/should-i-read/mail-sync.toml`, patches `pimalaya.*` in host config, runs browser login on a TTY when needed, then initializes the local store. Scripts pass `--apply` plus `--provider` / `--email` for automation.
+
+## Maintainer mapping (scripts / advanced)
+
+The sync engine is Neverest (`v0.x`, beta). Host scripts and `pim` subcommands remain for automation:
 
 ```bash
-neverest init
-neverest check
+make ensure                         # should-i-read pim ensure
+./bin/should-i-read pim configure ...
+./bin/should-i-read pim ensure --check-only
 ```
 
-Config lives at `~/.config/neverest/config.toml` (or `NEVEREST_CONFIG`). See `tmp/pimalaya/neverest/config.sample.toml` when ecosystem clones are present.
+Do not teach these verbs in operator help; use `mail setup` / `mail status` instead.
 
-Point **should-i-read** at your account store directory (the folder that contains `pimdir.db`):
+`make readiness` and `make sync` run the dependency check first. The host resolves `pimalaya.neverest_bin` / `NEVEREST_BIN` / PATH / `$CARGO_HOME/bin` so operators do not need cargo bin on PATH.
 
-```yaml
-pimalaya:
-  pimdir_path: "/path/to/account/store"
+Maintainer alternatives (not the operator path): release artifacts or `cargo install --git https://github.com/pimalaya/neverest`.
+
+## First-time mail sync config
+
+Host-owned path: use `mail setup` above. Maintainer reference for hand-edited TOML: `tmp/pimalaya/neverest/config.sample.toml` when ecosystem clones are present.
+
+After configure, prefer host checks:
+
+```bash
+make readiness    # should-i-read mail readiness
+make sync         # should-i-read mail sync
 ```
 
 ## Gmail IMAP with XOAUTH2
@@ -114,30 +127,36 @@ should-i-read token gmail login --account work
 
 Optional alignment with host config: set `pimalaya.default_account` to the same label you use in docs or scripts (Neverest TOML still needs explicit `command_args` per account).
 
+## Sync vs export vs show
+
+`mail sync` (Neverest) stores full message bytes under the pimdir `objects/` tree plus metadata in `pimdir.db`. `mail export` / `make export` only writes summary fields into JSON (subject, sender, date, `object_hash`, etc.). To read body text for one message after sync, use `should-i-read mail show <object_hash>` (copy `object_hash` from the export file). Use `--raw` to dump the full RFC822 blob.
+
+`mail status` is the configure onboarding checklist; `mail readiness` is the Neverest sync-engine check (credentials and IMAP).
+
 ## Host commands
 
 | Command | Role |
 |---------|------|
-| `should-i-read pim doctor` | `neverest check --json` |
-| `should-i-read pim sync` | `neverest sync --json` |
-| `should-i-read pim snapshot` | Read `pimdir.db` → `tmp/pim-snapshot-<ts>.json` |
+| `should-i-read mail setup` | Mailbox onboarding (deprecated: use configure) |
+| `should-i-read mail status` | Onboarding checklist (JSON) |
+| `should-i-read mail readiness` | Check sync engine (credentials and IMAP) |
+| `should-i-read mail sync` | Sync remote mail into local store |
+| `should-i-read mail export` | Read local store → `tmp/mail-export-<ts>.json` (summaries only; default 25 rows) |
+| `should-i-read mail show <ref>` | Show one synced message body (`object_hash` or Message-ID from export JSON; `--raw` for full RFC822) |
 | `should-i-read token gmail login` | One-time browser login; keyring stores refresh material |
-| `should-i-read token gmail` | Access token for Neverest (auto-refresh) |
+| `should-i-read token gmail` | Access token for mail sync XOAUTH2 (auto-refresh) |
 | `should-i-read token gmail status` | Redacted client + token storage status |
 | `should-i-read token outlook login` | One-time MSAL browser login; keyring stores MSAL cache |
-| `should-i-read token outlook` | Access token for Neverest (MSAL silent refresh) |
+| `should-i-read token outlook` | Access token for mail sync XOAUTH2 (MSAL silent refresh) |
 | `should-i-read token outlook status` | Redacted client + MSAL cache status |
 | `should-i-read polypus check` | Fail-closed Polypus probe (`POLYPUS_BASE_URL` / config) |
 
-Exit **7** means Neverest exit **2** (needs human review: conflicts, duplicates, blocked writes). Mailbox is unchanged.
+Exit **7** means the sync engine returned exit **2** (needs human review: conflicts, duplicates, blocked writes). Mailbox is unchanged.
 
 ## Polypus
 
 All AI uses `POLYPUS_BASE_URL` (default `http://127.0.0.1:1320` when unset). See [ai-provider-seam.md](ai-provider-seam.md).
 
-## Verify outside the host
+## Maintainer mapping
 
-```bash
-neverest check
-./scripts/check-polypus.sh
-```
+Under the hood, `mail readiness` / `mail sync` call Neverest `--json` internally. Operator-facing stdout is a short summary; pass `--json` on the host CLI (or `SHOULD_I_READ_JSON=1`) for the full engine payload. Hidden `pim` subcommands remain for maintainers. Use upstream Neverest docs only when debugging the sync engine itself.

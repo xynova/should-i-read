@@ -25,7 +25,7 @@ func gmailOAuthConfig(cfg config.Config) (*oauth2.Config, error) {
 	clientID := strings.TrimSpace(cfg.GmailClientID)
 	clientSecret := strings.TrimSpace(cfg.GmailClientSecret)
 	if clientID == "" {
-		return nil, sirerr.New(sirerr.CodeAuth, op, "gmail client id unset; run should-i-read setup")
+		return nil, sirerr.New(sirerr.CodeAuth, op, "gmail client id unset; run should-i-read configure")
 	}
 	return &oauth2.Config{
 		ClientID:     clientID,
@@ -105,9 +105,9 @@ func GmailLogin(ctx context.Context, cfg config.Config, account string) error {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	fmt.Fprintf(os.Stderr, "Open this URL in your browser to authorize Gmail:\n%s\n", authURL)
+	fmt.Fprintln(os.Stderr, "Waiting for Gmail authorization in your browser…")
 	if err := browser.OpenURL(authURL); err != nil {
-		fmt.Fprintf(os.Stderr, "Could not open browser automatically: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Could not open the browser. Open this URL manually:\n%s\n", authURL)
 	}
 
 	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)

@@ -4,7 +4,7 @@ should-i-read uses **product-owned** Google and Microsoft OAuth *client* apps as
 normal path. End users only consent per mailbox. They do not create Cloud Console
 or Entra apps.
 
-Mailbox OAuth *tokens* stay in EmailOps' OS keychain on the device. This host does
+Mailbox OAuth *tokens* stay in the host OS keyring on the device. This host does
 not run a cloud token broker.
 
 ## Credential resolve order
@@ -13,11 +13,11 @@ not run a cloud token broker.
 2. Optional `~/.config/should-i-read/secrets.enc.yaml` (SOPS) when present
 3. Product-owned values embedded at **release** via Go `-ldflags` into
    `internal/oauthcred` (never commit live secrets to git)
-4. `should-i-read setup` BYO paste or guided DIY (advanced)
+4. `should-i-read configure` (or advanced `setup`) BYO paste / guided DIY
 
 Host config loading uses [operatorconfig](https://github.com/behaviorengineering/operatorconfig) for path discovery, init, and secret hops 1–2.
 
-Inspect redacted status: `./bin/should-i-read config show` or setup summary.
+Inspect redacted status: `./bin/should-i-read config show` or configure summary.
 
 ## Register once (product owner)
 
@@ -48,16 +48,14 @@ go build -ldflags "\
   -o bin/should-i-read ./cmd/should-i-read
 ```
 
-Prefer injecting the Google secret via Keychain at install when required by EmailOps.
+Prefer injecting the Google secret via Keychain at install when the client requires a secret.
 
 ## BYO / DIY
 
-Operators who refuse product client ids: `make setup` → paste BYO credentials, or
-advanced guided Cloud/Azure steps. See `docs/emailops-setup.md`.
+Operators who refuse product client ids: `make configure` (oauth clients step) → paste BYO
+credentials, or advanced guided Cloud/Azure steps. See [`docs/pimalaya-setup.md`](pimalaya-setup.md).
 
 ## Trust
 
 Owning the OAuth *app* identifies the client on the consent screen. It does not
-grant the product operator standing remote access to user mailboxes. Users who
-distrust product client ids can BYO. Auditable claims (open source, allowlists)
-are documented separately; do not add a hosted OAuth broker.
+move mailbox contents off the device. BYO client ids remain a supported escape hatch.

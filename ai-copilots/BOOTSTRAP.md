@@ -68,8 +68,7 @@ test -f "$ROOT/.cursor/skills/should-i-read-operator/SKILL.md"
 test -L "$ROOT/.cursor/skills/pimalaya-ecosystem"
 test -f "$ROOT/.cursor/skills/pimalaya-ecosystem/SKILL.md"
 test -f "$ROOT/AGENTS.md"
-git -C "$ROOT/providers/emailops" status --short
 ```
 
-Pass: symlink resolves; `AGENTS.md` present; EmailOps working tree clean for this task.
+Pass: symlink resolves; `AGENTS.md` present.
 Fail: STOP, fix the link, do not copy skill bodies without user approval.

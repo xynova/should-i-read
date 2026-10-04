@@ -1,4 +1,4 @@
-// Package oauthcred resolves EmailOps OAuth client credentials.
+// Package oauthcred resolves mail OAuth client credentials (keyring env names are historical).
 //
 // Resolve order:
 //  1. Environment, then Keychain (via secret.Resolve)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"go.opentelemetry.io/otel"
@@ -33,6 +34,7 @@ type Result struct {
 type Runner struct {
 	Bin        string
 	ConfigPath string
+	Account    string
 	ExtraEnv   []string
 }
 
@@ -49,7 +51,8 @@ func Create(bin string) (*Runner, error) {
 	return &Runner{Bin: bin}, nil
 }
 
-// ResolveBin finds an executable: explicit path, then PATH.
+// ResolveBin finds an executable: explicit path, PATH, then $CARGO_HOME/bin/<name>
+// (or ~/.cargo/bin/<name>). Cargo install often lands there while that dir is off PATH.
 func ResolveBin(explicit string, name string) (string, error) {
 	const op = "pimalaya.ResolveBin"
 	if p := strings.TrimSpace(explicit); p != "" {
@@ -65,10 +68,33 @@ func ResolveBin(explicit string, name string) (string, error) {
 		return "", err
 	}
 	p, err := exec.LookPath(name)
-	if err != nil {
-		return "", sirerr.New(sirerr.CodeUnavailable, op, "binary not on PATH").With("name", name)
+	if err == nil {
+		return p, nil
 	}
-	return p, nil
+	if cargo := cargoHomeBin(name); cargo != "" {
+		return cargo, nil
+	}
+	return "", sirerr.New(sirerr.CodeUnavailable, op, "binary not on PATH").With("name", name)
+}
+
+func cargoHomeBin(name string) string {
+	home := strings.TrimSpace(os.Getenv("CARGO_HOME"))
+	if home == "" {
+		userHome, err := os.UserHomeDir()
+		if err != nil || strings.TrimSpace(userHome) == "" {
+			return ""
+		}
+		home = filepath.Join(userHome, ".cargo")
+	}
+	candidate := filepath.Join(home, "bin", name)
+	st, err := os.Stat(candidate)
+	if err != nil || st.IsDir() {
+		return ""
+	}
+	if err := AssertAllowed(candidate); err != nil {
+		return ""
+	}
+	return candidate
 }
 
 // RunJSON executes with --json and optional config flag.
@@ -90,9 +116,12 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 	)
 	defer span.End()
 
-	cmdArgs := make([]string, 0, len(args)+4)
+	cmdArgs := make([]string, 0, len(args)+6)
 	if cfg := strings.TrimSpace(r.ConfigPath); cfg != "" {
 		cmdArgs = append(cmdArgs, "-c", cfg)
+	}
+	if acct := strings.TrimSpace(r.Account); acct != "" {
+		cmdArgs = append(cmdArgs, "-a", acct)
 	}
 	cmdArgs = append(cmdArgs, "--json")
 	cmdArgs = append(cmdArgs, args...)

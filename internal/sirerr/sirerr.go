@@ -76,7 +76,7 @@ func AsCode(err error) (Code, bool) {
 	return "", false
 }
 
-// ExitCode maps domain errors to process exit codes (aligned with emailops-cli).
+// ExitCode maps domain errors to process exit codes for the host CLI.
 func ExitCode(err error) int {
 	if err == nil {
 		return 0

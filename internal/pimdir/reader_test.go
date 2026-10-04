@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -78,7 +79,7 @@ CREATE TABLE items (
   changed INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (collection, link_id)
 );
-INSERT INTO items (collection, link_id, seq, sort_key, level, deleted) VALUES ('INBOX', 'msg-1', 1, '2020-01-02T00:00:00Z', 1, 0);
+INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted) VALUES ('INBOX', 'msg-1', 1, 'abcd1234efgh5678', '2020-01-02T00:00:00Z', 2, 0);
 CREATE TABLE mail_summary (
   collection TEXT NOT NULL,
   link_id TEXT NOT NULL,
@@ -92,7 +93,7 @@ CREATE TABLE mail_summary (
   attachment INTEGER,
   PRIMARY KEY (collection, link_id)
 );
-INSERT INTO mail_summary (collection, link_id, subject, sender) VALUES ('INBOX', 'msg-1', 'Hello pimdir', 'alice@example.com');
+INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date) VALUES ('INBOX', 'msg-1', '<mid@example.com>', 'Hello pimdir', 'alice@example.com', '2020-01-02T00:00:00Z');
 `
 	if _, err := db.Exec(schema); err != nil {
 		t.Fatal(err)
@@ -100,7 +101,70 @@ INSERT INTO mail_summary (collection, link_id, subject, sender) VALUES ('INBOX',
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "objects"), 0o755); err != nil {
+	blobPath := filepath.Join(dir, "objects", "ab", "cd", "abcd1234efgh5678")
+	if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	const blob = "From: alice@example.com\r\nSubject: Hello pimdir\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello body\r\n"
+	if err := os.WriteFile(blobPath, []byte(blob), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFindByObjectHashAndMessageID(t *testing.T) {
+	dir := t.TempDir()
+	initFixtureDB(t, dir)
+	r, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byHash, err := r.FindByObjectHash("abcd1234efgh5678")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byHash.Subject != "Hello pimdir" {
+		t.Fatalf("subject: %q", byHash.Subject)
+	}
+	byMID, err := r.FindByMessageID("<mid@example.com>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byMID.ObjectHash != "abcd1234efgh5678" {
+		t.Fatalf("hash: %q", byMID.ObjectHash)
+	}
+}
+
+func TestReadBlobAndResolveShowRef(t *testing.T) {
+	dir := t.TempDir()
+	initFixtureDB(t, dir)
+	r, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := r.ReadBlob("abcd1234efgh5678")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "Hello body") {
+		t.Fatalf("blob: %q", raw)
+	}
+	_, hash, err := r.ResolveShowRef("abcd1234efgh5678")
+	if err != nil || hash != "abcd1234efgh5678" {
+		t.Fatalf("hash ref: %v %q", err, hash)
+	}
+	_, hash, err = r.ResolveShowRef("<mid@example.com>")
+	if err != nil || hash != "abcd1234efgh5678" {
+		t.Fatalf("mid ref: %v %q", err, hash)
+	}
+}
+
+func TestDecodeMessagePreview(t *testing.T) {
+	raw := []byte("From: a@b.com\r\nSubject: T\r\nContent-Type: text/plain\r\n\r\nPlain text here.\r\n")
+	prev, err := DecodeMessagePreview(raw, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prev.Body, "Plain text here") {
+		t.Fatalf("body: %q", prev.Body)
 	}
 }

@@ -23,14 +23,7 @@ pimalaya:
   # Directory containing pimdir.db (Neverest account store)
   pimdir_path: ""
 
-emailops:
-  # Empty → ~/Library/Application Support/should-i-read/emailops (macOS)
-  data_dir: ""
-  # Empty → PATH / cargo debug under providers/emailops
-  cli_path: ""
-  # Empty → <repo>/providers/emailops
-  repo_path: ""
-  default_account: ""
+oauth:
   gmail_client_id: "${EMAILOPS_GMAIL_CLIENT_ID}"
   gmail_client_secret: "${EMAILOPS_GMAIL_CLIENT_SECRET}"
   outlook_client_id: "${EMAILOPS_OUTLOOK_CLIENT_ID}"

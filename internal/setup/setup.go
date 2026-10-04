@@ -2,7 +2,7 @@
 //
 // Flow: ensure config init → detect product/env credentials → BYO paste or
 // guided DIY (advanced) → store client ids in Keychain when available.
-// Mailbox tokens stay in EmailOps; this package never prints secret values.
+// Mailbox tokens stay in the local Neverest store; this package never prints secret values.
 package setup
 
 import (
@@ -200,12 +200,6 @@ func (w *Wizard) Run(ctx context.Context) (Result, error) {
 		}
 		configPath = path
 		created = wasCreated
-		dataDir := config.DefaultEmailOpsDataDir()
-		if dataDir != "" {
-			if err := os.MkdirAll(dataDir, 0o700); err != nil {
-				return Result{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "create default data dir").With("dir", dataDir)
-			}
-		}
 	} else {
 		path, err := config.UserConfigFilePath()
 		if err != nil {
@@ -249,11 +243,10 @@ func (w *Wizard) Run(ctx context.Context) (Result, error) {
 		Mode:       mode,
 		Status:     status,
 		NextSteps: []string{
-			"docs/pimalaya-setup.md — install Neverest, set pimalaya.pimdir_path",
-			"./bin/should-i-read token gmail login  # or token outlook login",
+			"make configure ARGS='--apply --provider gmail --email YOUR_EMAIL'",
 			"./bin/should-i-read config bump  # Polypus ${POLYPUS_BASE_URL} when needed",
-			"make polypus-check && make doctor && make sync",
-			"Legacy EmailOps: make emailops-ui then make emailops-sync (optional)",
+			"make polypus-check && make readiness && make sync",
+			"AGENTS.md — full operator sequence (host CLI only)",
 		},
 	}
 
@@ -312,7 +305,7 @@ func (w *Wizard) runGuided(ctx context.Context, res *Result) error {
 		}
 	}
 	if err := openGuidedDocs(ctx, w.browser, providers); err != nil {
-		res.Notes = append(res.Notes, "Could not open browser; see docs/oauth-product-apps.md and docs/emailops-setup.md.")
+		res.Notes = append(res.Notes, "Could not open browser; see docs/oauth-product-apps.md and docs/pimalaya-setup.md.")
 	} else {
 		res.Notes = append(res.Notes, "Opened guided Cloud Console / Entra documentation.")
 	}
@@ -321,7 +314,7 @@ func (w *Wizard) runGuided(ctx context.Context, res *Result) error {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "confirm paste")
 	}
 	if !ok {
-		res.Notes = append(res.Notes, "Skipped paste; run make setup again after creating the OAuth app.")
+		res.Notes = append(res.Notes, "Skipped paste; run should-i-read configure and fix the OAuth app credentials step.")
 		return nil
 	}
 	return w.storeProviders(ctx, providers, res)

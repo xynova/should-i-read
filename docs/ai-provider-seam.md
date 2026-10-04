@@ -1,77 +1,38 @@
-# EmailOps AI provider seam (Polypus)
+# AI provider seam (Polypus)
 
-Audit of how [`providers/emailops`](../providers/emailops) reaches models today, and what this host requires. No Jev wiring yet.
+Host product AI MUST go through Polypus only. No Jev wiring yet.
 
-**See also:** [emailops-ai-capabilities-roadmap.md](emailops-ai-capabilities-roadmap.md) (capability inventory and host roadmap), [pimalaya-ecosystem/INDEX.md](pimalaya-ecosystem/INDEX.md) (target mail store and CLI orchestration context).
+**See also:** [pimalaya-ecosystem/INDEX.md](pimalaya-ecosystem/INDEX.md) (mail store and CLI orchestration), [report-only-eval.md](report-only-eval.md) (unwanted-mail exit criteria). Architecture: `.cursor/rules/architecture.mdc`.
 
 ## Constraint
 
-Every host AI call MUST go through Polypus at the configured base URL: `polypus.base_url` in `~/.config/should-i-read/config.yaml`, expanded from `${POLYPUS_BASE_URL}` when set, otherwise `POLYPUS_BASE_URL` in the process environment, otherwise `http://127.0.0.1:1320`. Clients MUST NOT dial Cloudflare, LM Studio, OpenRouter cloud, or Ollama directly.
+Every host AI call MUST go through Polypus at the configured base URL: `polypus.base_url` in `~/.config/should-i-read/config.yaml`, expanded from `${POLYPUS_BASE_URL}` when set, otherwise `POLYPUS_BASE_URL` in the process environment, otherwise `http://127.0.0.1:1320`. Clients MUST NOT dial Cloudflare, LM Studio, OpenRouter cloud, Ollama, or other leaf vendors directly.
 
-## Upstream providers (as shipped)
+## Routes the host may use
 
-EmailOps resolves AI through `AiService::load_provider` in `src-tauri/src/services/ai.rs`. Provider kinds:
-
-| Kind | Implementation | Protocol | Base URL today | Host status |
-|------|----------------|----------|----------------|-------------|
-| `llamacpp` | Embedded GGUF runtime | in-process | n/a | **Blocked** for this host (bypasses gateway) |
-| `ollama` | `src-tauri/src/ai/ollama.rs` | Ollama `/api/*` | `OLLAMA_HOST` or `http://localhost:11434` | **Blocked** (wrong protocol for Polypus) |
-| `openrouter` | `src-tauri/src/ai/openrouter.rs` | OpenAI-ish `/v1/*` | Hardcoded `https://openrouter.ai/api/v1` | **Blocked** until base URL is injectable and points at Polypus |
-
-### Hardcoded OpenRouter base
-
-```13:15:providers/emailops/src-tauri/src/ai/openrouter.rs
-const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
-const APP_NAME: &str = "emailops";
-const APP_URL: &str = "https://github.com/emailops";
-```
-
-Chat, embeddings, and model list all concatenate onto that constant. There is no env override. Setting `OPENROUTER_API_KEY` alone still sends traffic to OpenRouter cloud, which violates the host contract.
-
-### Ollama cannot be a Polypus client
-
-Ollama uses `/api/chat`, `/api/generate`, `/api/embeddings`. Polypus exposes OpenAI-compatible `/v1/chat/completions`, `/v1/embeddings`, `/v1/models`. Pointing `OLLAMA_HOST` at `:1320` will fail.
-
-## Operation map (target)
-
-Once a Polypus-backed OpenAI-compatible provider exists in EmailOps (nested-repo change), map features as follows:
-
-| EmailOps operation | Preferred Polypus route | Notes |
-|--------------------|-------------------------|-------|
-| Chat / drafts / summaries | `POST /v1/chat/completions` | Model id from Polypus allow-list (`EMAILOPS_CHAT_MODEL`) |
-| Classification (`classify`) | `POST /v1/chat/completions` | Prefer a cheap/fast allow-listed model (`EMAILOPS_CLASSIFY_MODEL`) |
-| Embeddings (`embed`, semantic search) | `POST /v1/embeddings` | Must use an embedding-capable Polypus model (`EMAILOPS_EMBED_MODEL`) |
-| Model discovery / doctor | `GET /v1/models` | Enabled list only; inventory via `?view=inventory` when debugging |
+| Operation | Preferred Polypus route | Notes |
+|-----------|-------------------------|-------|
+| Chat / drafts / summaries / TLDR | `POST /v1/chat/completions` | Model id from Polypus allow-list |
+| Structured decisions (later Jev) | `POST /v1/chat/completions` (or Polypus Jev adapter) | Prefer a cheap/fast allow-listed model |
+| Embeddings / clustering features | `POST /v1/embeddings` | Embedding-capable Polypus model |
+| Model discovery | `GET /v1/models` | Enabled list; inventory via `?view=inventory` when debugging |
 | Health before AI | `GET /health` | Upstream probe: `GET /health/backends` |
-| Junk / spam heuristics | Local EmailOps `services/junk` (no LLM) | Keep; do not replace with silent remote calls |
-| Future Jev decisions | Via Polypus adapter (not EmailOps → TypeSafe direct) | See [report-only-eval.md](report-only-eval.md) |
 
-## Fail-closed behavior (host)
+## Fail-closed behavior
 
-Until the adapter lands:
+1. Probe Polypus with `./scripts/check-polypus.sh` (or `make polypus-check`) and stop if health or models fail.
+2. Do not configure OpenRouter cloud keys, Ollama hosts, or embedded llama.cpp for host product AI.
+3. Implement classify / Jev / cluster / TLDR as host Go that calls Polypus at `POLYPUS_BASE_URL`.
 
-1. Treat EmailOps AI features as unavailable for this host.
-2. Do not configure OpenRouter cloud keys to "make classify work."
-3. Do not use embedded llama.cpp as a temporary bypass.
-4. Probe Polypus with `./scripts/check-polypus.sh` and stop if health or models fail.
+## Preferred host path
 
-## Preferred host path (no nested EmailOps change)
-
-This host **does not** modify EmailOps. See `.cursor/rules/architecture.mdc` and skill `should-i-read-operator`.
-
-1. Use host CLI: `make build` then `./bin/should-i-read doctor|sync|emails|export`.
-2. Use EmailOps only as a black-box binary for sync and export (`emailops-cli --json`).
-3. Leave EmailOps AI settings unused for product features (embedded llama.cpp, OpenRouter, and Ollama stay off for this host).
-4. Implement classify / Jev / cluster / TLDR as later host Go that calls Polypus at `POLYPUS_BASE_URL`.
-
-## Optional upstream contribution (out of scope unless requested)
-
-A portable EmailOps change (OpenAI-compatible injectable base URL) would let the desktop app talk to Polypus. That is a nested-repo contribution, not required for the host report-only pipeline.
+1. Onboard with `make configure`, then day-2 `make readiness` / `make sync` / `make export` (`mail export`).
+2. Before AI work: `make polypus-check`.
+3. Keep unwanted-mail `report_only` until [report-only-eval.md](report-only-eval.md) exit criteria pass.
 
 ## Verification checklist
 
 - [ ] `curl -sf http://127.0.0.1:1320/health` succeeds
 - [ ] `curl -sS http://127.0.0.1:1320/v1/models` lists intended chat and embed ids
-- [ ] EmailOps provider base URL resolves to Polypus only (after adapter)
-- [ ] No process dials `openrouter.ai`, Cloudflare, or LM Studio from EmailOps
+- [ ] Host code dials only Polypus (no `openrouter.ai`, `:11434`, Cloudflare, LM Studio)
 - [ ] Unwanted-mail path remains `report_only`

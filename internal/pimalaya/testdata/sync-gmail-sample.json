@@ -1,0 +1,16 @@
+{
+  "account": "gmail",
+  "dryRun": false,
+  "collection": { "patch": [] },
+  "item": {
+    "patch": [
+      { "hunk": { "kind": "delete", "side": "imap", "collection": "INBOX", "id": "46720" }, "error": null },
+      { "hunk": { "kind": "fetch", "side": "imap", "collection": "INBOX", "id": "47981" }, "error": null },
+      { "hunk": { "kind": "fetch", "side": "imap", "collection": "INBOX", "id": "47982" }, "error": null },
+      { "hunk": { "kind": "delete", "side": "imap", "collection": "[Gmail]/All Mail", "id": "65243" }, "error": null },
+      { "hunk": { "kind": "fetch", "side": "imap", "collection": "[Gmail]/All Mail", "id": "66582" }, "error": null },
+      { "hunk": { "kind": "fetch", "side": "imap", "collection": "[Gmail]/Trash", "id": "49252" }, "error": null }
+    ]
+  },
+  "outstandingConflicts": 0
+}

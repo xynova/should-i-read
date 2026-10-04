@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Probe Polypus before EmailOps AI work. Fail closed on any error.
+# Probe Polypus before host AI work. Fail closed on any error.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${SHOULD_I_READ_BIN:-$ROOT/bin/should-i-read}"
-ENV_FILE="${EMAILOPS_POLYPUS_ENV:-$ROOT/config/emailops-polypus.env}"
+ENV_FILE="${SHOULD_I_READ_POLYPUS_ENV:-$ROOT/config/polypus-operator.env}"
 
-# Optional EmailOps-sidecar env (gitignored). Do not auto-source the example file:
-# it sets POLYPUS_BASE_URL=127.0.0.1:1320 and would override operator config.
+# Optional operator env (gitignored). Do not auto-source an example that pins localhost
+# when your live config points elsewhere.
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   set -a
@@ -78,4 +78,4 @@ if [[ "$count" == "0" ]]; then
   exit 1
 fi
 
-echo "OK: Polypus ready for EmailOps gateway traffic ($count enabled model(s))"
+echo "OK: Polypus ready for host AI traffic ($count enabled model(s))"

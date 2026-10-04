@@ -10,6 +10,29 @@ import (
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
+func TestResolveBinCargoHomeFallback(t *testing.T) {
+	dir := t.TempDir()
+	cargoHome := filepath.Join(dir, "cargo")
+	binDir := filepath.Join(cargoHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(binDir, "neverest")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CARGO_HOME", cargoHome)
+	t.Setenv("PATH", "/nonexistent")
+
+	got, err := ResolveBin("", "neverest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != script {
+		t.Fatalf("got %q want %q", got, script)
+	}
+}
+
 func TestAssertAllowed(t *testing.T) {
 	t.Parallel()
 	if err := AssertAllowed("neverest"); err != nil {

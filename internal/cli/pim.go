@@ -2,16 +2,20 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/xynova/should-i-read/internal/clui"
+	"github.com/xynova/should-i-read/internal/mailsync"
 	"github.com/xynova/should-i-read/internal/pimalaya"
-	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/sirerr"
 	"github.com/xynova/should-i-read/internal/triage"
@@ -19,14 +23,204 @@ import (
 
 func newPimCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pim",
-		Short: "Pimalaya lane (Neverest + pimdir snapshot)",
+		Use:        "pim",
+		Hidden:     true,
+		Deprecated: "use should-i-read mail (readiness, sync, export, show)",
+		Short:      "Deprecated mail internals; use mail subcommands",
 	}
+	cmd.AddCommand(newPimEnsureCmd(repoRoot))
+	cmd.AddCommand(newPimConfigureCmd(opts, repoRoot))
+	cmd.AddCommand(newPimInitCmd(opts, repoRoot))
 	cmd.AddCommand(newPimDoctorCmd(opts, repoRoot))
 	cmd.AddCommand(newPimSyncCmd(opts, repoRoot))
 	cmd.AddCommand(newPimSnapshotCmd(opts, repoRoot))
+	cmd.AddCommand(newPimShowCmd(opts, repoRoot))
 	cmd.AddCommand(newPimDigestCheckCmd(opts, repoRoot))
 	return cmd
+}
+
+func newPimEnsureCmd(repoRoot string) *cobra.Command {
+	var checkOnly bool
+	cmd := &cobra.Command{
+		Use:   "ensure",
+		Short: "Install or verify the mail sync dependency (host-managed)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPimEnsure(cmd.Context(), repoRoot, checkOnly)
+		},
+	}
+	cmd.Flags().BoolVar(&checkOnly, "check-only", false, "Verify only; do not install")
+	return cmd
+}
+
+func runPimEnsure(ctx context.Context, repoRoot string, checkOnly bool) error {
+	const op = "cli.pim.ensure"
+	if ctx == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	script := "install-neverest.sh"
+	if checkOnly {
+		script = "check-neverest.sh"
+	}
+	path := filepath.Join(repoRoot, "scripts", script)
+	c := exec.CommandContext(ctx, path)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	c.Env = os.Environ()
+	if err := c.Run(); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeUnavailable, op, "mail sync ensure failed").With("script", script)
+	}
+	return nil
+}
+
+func newPimConfigureCmd(opts *rootOptions, repoRoot string) *cobra.Command {
+	var (
+		provider  string
+		account   string
+		email     string
+		storeRoot string
+		force     bool
+		skipInit  bool
+	)
+	cmd := &cobra.Command{
+		Use:   "configure",
+		Short: "Write mail sync config and patch host operator config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPimConfigure(cmd, repoRoot, opts, pimConfigureFlags{
+				provider: provider, account: account, email: email,
+				storeRoot: storeRoot, force: force, skipInit: skipInit,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&provider, "provider", "", "Mail provider: gmail or outlook")
+	cmd.Flags().StringVar(&account, "account", "", "Sync account id (default: provider name)")
+	cmd.Flags().StringVar(&email, "email", "", "Mailbox address for IMAP XOAUTH2")
+	cmd.Flags().StringVar(&storeRoot, "store-root", "", "Override pimdir store directory")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing mail-sync.toml")
+	cmd.Flags().BoolVar(&skipInit, "skip-init", false, "Skip pimdir replica init")
+	return cmd
+}
+
+type pimConfigureFlags struct {
+	provider, account, email, storeRoot string
+	force, skipInit                      bool
+}
+
+func runPimConfigure(cmd *cobra.Command, repoRoot string, opts *rootOptions, flags pimConfigureFlags) error {
+	const op = "cli.pim.configure"
+	ctx := cmd.Context()
+	if ctx == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	providerRaw := strings.TrimSpace(flags.provider)
+	emailRaw := strings.TrimSpace(flags.email)
+	if providerRaw == "" || emailRaw == "" {
+		if !isTerminal(os.Stdin) {
+			return sirerr.New(sirerr.CodeInvalid, op, "provider and email required (or run from a TTY for prompts)")
+		}
+		var err error
+		if providerRaw == "" {
+			providerRaw, err = promptLine(cmd.ErrOrStderr(), "Mail provider (gmail/outlook): ")
+			if err != nil {
+				return err
+			}
+		}
+		if emailRaw == "" {
+			emailRaw, err = promptLine(cmd.ErrOrStderr(), "Mailbox email: ")
+			if err != nil {
+				return err
+			}
+		}
+	}
+	prov, err := mailsync.ParseProvider(providerRaw)
+	if err != nil {
+		return err
+	}
+	hostBin := filepath.Join(repoRoot, "bin", "should-i-read")
+	if _, statErr := os.Stat(hostBin); statErr != nil {
+		if exe, exeErr := os.Executable(); exeErr == nil {
+			hostBin = exe
+		}
+	}
+	svc, err := mailsync.Create(repoRoot, hostBin, nil)
+	if err != nil {
+		return err
+	}
+	res, err := svc.Configure(ctx, mailsync.Options{
+		Provider:  prov,
+		Account:   flags.account,
+		Email:     emailRaw,
+		StoreRoot: flags.storeRoot,
+		Force:     flags.force,
+		HostBin:   hostBin,
+		SkipInit:  flags.skipInit,
+	})
+	if err != nil {
+		var partial *mailsync.ConfigureError
+		if errors.As(err, &partial) && partial != nil {
+			if wantJSON(cmd) {
+				_ = printJSON(cmd.OutOrStdout(), partial.Result)
+			} else {
+				_, _ = io.WriteString(cmd.OutOrStdout(), formatMailConfigureResult(partial.Result)+"\n")
+			}
+		}
+		return err
+	}
+	if wantJSON(cmd) {
+		return printJSON(cmd.OutOrStdout(), res)
+	}
+	_, err = io.WriteString(cmd.OutOrStdout(), formatMailConfigureResult(res)+"\n")
+	return err
+}
+
+func newPimInitCmd(opts *rootOptions, repoRoot string) *cobra.Command {
+	var account string
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize the local pimdir replica for a sync account",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := opts.mustLoad(repoRoot)
+			if err != nil {
+				return err
+			}
+			acct := strings.TrimSpace(account)
+			if acct == "" {
+				acct = cfg.Pimalaya.DefaultAccount
+			}
+			if acct == "" {
+				return sirerr.New(sirerr.CodeInvalid, "cli.pim.init", "account required (flag or pimalaya.default_account)")
+			}
+			nev, err := pimalaya.CreateNeverest(cfg)
+			if err != nil {
+				return err
+			}
+			res, err := nev.Init(cmd.Context(), acct)
+			return finishPimalaya(cmd, opts, res, err, acct)
+		},
+	}
+	cmd.Flags().StringVar(&account, "account", "", "Sync account id")
+	return cmd
+}
+
+func isTerminal(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+func promptLine(w io.Writer, label string) (string, error) {
+	if w != nil {
+		fmt.Fprint(w, label)
+	}
+	var line string
+	if _, err := fmt.Fscanln(os.Stdin, &line); err != nil {
+		return "", sirerr.Wrap(err, sirerr.CodeFailed, "cli.prompt", "read line")
+	}
+	return strings.TrimSpace(line), nil
 }
 
 func newPimDigestCheckCmd(opts *rootOptions, repoRoot string) *cobra.Command {
@@ -53,31 +247,23 @@ func newPimDigestCheckCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 				FYI:            []triage.DigestEntry{},
 				Unwanted:       []triage.DigestEntry{},
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(art)
+			if wantJSON(cmd) {
+				return printJSON(cmd.OutOrStdout(), art)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), clui.FormatBox("Digest", "Report-only scaffold (empty)\n"+clui.Muted("mode report_only")))
+			return nil
 		},
 	}
 }
 
 func newPimDoctorCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	return &cobra.Command{
-		Use:   "doctor",
-		Short: "Run neverest check --json",
+		Use:        "doctor",
+		Hidden:     true,
+		Deprecated: "use should-i-read mail readiness",
+		Short:      "Check mail sync readiness",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := opts.mustLoad(repoRoot)
-			if err != nil {
-				return err
-			}
-			nev, err := pimalaya.CreateNeverest(cfg)
-			if err != nil {
-				return err
-			}
-			res, err := nev.Check(cmd.Context())
-			if res != nil {
-				_ = printPimalayaResult(res)
-			}
-			return err
+			return runMailReadiness(cmd, opts, repoRoot)
 		},
 	}
 }
@@ -85,29 +271,15 @@ func newPimDoctorCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 func newPimSyncCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var account string
 	cmd := &cobra.Command{
-		Use:   "sync",
-		Short: "Run neverest sync --json",
+		Use:        "sync",
+		Hidden:     true,
+		Deprecated: "use should-i-read mail sync",
+		Short:      "Sync mail into the local pimdir store",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := opts.mustLoad(repoRoot)
-			if err != nil {
-				return err
-			}
-			acct := account
-			if acct == "" {
-				acct = cfg.Pimalaya.DefaultAccount
-			}
-			nev, err := pimalaya.CreateNeverest(cfg)
-			if err != nil {
-				return err
-			}
-			res, err := nev.Sync(cmd.Context(), acct)
-			if res != nil {
-				_ = printPimalayaResult(res)
-			}
-			return err
+			return runMailSync(cmd, opts, repoRoot, account)
 		},
 	}
-	cmd.Flags().StringVar(&account, "account", "", "Neverest account id")
+	cmd.Flags().StringVar(&account, "account", "", "Mail account id from sync config")
 	return cmd
 }
 
@@ -118,8 +290,10 @@ func newPimSnapshotCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 		store   string
 	)
 	cmd := &cobra.Command{
-		Use:   "snapshot",
-		Short: "Export recent mail summaries from pimdir SQLite (report-only)",
+		Use:        "snapshot",
+		Hidden:     true,
+		Deprecated: "use should-i-read mail export",
+		Short:      "Export recent mail summaries from pimdir SQLite (report-only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := opts.mustLoad(repoRoot)
 			if err != nil {
@@ -129,7 +303,7 @@ func newPimSnapshotCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 			if dir == "" {
 				dir = cfg.Pimalaya.PimdirPath
 			}
-			return runPimSnapshot(cmd.Context(), repoRoot, dir, limit, outPath, cfg.PolypusBaseURL)
+			return runMailExport(cmd, repoRoot, dir, limit, outPath, cfg.PolypusBaseURL)
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 25, "Max messages")
@@ -138,62 +312,33 @@ func newPimSnapshotCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	return cmd
 }
 
-type pimSnapshotArtifact struct {
-	Mode           string              `json:"mode"`
-	ExportedAt     string              `json:"exported_at"`
-	StoreDir       string              `json:"store_dir"`
-	PolypusBaseURL string              `json:"polypus_base_url"`
-	Count          int                 `json:"count"`
-	Emails         []pimdir.EmailSummary `json:"emails"`
+func newPimShowCmd(opts *rootOptions, repoRoot string) *cobra.Command {
+	var (
+		store    string
+		raw      bool
+		maxBody  int
+	)
+	cmd := &cobra.Command{
+		Use:        "show <ref>",
+		Hidden:     true,
+		Deprecated: "use should-i-read mail show",
+		Short:      "Show one synced message body from the local pimdir store",
+		Args:       cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := opts.mustLoad(repoRoot)
+			if err != nil {
+				return err
+			}
+			dir := store
+			if dir == "" {
+				dir = cfg.Pimalaya.PimdirPath
+			}
+			return runMailShow(cmd.Context(), cmd.OutOrStdout(), dir, args[0], raw, maxBody)
+		},
+	}
+	cmd.Flags().StringVar(&store, "store", "", "Pimdir store directory (overrides config)")
+	cmd.Flags().BoolVar(&raw, "raw", false, "Write full RFC822 blob bytes to stdout")
+	cmd.Flags().IntVar(&maxBody, "max-body", 8192, "Max body bytes in default preview mode")
+	return cmd
 }
 
-func runPimSnapshot(ctx context.Context, repoRoot, storeDir string, limit int, outPath, polypusURL string) error {
-	const op = "cli.pim.snapshot"
-	_ = ctx
-	reader, err := pimdir.OpenStore(storeDir)
-	if err != nil {
-		return err
-	}
-	emails, err := reader.ListRecentEmails(limit)
-	if err != nil {
-		return err
-	}
-	art := pimSnapshotArtifact{
-		Mode:           "report_only",
-		ExportedAt:     time.Now().UTC().Format(time.RFC3339),
-		StoreDir:       storeDir,
-		PolypusBaseURL: polypusURL,
-		Count:          len(emails),
-		Emails:         emails,
-	}
-	out := outPath
-	if out == "" {
-		tmpDir := filepath.Join(repoRoot, "tmp")
-		if err := os.MkdirAll(tmpDir, 0o755); err != nil {
-			return sirerr.Wrap(err, sirerr.CodeFailed, op, "create tmp dir")
-		}
-		out = filepath.Join(tmpDir, fmt.Sprintf("pim-snapshot-%s.json", time.Now().UTC().Format("20060102T150405Z")))
-	}
-	raw, err := json.MarshalIndent(art, "", "  ")
-	if err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "encode artifact")
-	}
-	if err := os.WriteFile(out, append(raw, '\n'), 0o644); err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write artifact").With("path", out)
-	}
-	fmt.Fprintf(os.Stdout, "{\"ok\":true,\"path\":%q,\"count\":%d}\n", out, art.Count)
-	return nil
-}
-
-func printPimalayaResult(res *pimalaya.Result) error {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	if len(res.Raw) > 0 {
-		return enc.Encode(json.RawMessage(res.Raw))
-	}
-	return enc.Encode(map[string]any{
-		"ok":     res.OK,
-		"exit":   res.Exit,
-		"stderr": res.Stderr,
-	})
-}

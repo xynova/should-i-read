@@ -10,7 +10,7 @@ Decide whether a Jev-backed filter is accurate enough to justify quarantine late
 
 | Component | Owns | Does not own |
 |-----------|------|--------------|
-| EmailOps | Sync, local storage, CLI export of headers/bodies, existing junk heuristics | Direct Jev or OpenRouter calls |
+| Host mail lane (Neverest + pimdir) | Sync, local storage, mail export of headers/bodies | Direct Jev or OpenRouter calls |
 | Polypus | All model HTTP (`/v1/*`), allow-lists, breakers | Mailbox semantics |
 | Jev (later, via Polypus) | Typed decisions (noul / choice / score) for spam, phishing, newsletter, urgency | Free-form TLDR prose |
 | Chat/summary model (via Polypus) | Cluster TLDR text | Binary keep/drop decisions |
@@ -19,8 +19,8 @@ Decide whether a Jev-backed filter is accurate enough to justify quarantine late
 
 ```mermaid
 flowchart TD
-  sync[EmailOps sync]
-  export[Export candidates]
+  sync[mail sync]
+  export[mail export]
   jev[Jev via Polypus]
   cluster[Cluster by features]
   tldr[TLDR via Polypus chat]
@@ -32,15 +32,15 @@ flowchart TD
   tldr --> report
 ```
 
-1. Sync mail with EmailOps (`emailops-cli sync`). Prefer a bounded sample (account + date window).
-2. Export message ids, subject, from, list-id, and a truncated body into a host-owned artifact under `tmp/` (gitignored).
+1. Sync mail with `make sync` (pim). Prefer a bounded sample (account + date window).
+2. Snapshot message ids, subject, from, list-id, and a truncated body into a host-owned artifact under `tmp/` (gitignored) via `make export`.
 3. For each message, ask Jev (through Polypus) structured questions, for example:
    - `is_unwanted` (noul)
    - `category` (choice: legitimate, spam, phishing, newsletter, promo, other)
    - `urgency` (score)
 4. Cluster high-`is_unwanted` messages by normalized sender domain and/or embedding similarity (embeddings also via Polypus). Assign `cluster_id`.
 5. For each cluster, call a chat model through Polypus with representatives only; ask for a short TLDR (why unwanted, common senders, suggested future action).
-6. Write `tmp/unwanted-report-<timestamp>.json` and a human-readable markdown summary. **No EmailOps trash/spam/delete API calls.**
+6. Write `tmp/unwanted-report-<timestamp>.json` and a human-readable markdown summary. **No mailbox trash/spam/delete API calls.**
 
 ## Output schema (minimum)
 
@@ -86,17 +86,16 @@ flowchart TD
 - Permanent deletion
 - Marking messages read
 - Training on full mailbox without a sampled window
-- Calling TypeSafe / Jev from EmailOps without Polypus
+- Calling TypeSafe / Jev without Polypus
 
 ## Exit criteria to unlock quarantine later
 
 - Evaluation set of at least 100 labeled messages (human-checked)
 - Precision on `is_unwanted` for the auto-flag band meets an agreed target (set after first report)
 - Zero false-positive phishing misses on the eval set for the auto-flag band, or documented accepted risk
-- Operator can reproduce the report from CLI with Polypus up and EmailOps synced
+- Operator can reproduce the report from CLI with Polypus up and mail synced
 
 ## Next implementation slice (after this docs milestone)
 
-1. Land EmailOps OpenAI-compatible base URL → Polypus (nested repo).
-2. Add a host report runner that reads CLI `--json` exports and writes the artifact above.
-3. Wire Jev behind Polypus; keep EmailOps unaware of TypeSafe URLs.
+1. Add a host report runner that reads mail export JSON and writes the artifact above.
+2. Wire Jev behind Polypus; keep TypeSafe URLs out of mail tooling.
