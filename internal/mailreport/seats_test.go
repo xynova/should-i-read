@@ -31,7 +31,7 @@ func TestPolypusJudge_Decide_noulPerOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seats, err := CreateSeats(client, "cf_local/typesafe/jev", "cf_local/gemma")
+	seats, err := CreateSeats(SeatsConfig{Client: client, JudgeModel: "cf_local/typesafe/jev", AuthorModel: "cf_local/gemma"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestPolypusJudge_Decide_skipOnTie(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seats, err := CreateSeats(client, "jev", "chat")
+	seats, err := CreateSeats(SeatsConfig{Client: client, JudgeModel: "jev", AuthorModel: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestPolypusJudge_Decide_skipOnUseSiblingTie(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seats, err := CreateSeats(client, "jev", "chat")
+	seats, err := CreateSeats(SeatsConfig{Client: client, JudgeModel: "jev", AuthorModel: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestPolypusJudge_Decide_gateRejectOnTie(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seats, err := CreateSeats(client, "jev", "chat")
+	seats, err := CreateSeats(SeatsConfig{Client: client, JudgeModel: "jev", AuthorModel: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestCreateSeats_emptyJudge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CreateSeats(c, "", "chat"); err == nil {
+	if _, err := CreateSeats(SeatsConfig{Client: c, AuthorModel: "chat"}); err == nil {
 		t.Fatal("expected error")
 	}
 }

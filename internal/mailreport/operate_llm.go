@@ -43,6 +43,13 @@ func formatOperateContent(res harness.Result, opErr error) string {
 	writeField(&b, fieldLabel, labelFromResult(res))
 	writeField(&b, fieldSource, sourceFromResult(res))
 	writeField(&b, fieldJudgeScore, strconv.FormatFloat(res.JudgeScore, 'f', -1, 64))
+	writeField(&b, "strategy", string(res.Strategy))
+	writeField(&b, "kind", res.Kind)
+	writeField(&b, "about", res.About)
+	writeField(&b, "shape", res.Shape)
+	writeField(&b, "cosine", strconv.FormatFloat(res.Cosine, 'f', -1, 64))
+	writeField(&b, "canonical_term_id", res.CanonicalID)
+	writeField(&b, "reinforced", strconv.FormatBool(res.Reinforced))
 	if opErr != nil {
 		writeField(&b, fieldError, opErr.Error())
 	} else {

@@ -155,12 +155,13 @@ Fetch hunk `collection` + `id` (IMAP UID string) resolve in pimdir by `imap/<col
 | `should-i-read token outlook` | Access token for mail sync XOAUTH2 (MSAL silent refresh) |
 | `should-i-read token outlook status` | Redacted client + MSAL cache status |
 | `should-i-read polypus check` | Fail-closed Polypus probe (`POLYPUS_BASE_URL` / config) |
+| `should-i-read polypus check --classify` | Above plus SystemOne judge smoke and chat author pick |
 
 Exit **7** means the sync engine returned exit **2** (needs human review: conflicts, duplicates, blocked writes). Mailbox is unchanged.
 
 ## Polypus
 
-All AI uses `POLYPUS_BASE_URL` (default `http://127.0.0.1:1320` when unset). Classify Judge uses `POST /v1/systemone` (`polypus.judge_model` or first `typesafe/jev` model). Author uses chat (`polypus.classify_model` or first non-jev model). See [ai-provider-seam.md](ai-provider-seam.md).
+All AI uses `POLYPUS_BASE_URL` (default `http://127.0.0.1:1320` when unset). Classify Judge uses `POST /v1/systemone` with auto-discovery when `polypus.judge_model` is empty (catalog `typesafe/jev` id, then off-catalog probes; JEV may be missing from `/v1/models` when gateway sync lists only chat/TTS/STT). Author uses chat (`polypus.classify_model` or first chat-like catalog id). See [ai-provider-seam.md](ai-provider-seam.md).
 
 ## Maintainer mapping
 

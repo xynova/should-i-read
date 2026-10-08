@@ -12,7 +12,7 @@ Decide whether taxonomy-backed classification is accurate enough to justify quar
 |-----------|------|--------------|
 | Host mail lane (Neverest + pimdir) | Sync, local storage, post-sync classify, mail export | Direct OpenRouter or TypeSafe calls |
 | Polypus | All model HTTP (`/v1/*`), allow-lists, breakers | Mailbox semantics |
-| Taxonomy harness (host seats) | Judge via Polypus SystemOne (JEV); Author via chat; catalog `inbox-mail` | Mailbox mutation |
+| Taxonomy harness (host seats) | Walk: Judge + Author on `inbox-mail`. Attach: Essence + embed + optional Walk reinforce on `inbox-kind` | Mailbox mutation |
 | Chat/summary model (via Polypus, later) | Cluster TLDR text | Per-message leaf assignment (current slice) |
 
 ## Pipeline (report only)
@@ -33,8 +33,8 @@ flowchart TD
 ```
 
 1. Sync mail with `make sync`. After a successful fetch, the host classifies newly fetched unique messages (cap per `taxonomy.classify_max`; use `--no-classify` to skip). Polypus down after sync: replica stays; classify skipped; exit 0.
-2. Resume or backfill with `make report` / `should-i-read mail report` (lists recent pimdir rows or reads `--in` export JSON). Requires Polypus up (fail closed).
-3. For each message, taxonomy `Operate` walks the catalog (Judge SystemOne noul per sibling at each hop) then optional Author + gate through Polypus chat JSON. Report rows include `path` (branch ids to leaf). Accepted drafts update `~/.config/should-i-read/vocabularies/inbox-mail.yaml` unless `--no-apply`.
+2. Resume or backfill with `make report` / `should-i-read mail report` (lists recent pimdir rows or reads `--in` export JSON). Requires Polypus up (fail closed) and a SystemOne judge resolved via `polypus check --classify` or successful in-process discovery.
+3. For each message, taxonomy `Operate` runs **walk** (default) or **attach** (`taxonomy.strategy: attach`). Walk: Judge SystemOne noul per sibling at each hop, then optional Author + gate via Polypus chat. Attach: Five Whys Essence chat, embeddings, cosine alias or Walk reinforce or breadcrumb create on `inbox-kind`. Report rows include `path`, and attach rows add `kind`, `about`, `shape`, `cosine`, `canonical_term_id`, `reinforced`. Accepted drafts update the active catalog YAML unless `--no-apply`.
 4. **Later:** cluster by sender domain and/or embeddings via Polypus; TLDR per cluster.
 5. Write `tmp/unwanted-report-<timestamp>.json`. **No mailbox trash/spam/delete API calls.**
 
@@ -91,11 +91,15 @@ flowchart TD
 - Zero false-positive phishing misses on the eval set for the auto-flag band, or documented accepted risk
 - Operator can reproduce the report from CLI with Polypus up and mail synced
 
-## Shipped slice (taxonomy v0.1.1)
+## Shipped slice (taxonomy v0.3.0+)
 
 - Post-sync classify on fetch hunks; `mail report` for resume/backfill.
+- Pre-AI: INBOX (or `taxonomy.collections`) item pick, RFC822 header heuristics, senders `MatchFields` / `LearnExact` (`taxonomy.senders_path`), then taxonomy `Operate` for misses (walk on `inbox-mail`, attach on `inbox-kind`).
+- `taxonomy.strategy`: `walk` (default) or `attach` (requires `polypus.embed_model` and Essence chat; Operate timeout 180s). Thresholds: `attach_min_cosine` (0.80), `walk_reinforce_min` (0.70).
+- `taxonomy.classify_max` caps **Judge/Operate hops** only; heuristic and `sender_catalog` rows do not consume the cap.
+- `taxonomy.author_on_skip: false` (default) skips Author chat on Judge skip; set `true` to restore draft proposals. When Author runs, the host cleans the latest body (reply parser + line denoise + extractive cap) before Granite sees it; bulk classify remains pre-AI + JEV.
 - Strop `JobRunner` generator `mail_classify` wraps taxonomy `Operate`; Polypus HTTP only inside Judge/Author seats.
-- Artifacts: `tmp/unwanted-report-*.json`, progress `tmp/mail-classify-progress.json`.
+- Artifacts: `tmp/unwanted-report-*.json`, progress `tmp/mail-classify-progress.json` (rows include `source`: `heuristic`, `sender_catalog`, or `judge`). When `taxonomy.pre_ai` loads senders, each row may also include `sender_term_id`, `sender_label`, and `sender_maps_to` from senders `MatchFields` (independent of inbox `source`, so `source: heuristic` can still carry a senders term). Artifact `senders_catalog_id` is set when the senders catalog is loaded; stale progress entries without sender keys stay empty until that hash is reclassified or progress is cleared.
 
 ## Next implementation slice
 

@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/mailreport"
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/setup"
 	"github.com/xynova/should-i-read/internal/sirerr"
@@ -331,7 +332,8 @@ func newPolypusCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 		Use:   "polypus",
 		Short: "Polypus gateway helpers",
 	}
-	cmd.AddCommand(&cobra.Command{
+	var classifyCheck bool
+	check := &cobra.Command{
 		Use:   "check",
 		Short: "Fail-closed /health and /v1/models probe",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -347,12 +349,31 @@ func newPolypusCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if classifyCheck {
+				resolveCtx, cancel := context.WithTimeout(cmd.Context(), 45*time.Second)
+				defer cancel()
+				judge, src, err := mailreport.ResolveJudgeModel(resolveCtx, client, result.ModelIDs, cfg.PolypusJudgeModel)
+				if err != nil {
+					return err
+				}
+				author, authorSrc, err := mailreport.ResolveAuthorModel(resolveCtx, client, result.ModelIDs, cfg.PolypusClassifyModel)
+				if err != nil {
+					return err
+				}
+				result.ClassifyReady = true
+				result.JudgeModel = judge
+				result.JudgeSource = string(src)
+				result.AuthorModel = author
+				result.AuthorSource = string(authorSrc)
+			}
 			if wantJSON(cmd) {
 				return printJSON(cmd.OutOrStdout(), result)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), formatPolypusHealth(result))
+			fmt.Fprintln(cmd.OutOrStdout(), formatPolypusHealth(result, classifyCheck))
 			return nil
 		},
-	})
+	}
+	check.Flags().BoolVar(&classifyCheck, "classify", false, "Smoke SystemOne judge and chat author for classify")
+	cmd.AddCommand(check)
 	return cmd
 }

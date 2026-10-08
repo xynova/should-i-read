@@ -41,24 +41,85 @@ type authorJSON struct {
 	Alias       string `json:"alias"`
 }
 
-// CreateSeats wires Polypus SystemOne Judge and chat Author.
-func CreateSeats(client *polypus.Client, judgeModel, authorModel string) (Seats, error) {
+type polypusEssencer struct {
+	client *polypus.Client
+	model  string
+}
+
+func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (harness.EssenceOut, error) {
+	const op = "mailreport.polypusEssencer.Essence"
+	if e == nil || e.client == nil {
+		return harness.EssenceOut{}, sirerr.New(sirerr.CodeInvalid, op, "nil essencer")
+	}
+	ctx, span := startSeatSpan(ctx, "mailreport.Essence", e.model)
+	var out harness.EssenceOut
+	var retErr error
+	defer func() { endSeatSpan(span, retErr) }()
+	messageText := AuthorMessageBody(in.Text)
+	prompt := strings.TrimSpace(in.WorldContext) + "\n\nMessage:\n" + messageText
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		content, err := e.client.Chat(ctx, polypus.ChatRequest{
+			Model:       e.model,
+			Temperature: 0,
+			Messages: []polypus.ChatMessage{
+				{Role: "system", Content: essenceSystemPrompt},
+				{Role: "user", Content: prompt},
+			},
+		})
+		if err != nil {
+			code := sirerr.CodeAI
+			if c, ok := sirerr.AsCode(err); ok && c == sirerr.CodeUnavailable {
+				code = sirerr.CodeUnavailable
+			}
+			retErr = sirerr.Wrap(err, code, op, "essence chat")
+			return harness.EssenceOut{}, retErr
+		}
+		parsed, err := parseEssenceResponse(content)
+		if err == nil {
+			out = parsed
+			return out, nil
+		}
+		lastErr = err
+	}
+	retErr = sirerr.Wrap(lastErr, sirerr.CodeAI, op, "essence parse after retries")
+	return harness.EssenceOut{}, retErr
+}
+
+// SeatsConfig wires Polypus models for taxonomy seats.
+type SeatsConfig struct {
+	Client       *polypus.Client
+	JudgeModel   string
+	AuthorModel  string
+	EssenceModel string
+	Embedder     harness.Embedder
+}
+
+// CreateSeats wires Polypus SystemOne Judge and chat Author (optional Essencer/Embedder).
+func CreateSeats(cfg SeatsConfig) (Seats, error) {
 	const op = "mailreport.CreateSeats"
-	if client == nil {
+	if cfg.Client == nil {
 		return Seats{}, sirerr.New(sirerr.CodeInvalid, op, "nil polypus client")
 	}
-	judgeModel = strings.TrimSpace(judgeModel)
-	authorModel = strings.TrimSpace(authorModel)
+	judgeModel := strings.TrimSpace(cfg.JudgeModel)
+	authorModel := strings.TrimSpace(cfg.AuthorModel)
+	essenceModel := strings.TrimSpace(cfg.EssenceModel)
 	if judgeModel == "" {
 		return Seats{}, sirerr.New(sirerr.CodeInvalid, op, "judge model id is empty")
 	}
 	if authorModel == "" {
 		return Seats{}, sirerr.New(sirerr.CodeInvalid, op, "author model id is empty")
 	}
-	return Seats{
-		Judge:  &polypusJudge{client: client, model: judgeModel},
-		Author: &polypusAuthor{client: client, model: authorModel},
-	}, nil
+	out := Seats{
+		Judge:  &polypusJudge{client: cfg.Client, model: judgeModel},
+		Author: &polypusAuthor{client: cfg.Client, model: authorModel},
+	}
+	if essenceModel != "" {
+		out.Essencer = &polypusEssencer{client: cfg.Client, model: essenceModel}
+	}
+	out.Embedder = cfg.Embedder
+	return out, nil
 }
 
 const maxJudgeNoulQuestions = 64
@@ -207,21 +268,31 @@ func decideFromNoul(op string, options []harness.PackedOption, allowed map[strin
 
 func (a *polypusAuthor) Draft(ctx context.Context, in harness.DraftIn) (harness.DraftOut, error) {
 	const op = "mailreport.polypusAuthor.Draft"
-	prompt := buildAuthorPrompt(in, formatAuthorLeavesScoped(a.cat, in.Parents))
+	leafLines := formatAuthorLeavesScoped(a.cat, in.Parents)
+	messageText := AuthorMessageBody(in.Text)
+	prompt := buildAuthorPrompt(in, leafLines, messageText)
 	content, err := a.client.Chat(ctx, polypus.ChatRequest{
 		Model:       a.model,
 		Temperature: 0,
 		Messages: []polypus.ChatMessage{
-			{Role: "system", Content: "Reply with JSON only. Prefer kind alias when an existing leaf fits. kind is alias or new_leaf. For alias include leafId and alias. For new_leaf include id (kebab-case), parent (branch id), label, description."},
+			{Role: "system", Content: authorSystemPrompt},
 			{Role: "user", Content: prompt},
 		},
 	})
 	if err != nil {
-		return harness.DraftOut{}, sirerr.Wrap(err, sirerr.CodeAI, op, "author chat")
+		code := sirerr.CodeAI
+		if c, ok := sirerr.AsCode(err); ok && c == sirerr.CodeUnavailable {
+			code = sirerr.CodeUnavailable
+		}
+		return harness.DraftOut{}, sirerr.Wrap(err, code, op, "author chat").
+			With("chat_model", a.model)
 	}
 	var parsed authorJSON
 	if err := decodeJSONContent(content, &parsed); err != nil {
 		return harness.DraftOut{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "parse author json")
+	}
+	if err := validateAuthorDraft(a.cat, in.Parents, parsed); err != nil {
+		return harness.DraftOut{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "validate author draft")
 	}
 	return harness.DraftOut{
 		Kind:        strings.TrimSpace(parsed.Kind),
@@ -232,23 +303,6 @@ func (a *polypusAuthor) Draft(ctx context.Context, in harness.DraftIn) (harness.
 		LeafID:      strings.TrimSpace(parsed.LeafID),
 		Alias:       strings.TrimSpace(parsed.Alias),
 	}, nil
-}
-
-func buildAuthorPrompt(in harness.DraftIn, leafLines string) string {
-	var b strings.Builder
-	b.WriteString("World context:\n")
-	b.WriteString(in.WorldContext)
-	b.WriteString("\n\nMessage:\n")
-	b.WriteString(in.Text)
-	b.WriteString("\n\nReason for author:\n")
-	b.WriteString(in.Reason)
-	b.WriteString("\n\nExisting leaves (prefer alias onto one of these):\n")
-	b.WriteString(leafLines)
-	b.WriteString("\n\nBranches:\n")
-	for _, p := range in.Parents {
-		fmt.Fprintf(&b, "- parent=%s label=%s\n", p.ParentID, p.Label)
-	}
-	return b.String()
 }
 
 func decodeJSONContent(content string, dest any) error {

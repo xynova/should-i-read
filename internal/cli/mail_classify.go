@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/behaviorengineering/strop/pkg/embed"
+	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 	"github.com/spf13/cobra"
 
@@ -73,7 +75,7 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 	if err != nil {
 		return err
 	}
-	items, err := loadReportItems(reader, inPath, limit, cOpts.maxBody)
+	items, err := loadReportItems(reader, inPath, limit, cOpts.maxBody, cfg.Taxonomy.Collections)
 	if err != nil {
 		return err
 	}
@@ -156,6 +158,9 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		catalogPath = cfg.Taxonomy.CatalogPath
 	}
 	seed := config.SeedCatalogPath(repoRoot)
+	if cfg.Taxonomy.Strategy == "attach" {
+		seed = config.SeedKindCatalogPath(repoRoot)
+	}
 	if err := mailreport.EnsureCatalog(catalogPath, seed); err != nil {
 		return nil, "", err
 	}
@@ -174,24 +179,74 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		}
 		return nil, "", classifySkipErr(err)
 	}
-	judge, author := mailreport.PickJudgeAndAuthorModels(health.ModelIDs, cfg.PolypusJudgeModel, cfg.PolypusClassifyModel)
-	if judge == "" {
+	resolveCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	judge, _, err := mailreport.ResolveJudgeModel(resolveCtx, client, health.ModelIDs, cfg.PolypusJudgeModel)
+	if err != nil {
 		if failClosed {
-			return nil, "", sirerr.New(sirerr.CodeUnavailable, op, "no jev model")
+			return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "resolve judge model")
 		}
-		return nil, "", classifySkipErr(sirerr.New(sirerr.CodeUnavailable, op, "no jev model"))
+		return nil, "", classifySkipErr(err)
 	}
-	if author == "" {
+	author, _, err := mailreport.ResolveAuthorModel(resolveCtx, client, health.ModelIDs, cfg.PolypusClassifyModel)
+	if err != nil {
 		if failClosed {
-			return nil, "", sirerr.New(sirerr.CodeUnavailable, op, "no classify chat model")
+			return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "resolve author model")
 		}
-		return nil, "", classifySkipErr(sirerr.New(sirerr.CodeUnavailable, op, "no classify chat model"))
+		return nil, "", classifySkipErr(err)
 	}
-	seats, err := mailreport.CreateSeats(client, judge, author)
+	essenceModel := author
+	embedModel := ""
+	var embedSeat harness.Embedder
+	if cfg.Taxonomy.Strategy == "attach" {
+		embedFac := mailreport.NewStropEmbedFactory()
+		embedModel, err = mailreport.ResolveEmbedModel(resolveCtx, embedFac, cfg.PolypusBaseURL, health.ModelIDs, cfg.PolypusEmbedModel)
+		if err != nil {
+			if failClosed {
+				return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "resolve embed model")
+			}
+			return nil, "", classifySkipErr(err)
+		}
+		stropEmb, err := embedFac.CreateEmbedder(resolveCtx, cfg.PolypusBaseURL, embedModel)
+		if err != nil {
+			if failClosed {
+				return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "create embedder")
+			}
+			return nil, "", classifySkipErr(err)
+		}
+		embedSeat = mailreport.NewStropEmbedSeat(stropEmb, embedModel)
+	}
+	seats, err := mailreport.CreateSeats(mailreport.SeatsConfig{
+		Client:       client,
+		JudgeModel:   judge,
+		AuthorModel:  author,
+		EssenceModel: essenceModel,
+		Embedder:     embedSeat,
+	})
 	if err != nil {
 		return nil, "", err
 	}
-	h, err := harness.CreateHarness(harness.Config{Judge: seats.Judge, Author: seats.Author})
+	authorSeat := seats.Author
+	if !cfg.Taxonomy.AuthorOnSkip {
+		authorSeat = mailreport.NoopAuthor()
+	}
+	if os.Getenv("SHOULD_I_READ_TRY_MIN_JUDGE") == "0.80" {
+		authorSeat = seats.Author
+	}
+	hCfg := harness.Config{
+		Judge:         seats.Judge,
+		Author:        authorSeat,
+		MinJudgeScore: tryMinJudgeScore(),
+	}
+	if cfg.Taxonomy.Strategy == "attach" {
+		hCfg.Strategy = harness.StrategyAttach
+		hCfg.Embedder = seats.Embedder
+		hCfg.Essencer = seats.Essencer
+		hCfg.AttachMinCosine = cfg.Taxonomy.AttachMinCosine
+		hCfg.WalkReinforceMin = cfg.Taxonomy.WalkReinforceMin
+		hCfg.Cosine = embed.CosineSimilarity
+	}
+	h, err := harness.CreateHarness(hCfg)
 	if err != nil {
 		return nil, "", sirerr.Wrap(err, sirerr.CodeFailed, op, "create harness")
 	}
@@ -202,18 +257,47 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	if err != nil {
 		return nil, "", err
 	}
+	sendersPath := cfg.Taxonomy.SendersPath
+	sendersSeed := config.SeedSendersPath(repoRoot)
+	if err := mailreport.EnsureCatalog(sendersPath, sendersSeed); err != nil {
+		return nil, "", err
+	}
+	var sendersVocab catalog.Vocabulary
+	var sendersCat *catalog.Catalog
+	if cfg.Taxonomy.PreAI {
+		sendersCat, sendersVocab, err = mailreport.LoadCatalog(sendersPath)
+		if err != nil {
+			return nil, "", err
+		}
+	}
 	progress := filepath.Join(repoRoot, "tmp", "mail-classify-progress.json")
+	preAI := cfg.Taxonomy.PreAI
+	authorOnSkip := cfg.Taxonomy.AuthorOnSkip
+	if os.Getenv("SHOULD_I_READ_TRY_MIN_JUDGE") == "0.80" {
+		progress = filepath.Join(repoRoot, "tmp", "seek-minjudge80-progress.json")
+		preAI = false
+		authorOnSkip = true
+	}
 	runner, err := mailreport.CreateRunner(mailreport.RunnerConfig{
-		Harness:      h,
-		Seats:        seats,
-		Pipeline:     pipe,
-		CatalogPath:  catalogPath,
-		ApplyCatalog: !cOpts.noApply,
-		ProgressPath: progress,
-		ClassifyMax:  cfg.Taxonomy.ClassifyMax,
-		PolypusURL:   cfg.PolypusBaseURL,
-		JudgeModel:   judge,
-		AuthorModel:  author,
+		Harness:          h,
+		Seats:            seats,
+		Pipeline:         pipe,
+		CatalogPath:      catalogPath,
+		ApplyCatalog:     !cOpts.noApply,
+		ProgressPath:     progress,
+		ClassifyMax:      cfg.Taxonomy.ClassifyMax,
+		PolypusURL:       cfg.PolypusBaseURL,
+		JudgeModel:       judge,
+		AuthorModel:      author,
+		EmbedModel:       embedModel,
+		Strategy:         cfg.Taxonomy.Strategy,
+		AttachMinCosine:  cfg.Taxonomy.AttachMinCosine,
+		WalkReinforceMin: cfg.Taxonomy.WalkReinforceMin,
+		PreAI:            preAI,
+		AuthorOnSkip:     authorOnSkip,
+		SendersPath:      sendersPath,
+		SendersVocab:     sendersVocab,
+		SendersCat:       sendersCat,
 	}, vocab, cat)
 	if err != nil {
 		return nil, "", err
@@ -242,55 +326,48 @@ func itemsFromFetchHunks(reader *pimdir.Reader, hunks []pimalaya.HunkRef, maxBod
 			unresolved++
 			continue
 		}
-		hash := strings.TrimSpace(sum.ObjectHash)
-		if hash == "" {
+		if strings.TrimSpace(sum.ObjectHash) == "" {
 			unresolved++
 			continue
 		}
-		body := ""
-		if blob, err := reader.ReadBlob(hash); err == nil {
-			if prev, err := pimdir.DecodeMessagePreview(blob, maxBody); err == nil {
-				body = prev.Body
-			}
-		}
-		items = append(items, mailreport.Item{
-			ObjectHash: hash,
-			Subject:    sum.Subject,
-			Sender:     senderLine(sum),
-			Body:       body,
-			Collection: sum.Collection,
-		})
+		items = append(items, itemFromSummary(reader, sum, maxBody))
 	}
 	return items, unresolved
 }
 
-func loadReportItems(reader *pimdir.Reader, inPath string, limit int, maxBody int) ([]mailreport.Item, error) {
+func itemFromSummary(reader *pimdir.Reader, sum pimdir.EmailSummary, maxBody int) mailreport.Item {
+	hash := strings.TrimSpace(sum.ObjectHash)
+	item := mailreport.Item{
+		ObjectHash: hash,
+		Subject:    sum.Subject,
+		Sender:     senderLine(sum),
+		Collection: sum.Collection,
+	}
+	if hash == "" {
+		return item
+	}
+	if blob, err := reader.ReadBlob(hash); err == nil {
+		if prev, err := pimdir.DecodeMessagePreview(blob, maxBody); err == nil {
+			item.Body = prev.Body
+		}
+		if hdr, err := pimdir.ParseMailHeaders(blob); err == nil {
+			item.Headers = hdr
+		}
+	}
+	return item
+}
+
+func loadReportItems(reader *pimdir.Reader, inPath string, limit int, maxBody int, collections []string) ([]mailreport.Item, error) {
 	if strings.TrimSpace(inPath) != "" {
 		return itemsFromExportFile(reader, inPath, maxBody)
 	}
-	rows, err := reader.ListRecentEmails(limit)
+	rows, err := reader.ListRecentEmailsIn(collections, limit)
 	if err != nil {
 		return nil, err
 	}
 	var items []mailreport.Item
 	for _, sum := range rows {
-		hash := strings.TrimSpace(sum.ObjectHash)
-		if hash == "" {
-			continue
-		}
-		body := ""
-		if blob, err := reader.ReadBlob(hash); err == nil {
-			if prev, err := pimdir.DecodeMessagePreview(blob, maxBody); err == nil {
-				body = prev.Body
-			}
-		}
-		items = append(items, mailreport.Item{
-			ObjectHash: hash,
-			Subject:    sum.Subject,
-			Sender:     senderLine(sum),
-			Body:       body,
-			Collection: sum.Collection,
-		})
+		items = append(items, itemFromSummary(reader, sum, maxBody))
 	}
 	return items, nil
 }
@@ -311,23 +388,10 @@ func itemsFromExportFile(reader *pimdir.Reader, path string, maxBody int) ([]mai
 	}
 	var items []mailreport.Item
 	for _, sum := range env.Emails {
-		hash := strings.TrimSpace(sum.ObjectHash)
-		if hash == "" {
+		if strings.TrimSpace(sum.ObjectHash) == "" {
 			continue
 		}
-		body := ""
-		if blob, err := reader.ReadBlob(hash); err == nil {
-			if prev, err := pimdir.DecodeMessagePreview(blob, maxBody); err == nil {
-				body = prev.Body
-			}
-		}
-		items = append(items, mailreport.Item{
-			ObjectHash: hash,
-			Subject:    sum.Subject,
-			Sender:     senderLine(sum),
-			Body:       body,
-			Collection: sum.Collection,
-		})
+		items = append(items, itemFromSummary(reader, sum, maxBody))
 	}
 	return items, nil
 }
@@ -381,4 +445,11 @@ func formatClassifyArtifact(art mailreport.Artifact) string {
 		b.WriteString(art.ReportPath)
 	}
 	return clui.FormatBox("Classify", strings.TrimRight(b.String(), "\n"))
+}
+
+func tryMinJudgeScore() float64 {
+	if os.Getenv("SHOULD_I_READ_TRY_MIN_JUDGE") != "0.80" {
+		return 0
+	}
+	return 0.80
 }

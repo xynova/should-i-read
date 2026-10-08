@@ -19,6 +19,12 @@ type HealthResult struct {
 	ModelCount int             `json:"model_count"`
 	ModelIDs   []string        `json:"model_ids,omitempty"`
 	RawHealth  json.RawMessage `json:"raw_health,omitempty"`
+
+	ClassifyReady bool   `json:"classify_ready,omitempty"`
+	JudgeModel    string `json:"judge_model,omitempty"`
+	JudgeSource   string `json:"judge_source,omitempty"`
+	AuthorModel   string `json:"author_model,omitempty"`
+	AuthorSource  string `json:"author_source,omitempty"`
 }
 
 // Client probes Polypus OpenAI-compatible endpoints.

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestSystemOne_success(t *testing.T) {
@@ -86,6 +87,41 @@ func TestSystemOne_noulAnswers(t *testing.T) {
 	}
 	if out.Answers["use:notification"].Noul != 0.9 {
 		t.Fatalf("noul: %+v", out.Answers)
+	}
+}
+
+func TestProbeSystemOne_success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/systemone" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"answers": map[string]any{
+				"probe": map[string]any{"type": "noul", "noul": 0.5},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	c, err := Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.ProbeSystemOne(ctx, "cf_local/typesafe/jev"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProbeSystemOne_noDeadline(t *testing.T) {
+	c, err := Create("http://127.0.0.1:1320", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.ProbeSystemOne(context.Background(), "m")
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 

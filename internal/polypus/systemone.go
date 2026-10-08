@@ -48,6 +48,30 @@ type SystemOneResponse struct {
 	Answers map[string]SystemOneAnswer `json:"answers"`
 }
 
+const classifyProbeState = "should-i-read classify-readiness"
+
+// ProbeSystemOne smokes POST /v1/systemone for classify readiness (not operator mail).
+func (c *Client) ProbeSystemOne(ctx context.Context, model string) error {
+	const op = "polypus.Client.ProbeSystemOne"
+	if c == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil client")
+	}
+	if ctx == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return sirerr.New(sirerr.CodeInvalid, op, "context must have a deadline")
+	}
+	_, err := c.SystemOne(ctx, SystemOneRequest{
+		Model: strings.TrimSpace(model),
+		State: classifyProbeState,
+		Questions: map[string]SystemOneQuestion{
+			"probe": {Type: "noul", Instructions: "Readiness probe; score 0 to 1."},
+		},
+	})
+	return err
+}
+
 // SystemOne posts to /v1/systemone.
 func (c *Client) SystemOne(ctx context.Context, req SystemOneRequest) (SystemOneResponse, error) {
 	const op = "polypus.Client.SystemOne"

@@ -15,12 +15,7 @@ func PickJudgeAndAuthorModels(ids []string, judgeYAML, authorYAML string) (judge
 		}
 	}
 	if author == "" {
-		for _, id := range ids {
-			if !isJevModelID(id) {
-				author = id
-				break
-			}
-		}
+		author, _ = PickAuthorModel(ids, "")
 	}
 	return judge, author
 }

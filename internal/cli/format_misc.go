@@ -11,7 +11,7 @@ import (
 	"github.com/xynova/should-i-read/internal/setup"
 )
 
-func formatPolypusHealth(h *polypus.HealthResult) string {
+func formatPolypusHealth(h *polypus.HealthResult, classifyChecked bool) string {
 	if h == nil {
 		return clui.FormatBox("Polypus", clui.Miss("No result"))
 	}
@@ -31,6 +31,20 @@ func formatPolypusHealth(h *polypus.HealthResult) string {
 		if len(h.ModelIDs) > 8 {
 			b.WriteString(clui.Muted(" …"))
 		}
+	}
+	b.WriteByte('\n')
+	if classifyChecked && h.ClassifyReady {
+		b.WriteString(clui.OK("Classify ready"))
+		b.WriteByte('\n')
+		b.WriteString(clui.Muted(fmt.Sprintf("judge %s (%s)", h.JudgeModel, h.JudgeSource)))
+		b.WriteByte('\n')
+		if h.AuthorSource != "" {
+			b.WriteString(clui.Muted(fmt.Sprintf("author %s (%s)", h.AuthorModel, h.AuthorSource)))
+		} else {
+			b.WriteString(clui.Muted(fmt.Sprintf("author %s", h.AuthorModel)))
+		}
+	} else if !classifyChecked {
+		b.WriteString(clui.Muted("Classify: not verified (use --classify)"))
 	}
 	return clui.FormatBox("Polypus", strings.TrimRight(b.String(), "\n"))
 }

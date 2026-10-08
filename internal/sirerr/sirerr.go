@@ -3,6 +3,8 @@ package sirerr
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 )
 
 // Code is a stable machine-readable error class for CLI exit mapping.
@@ -32,10 +34,25 @@ func (e *Error) Error() string {
 	if e == nil {
 		return ""
 	}
+	var base string
 	if e.Err != nil {
-		return fmt.Sprintf("%s: %s: %v", e.Op, e.Message, e.Err)
+		base = fmt.Sprintf("%s: %s: %v", e.Op, e.Message, e.Err)
+	} else {
+		base = fmt.Sprintf("%s: %s", e.Op, e.Message)
 	}
-	return fmt.Sprintf("%s: %s", e.Op, e.Message)
+	if len(e.Fields) == 0 {
+		return base
+	}
+	keys := make([]string, 0, len(e.Fields))
+	for k := range e.Fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%s", k, e.Fields[k]))
+	}
+	return base + " [" + strings.Join(parts, ", ") + "]"
 }
 
 func (e *Error) Unwrap() error {

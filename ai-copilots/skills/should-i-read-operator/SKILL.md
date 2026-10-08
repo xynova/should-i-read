@@ -87,7 +87,11 @@ neverest check   # operators use make readiness
 pim doctor       # use mail readiness
 ```
 
-**CONSTRAINT:** Before host AI work, MUST fail closed on Polypus (`make polypus-check`). Classify Judge uses `polypus.judge_model` (or first `typesafe/jev` id from `/v1/models`). Author uses `polypus.classify_model` (or first non-jev id).
+**CONSTRAINT:** Before host AI work, MUST fail closed on Polypus (`make polypus-check`). Classify Judge uses `polypus.judge_model` (or first `typesafe/jev` id from `/v1/models`). Author uses `polypus.classify_model` (or first non-jev id) only when Judge skips and `taxonomy.author_on_skip` is true; Author input is host-cleaned latest body (not bulk classify).
+
+**Classify pre-AI:** `taxonomy.collections` (default INBOX), `taxonomy.pre_ai`, `taxonomy.senders_path`, and `taxonomy.classify_max` (Operate hops only). `taxonomy.author_on_skip: false` skips Author chat on Judge skip (default report-only). Report JSON (`tmp/unwanted-report-*.json`) stamps `sender_term_id` / `sender_label` / `sender_maps_to` when senders `MatchFields` fits (even if inbox `source` is `heuristic`); inspect the artifact, not only the human classify summary box.
+
+**Attach strategy:** `taxonomy.strategy: attach` uses catalog `inbox-kind` (seed `config/vocabularies/inbox-kind.yaml`), `polypus.embed_model` (resolved and embedded via strop `CreateEmbedder` against the Polypus base URL), Essence chat (same model as classify author), cosine thresholds `attach_min_cosine` / `walk_reinforce_min` with `strop/pkg/embed.CosineSimilarity` injected into the harness. Walk strategy (default) stays on `inbox-mail`.
 
 ## Operator recipe
 
@@ -100,4 +104,4 @@ pim doctor       # use mail readiness
 
 - [ ] **Onboarding:** `configure --json` shows `ready` (or clear steps) before claiming sync ready
 - [ ] **Secrets out of YAML:** `config show` uses `(set)` / `(unset)`; no literals
-- [ ] **Polypus:** `polypus check` passes before AI steps (classify needs a JEV model and a chat model)
+- [ ] **Polypus:** `polypus check` passes before AI steps; `polypus check --classify` smokes SystemOne judge and author pick (Polypus OK alone is not classify-ready)

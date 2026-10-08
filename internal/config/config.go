@@ -39,6 +39,7 @@ type PolypusFile struct {
 	BaseURL       string `yaml:"base_url"`
 	ClassifyModel string `yaml:"classify_model"`
 	JudgeModel    string `yaml:"judge_model"`
+	EmbedModel    string `yaml:"embed_model"`
 }
 
 // PimalayaFile is the Neverest / pimdir YAML section.
@@ -63,6 +64,7 @@ type Config struct {
 	PolypusBaseURL       string
 	PolypusClassifyModel string
 	PolypusJudgeModel    string
+	PolypusEmbedModel    string
 	GmailClientID        string
 	GmailClientSecret    string
 	OutlookClientID      string
@@ -291,6 +293,7 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	}
 	classifyModel := strings.TrimSpace(file.Polypus.ClassifyModel)
 	judgeModel := strings.TrimSpace(file.Polypus.JudgeModel)
+	embedModel := strings.TrimSpace(file.Polypus.EmbedModel)
 	taxonomyCfg, err := resolveTaxonomy(file.Taxonomy)
 	if err != nil {
 		return Config{}, err
@@ -302,6 +305,7 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 		PolypusBaseURL:       strings.TrimRight(baseURL, "/"),
 		PolypusClassifyModel: classifyModel,
 		PolypusJudgeModel:    judgeModel,
+		PolypusEmbedModel:    embedModel,
 		GmailClientID:        gmailID,
 		GmailClientSecret:    gmailSecret,
 		OutlookClientID:      outlookID,
