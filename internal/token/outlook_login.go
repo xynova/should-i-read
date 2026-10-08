@@ -21,7 +21,7 @@ func newOutlookClient(cfg config.Config, account string) (public.Client, error) 
 	const op = "token.newOutlookClient"
 	clientID := strings.TrimSpace(cfg.OutlookClientID)
 	if clientID == "" {
-		return public.Client{}, sirerr.New(sirerr.CodeAuth, op, "outlook client id unset; run should-i-read setup")
+		return public.Client{}, sirerr.New(sirerr.CodeAuth, op, "outlook client id unset; run should-i-read configure")
 	}
 	accessor := &keyringMSALCache{account: strings.TrimSpace(account)}
 	return public.New(clientID, public.WithCache(accessor))

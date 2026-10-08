@@ -1,39 +1,34 @@
-# Host operator surface: should-i-read CLI + EmailOps (black box) + Polypus
+# Host operator surface: should-i-read CLI (Pimalaya mail + Polypus)
 
 BIN := bin/should-i-read
-EMAILOPS_DIR := providers/emailops
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X github.com/xynova/should-i-read/internal/cli.Version=$(VERSION)
 
 .PHONY: help build test tidy check-polypus polypus-check \
-	emailops-submodule emailops-install emailops-cli \
-	doctor accounts sync emails export version init setup ui \
-	pim-doctor pim-sync pim-snapshot wire-ai-copilots bootstrap-ai-copilots
+	readiness doctor sync export report version init setup mail-setup mail-status ensure configure \
+	mail-readiness mail-sync mail-export mail-report pim-ensure pim-deps-check wire-ai-copilots bootstrap-ai-copilots \
+	hooks-install
 
 help:
-	@echo "Targets:"
+	@echo "Pimalaya (default operator path):"
+	@echo "  init                Create ~/.config/should-i-read/config.yaml"
 	@echo "  build               Build $(BIN)"
+	@echo "  configure           should-i-read configure $(ARGS) (operator onboarding hub)"
+	@echo "  mail-status         should-i-read mail status"
+	@echo "  readiness           mail-deps check + should-i-read mail readiness"
+	@echo "  doctor              alias for readiness"
+	@echo "  sync                mail-deps check + should-i-read mail sync"
+	@echo "  export              should-i-read mail export"
+	@echo "  report              should-i-read mail report (taxonomy classify)"
+	@echo "  polypus-check       should-i-read polypus check"
+	@echo "  check-polypus       polypus check + scripts/check-polypus.sh"
+	@echo "  wire-ai-copilots    Symlink .cursor/skills (see docs/ai-copilots-setup.md)"
+	@echo "  hooks-install       Install Lefthook git hooks"
+	@echo ""
+	@echo "Other:"
 	@echo "  test                go test ./..."
 	@echo "  tidy                go mod tidy"
-	@echo "  init                Create ~/.config/should-i-read/config.yaml + data dir"
-	@echo "  setup               Interactive mail OAuth setup (product / BYO / guided DIY)"
-	@echo "  ui                  Launch EmailOps desktop with host config env"
 	@echo "  version             Print CLI version"
-	@echo "  doctor              should-i-read doctor"
-	@echo "  accounts            should-i-read accounts"
-	@echo "  sync                should-i-read sync"
-	@echo "  emails              should-i-read emails"
-	@echo "  export              should-i-read export"
-	@echo "  polypus-check       should-i-read polypus check"
-	@echo "  pim-doctor          should-i-read pim doctor"
-	@echo "  pim-sync            should-i-read pim sync"
-	@echo "  pim-snapshot        should-i-read pim snapshot"
-	@echo "  check-polypus       Alias for polypus-check (also runs scripts/check-polypus.sh)"
-	@echo "  emailops-submodule  Init/update providers/emailops"
-	@echo "  emailops-install    npm install inside EmailOps submodule"
-	@echo "  emailops-cli        Build emailops-cli without llama.cpp"
-	@echo "  wire-ai-copilots    Symlink .cursor/skills to ai-copilots (and optional strop)"
-	@echo "  bootstrap-ai-copilots  Alias for wire-ai-copilots"
 
 build:
 	mkdir -p bin
@@ -54,52 +49,59 @@ init: build
 setup: build
 	./$(BIN) setup
 
-ui: build
-	./$(BIN) ui
+mail-setup: build
+	./$(BIN) mail setup $(ARGS)
 
-doctor: build
-	./$(BIN) doctor
+mail-status: build
+	./$(BIN) mail status
 
-accounts: build
-	./$(BIN) accounts
+# Default lane (host CLI; mail sync binary is an implementation detail)
+readiness: mail-readiness
 
-sync: build
-	./$(BIN) sync $(ARGS)
+doctor: readiness
 
-emails: build
-	./$(BIN) emails $(ARGS)
+sync: mail-sync
 
-export: build
-	./$(BIN) export $(ARGS)
+export: mail-export
+
+report: mail-report
+
+ensure: pim-ensure
+
+pim-ensure: build
+	./$(BIN) pim ensure
+
+configure: build
+	./$(BIN) configure $(ARGS)
+
+pim-configure: build
+	./$(BIN) pim configure $(ARGS)
+
+# Internal preflight for readiness/sync (not listed as a Neverest operator verb).
+pim-deps-check:
+	./scripts/check-neverest.sh
+
+mail-readiness: build pim-deps-check
+	./$(BIN) mail readiness
+
+mail-sync: build pim-deps-check
+	./$(BIN) mail sync $(ARGS)
+
+mail-export: build
+	./$(BIN) mail export $(ARGS)
+
+mail-report: build
+	./$(BIN) mail report $(ARGS)
 
 polypus-check: build
 	./$(BIN) polypus check
 
-pim-doctor: build
-	./$(BIN) pim doctor
-
-pim-sync: build
-	./$(BIN) pim sync $(ARGS)
-
-pim-snapshot: build
-	./$(BIN) pim snapshot $(ARGS)
-
-check-polypus: polypus-check
+check-polypus: build
+	./$(BIN) polypus check
 	./scripts/check-polypus.sh
 
-emailops-submodule:
-	git submodule update --init --recursive $(EMAILOPS_DIR)
-
-emailops-install: emailops-submodule
-	$(MAKE) -C $(EMAILOPS_DIR) install
-
-emailops-cli: emailops-submodule
-	cd $(EMAILOPS_DIR) && cargo build \
-		--manifest-path src-tauri/Cargo.toml \
-		--target-dir src-tauri/target \
-		--no-default-features \
-		--features cli \
-		--bin emailops-cli
+hooks-install:
+	lefthook install
 
 wire-ai-copilots:
 	bash scripts/wire-cursor-skills.sh

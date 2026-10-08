@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -14,12 +13,12 @@ import (
 func newTokenCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "token",
-		Short: "OAuth token helpers for Pimalaya CLIs",
+		Short: "OAuth token helpers for mail sync",
 	}
-	cmd.AddCommand(newTokenProviderCmd(opts, repoRoot, "gmail", "Gmail OAuth for Neverest XOAUTH2 (print access token)", func(cfg config.Config, account string) token.Provider {
+	cmd.AddCommand(newTokenProviderCmd(opts, repoRoot, "gmail", "Gmail OAuth for mail sync XOAUTH2 (print access token)", func(cfg config.Config, account string) token.Provider {
 		return token.CreateGmailBroker(cfg, account)
 	}))
-	cmd.AddCommand(newTokenProviderCmd(opts, repoRoot, "outlook", "Outlook OAuth for Neverest XOAUTH2 (print access token)", func(cfg config.Config, account string) token.Provider {
+	cmd.AddCommand(newTokenProviderCmd(opts, repoRoot, "outlook", "Outlook OAuth for mail sync XOAUTH2 (print access token)", func(cfg config.Config, account string) token.Provider {
 		return token.CreateOutlookBroker(cfg, account)
 	}))
 	return cmd
@@ -51,7 +50,11 @@ func newTokenProviderCmd(
 			if err := broker.Login(cmd.Context()); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"account\":%q}\n", account)
+			if wantJSON(cmd) {
+				fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"account\":%q}\n", account)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Logged in (%s)\n", account)
 			return nil
 		},
 	})
@@ -67,7 +70,11 @@ func newTokenProviderCmd(
 			if err := broker.Logout(cmd.Context()); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"deleted\":true}\n")
+			if wantJSON(cmd) {
+				fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"deleted\":true}\n")
+				return nil
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Logged out (keyring)")
 			return nil
 		},
 	})
@@ -80,9 +87,12 @@ func newTokenProviderCmd(
 				return err
 			}
 			broker := mkBroker(cfg, account)
-			enc := json.NewEncoder(cmd.OutOrStdout())
-			enc.SetIndent("", "  ")
-			return enc.Encode(broker.Status())
+			st := broker.Status()
+			if wantJSON(cmd) {
+				return printJSON(cmd.OutOrStdout(), st)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), formatTokenStatus(st))
+			return nil
 		},
 	})
 

@@ -1,0 +1,11 @@
+vocabulary:
+  id: senders
+  label: Senders
+  description: Sender identity catalog mapping to inbox-mail leaves.
+  terms:
+    - id: sender-github-notifications
+      label: GitHub notifications
+      maps_to: notification
+      patterns:
+        - field: from
+          re: '^.*notifications@github\.com.*$'

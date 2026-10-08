@@ -47,7 +47,12 @@ func OpenStore(storeDir string) (*Reader, error) {
 
 // ListRecentEmails returns live mail rows newest-first by sort_key/seq.
 func (r *Reader) ListRecentEmails(limit int) ([]EmailSummary, error) {
-	const op = "pimdir.ListRecentEmails"
+	return r.ListRecentEmailsIn(nil, limit)
+}
+
+// ListRecentEmailsIn returns newest-first rows. When collections is non-empty, only those folders match.
+func (r *Reader) ListRecentEmailsIn(collections []string, limit int) ([]EmailSummary, error) {
+	const op = "pimdir.ListRecentEmailsIn"
 	if r == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
 	}
@@ -64,14 +69,24 @@ func (r *Reader) ListRecentEmails(limit int) ([]EmailSummary, error) {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
 	}
 
+	collections = normalizeCollections(collections)
 	q := `
 SELECT i.collection, i.link_id, i.seq, m.subject, m.sender, m.sender_name, m.date, m.message_id, i.object_hash
 FROM items i
 JOIN mail_summary m ON m.collection = i.collection AND m.link_id = i.link_id
-WHERE i.deleted = 0
+WHERE i.deleted = 0`
+	args := []any{}
+	if len(collections) > 0 {
+		q += ` AND i.collection IN (` + sqlPlaceholders(len(collections)) + `)`
+		for _, c := range collections {
+			args = append(args, c)
+		}
+	}
+	q += `
 ORDER BY i.sort_key DESC, i.seq DESC
 LIMIT ?`
-	rows, err := db.Query(q, limit)
+	args = append(args, limit)
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query mail summaries")
 	}
@@ -105,6 +120,34 @@ LIMIT ?`
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate rows")
 	}
 	return out, nil
+}
+
+func normalizeCollections(collections []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(collections))
+	for _, c := range collections {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		seen[c] = struct{}{}
+		out = append(out, c)
+	}
+	return out
+}
+
+func sqlPlaceholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = "?"
+	}
+	return strings.Join(parts, ",")
 }
 
 // ReadBlob returns raw bytes for an object hash under objects/.

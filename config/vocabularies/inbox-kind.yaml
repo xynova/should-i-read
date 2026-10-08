@@ -1,0 +1,5 @@
+vocabulary:
+  id: inbox-kind
+  label: Inbox kind
+  description: Essence breadcrumbs grown by Attach. Report only.
+  terms: []

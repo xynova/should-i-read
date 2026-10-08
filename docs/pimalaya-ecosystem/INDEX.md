@@ -11,7 +11,7 @@ Host-owned context pack for designing should-i-read mail storage and CLI orchest
 1. Read this file for status legend and navigation.
 2. Open cards in `store/`, `apps/`, and `libs/` for capabilities and host fit.
 3. Verify claims against `tmp/pimalaya/<repo>/README.md` when clones exist.
-4. Do not treat [EmailOps](../emailops-ai-capabilities-roadmap.md) as the target mail platform.
+4. Do not treat third-party mail desktop apps as the target mail platform; design around pimdir + Pimalaya CLIs.
 
 ## Status legend
 
@@ -76,9 +76,9 @@ See [clone-manifest.yaml](clone-manifest.yaml). Default local clones: **A_must +
 
 ## Out of scope for host v1
 
-[frozen/INDEX.md](frozen/INDEX.md), [community/INDEX.md](community/INDEX.md), EmailOps product AI, Himalaya TUI, mobile/GTK shells.
+[frozen/INDEX.md](frozen/INDEX.md), [community/INDEX.md](community/INDEX.md), Himalaya TUI, mobile/GTK shells.
 
 ## Related host docs
 
-- [emailops-ai-capabilities-roadmap.md](../emailops-ai-capabilities-roadmap.md) (current experiment)
 - [ai-provider-seam.md](../ai-provider-seam.md) (Polypus only)
+- [pimalaya-setup.md](../pimalaya-setup.md) (operator onboarding)

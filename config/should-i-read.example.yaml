@@ -8,12 +8,38 @@
 # Store keyring values: should-i-read secret set ENV_NAME
 
 secrets:
+  - POLYPUS_BASE_URL
   - EMAILOPS_GMAIL_CLIENT_ID
   - EMAILOPS_GMAIL_CLIENT_SECRET
   - EMAILOPS_OUTLOOK_CLIENT_ID
 polypus:
   # Resolves from env when unset in YAML; fallback http://127.0.0.1:1320
   base_url: "${POLYPUS_BASE_URL}"
+  # Classify Author (chat). On routed Polypus homelabs prefer cf_local/@cf/... over bare @cf/... ids.
+  classify_model: "cf_local/@cf/ibm-granite/granite-4.0-h-micro"
+  # Classify Judge (SystemOne). Empty enables catalog + probe discovery.
+  judge_model: "cf_local/typesafe/jev"
+  # Attach embeddings (default cf_local/@cf/baai/bge-m3 when listed)
+  embed_model: "cf_local/@cf/baai/bge-m3"
+
+taxonomy:
+  # Optional; default ~/.config/should-i-read/vocabularies/inbox-mail.yaml
+  catalog_path: ""
+  # Folders for mail report listing (default imap/INBOX). Empty list = all folders.
+  collections:
+    - imap/INBOX
+  # Header rules + senders MatchFields before Judge (default true)
+  pre_ai: true
+  # Senders vocabulary (default ~/.config/should-i-read/vocabularies/senders.yaml)
+  senders_path: ""
+  # When false (default), Judge skip does not call Author chat (report-only)
+  author_on_skip: false
+  # Max Judge/Operate hops per run; heuristic/sender_catalog rows do not count (default 50)
+  classify_max: 0
+  # walk (default) or attach (Essence + embed inbox-kind catalog)
+  strategy: walk
+  attach_min_cosine: 0.80
+  walk_reinforce_min: 0.70
 
 pimalaya:
   neverest_bin: ""
@@ -22,14 +48,7 @@ pimalaya:
   # Directory containing pimdir.db (Neverest account store)
   pimdir_path: ""
 
-emailops:
-  # Empty → ~/Library/Application Support/should-i-read/emailops (macOS)
-  data_dir: ""
-  # Empty → PATH / cargo debug under providers/emailops
-  cli_path: ""
-  # Empty → <repo>/providers/emailops
-  repo_path: ""
-  default_account: ""
+oauth:
   gmail_client_id: "${EMAILOPS_GMAIL_CLIENT_ID}"
   gmail_client_secret: "${EMAILOPS_GMAIL_CLIENT_SECRET}"
   outlook_client_id: "${EMAILOPS_OUTLOOK_CLIENT_ID}"

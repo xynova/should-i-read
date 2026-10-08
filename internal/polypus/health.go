@@ -19,12 +19,19 @@ type HealthResult struct {
 	ModelCount int             `json:"model_count"`
 	ModelIDs   []string        `json:"model_ids,omitempty"`
 	RawHealth  json.RawMessage `json:"raw_health,omitempty"`
+
+	ClassifyReady bool   `json:"classify_ready,omitempty"`
+	JudgeModel    string `json:"judge_model,omitempty"`
+	JudgeSource   string `json:"judge_source,omitempty"`
+	AuthorModel   string `json:"author_model,omitempty"`
+	AuthorSource  string `json:"author_source,omitempty"`
 }
 
 // Client probes Polypus OpenAI-compatible endpoints.
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	ChatHTTP   *http.Client
 }
 
 // Create returns a Client for baseURL (must be non-empty).
@@ -37,7 +44,8 @@ func Create(baseURL string, httpClient *http.Client) (*Client, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &Client{BaseURL: baseURL, HTTPClient: httpClient}, nil
+	chatHTTP := &http.Client{Timeout: 90 * time.Second}
+	return &Client{BaseURL: baseURL, HTTPClient: httpClient, ChatHTTP: chatHTTP}, nil
 }
 
 type modelsResponse struct {
@@ -109,7 +117,7 @@ func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err

@@ -4,11 +4,14 @@ import (
 	"context"
 
 	ollicli "github.com/behaviorengineering/olly/pkg/cli"
+	"go.opentelemetry.io/otel"
 )
 
 var otelLife *ollicli.Lifecycle
 
 func startTelemetry(serviceName string) error {
+	// Export failures (no collector on :4319) otherwise spam stderr and corrupt TUI redraws.
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) {}))
 	cfg := ollicli.ConfigFromEnv(serviceName)
 	cfg.Dump.Dir = "logs/failures"
 	if cfg.Dump.MaxAgeHours == 0 {

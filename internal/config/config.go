@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 
 	operatorconfig "github.com/behaviorengineering/operatorconfig/pkg/operatorconfig"
@@ -27,31 +26,32 @@ var placeholderRE = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // File is the on-disk YAML shape (placeholders allowed).
 type File struct {
-	Secrets  []operatorconfig.Secret `yaml:"secrets"`
-	Polypus  PolypusFile             `yaml:"polypus"`
-	EmailOps EmailOpsFile            `yaml:"emailops"`
-	Pimalaya PimalayaFile            `yaml:"pimalaya"`
+	Secrets        []operatorconfig.Secret `yaml:"secrets"`
+	Polypus        PolypusFile             `yaml:"polypus"`
+	Taxonomy       TaxonomyFile            `yaml:"taxonomy"`
+	OAuth          OAuthFile               `yaml:"oauth"`
+	EmailOpsLegacy OAuthFile               `yaml:"emailops"` // deprecated; merged into oauth on load
+	Pimalaya       PimalayaFile            `yaml:"pimalaya"`
 }
 
 // PolypusFile is the polypus YAML section.
 type PolypusFile struct {
-	BaseURL string `yaml:"base_url"`
+	BaseURL       string `yaml:"base_url"`
+	ClassifyModel string `yaml:"classify_model"`
+	JudgeModel    string `yaml:"judge_model"`
+	EmbedModel    string `yaml:"embed_model"`
 }
 
 // PimalayaFile is the Neverest / pimdir YAML section.
 type PimalayaFile struct {
-	NeverestBin     string `yaml:"neverest_bin"`
-	NeverestConfig  string `yaml:"neverest_config"`
-	DefaultAccount  string `yaml:"default_account"`
-	PimdirPath      string `yaml:"pimdir_path"`
+	NeverestBin    string `yaml:"neverest_bin"`
+	NeverestConfig string `yaml:"neverest_config"`
+	DefaultAccount string `yaml:"default_account"`
+	PimdirPath     string `yaml:"pimdir_path"`
 }
 
-// EmailOpsFile is the emailops YAML section.
-type EmailOpsFile struct {
-	DataDir           string `yaml:"data_dir"`
-	CLIPath           string `yaml:"cli_path"`
-	RepoPath          string `yaml:"repo_path"`
-	DefaultAccount    string `yaml:"default_account"`
+// OAuthFile holds OAuth client ids for mail token brokers.
+type OAuthFile struct {
 	GmailClientID     string `yaml:"gmail_client_id"`
 	GmailClientSecret string `yaml:"gmail_client_secret"`
 	OutlookClientID   string `yaml:"outlook_client_id"`
@@ -59,17 +59,17 @@ type EmailOpsFile struct {
 
 // Config is the resolved runtime config used by the CLI.
 type Config struct {
-	Path              string
-	RepoRoot          string
-	PolypusBaseURL    string
-	EmailOpsDataDir   string
-	EmailOpsCLI       string
-	EmailOpsRepoPath  string
-	DefaultAccount    string
-	GmailClientID     string
-	GmailClientSecret string
-	OutlookClientID   string
-	Pimalaya        PimalayaConfig
+	Path                 string
+	RepoRoot             string
+	PolypusBaseURL       string
+	PolypusClassifyModel string
+	PolypusJudgeModel    string
+	PolypusEmbedModel    string
+	GmailClientID        string
+	GmailClientSecret    string
+	OutlookClientID      string
+	Pimalaya             PimalayaConfig
+	Taxonomy             TaxonomyConfig
 }
 
 // PimalayaConfig is resolved Neverest / pimdir settings.
@@ -80,23 +80,20 @@ type PimalayaConfig struct {
 	PimdirPath     string
 }
 
-// ChildEnv returns env vars to inject into EmailOps child processes.
-func (c Config) ChildEnv() []string {
-	if c.EmailOpsDataDir == "" && c.GmailClientID == "" && c.GmailClientSecret == "" && c.OutlookClientID == "" {
+// OAuthEnv returns env vars for OAuth client credentials (token subprocesses).
+func (c Config) OAuthEnv() []string {
+	if c.GmailClientID == "" && c.GmailClientSecret == "" && c.OutlookClientID == "" {
 		return nil
 	}
-	out := make([]string, 0, 8)
-	if c.EmailOpsDataDir != "" {
-		out = append(out, "EMAILOPS_DATA_DIR="+c.EmailOpsDataDir)
-	}
+	out := make([]string, 0, 4)
 	if c.GmailClientID != "" {
-		out = append(out, "EMAILOPS_GMAIL_CLIENT_ID="+c.GmailClientID)
+		out = append(out, oauthcred.EnvGmailClientID+"="+c.GmailClientID)
 	}
 	if c.GmailClientSecret != "" {
-		out = append(out, "EMAILOPS_GMAIL_CLIENT_SECRET="+c.GmailClientSecret)
+		out = append(out, oauthcred.EnvGmailClientSecret+"="+c.GmailClientSecret)
 	}
 	if c.OutlookClientID != "" {
-		out = append(out, "EMAILOPS_OUTLOOK_CLIENT_ID="+c.OutlookClientID)
+		out = append(out, oauthcred.EnvOutlookClientID+"="+c.OutlookClientID)
 	}
 	return out
 }
@@ -106,19 +103,20 @@ func (c Config) Redacted() map[string]any {
 	return map[string]any{
 		"path": c.Path,
 		"polypus": map[string]string{
-			"base_url": c.PolypusBaseURL,
+			"base_url":       c.PolypusBaseURL,
+			"classify_model": setUnset(c.PolypusClassifyModel),
+			"judge_model":    setUnset(c.PolypusJudgeModel),
+		},
+		"taxonomy": map[string]string{
+			"catalog_path": c.Taxonomy.CatalogPath,
 		},
 		"pimalaya": map[string]string{
-			"neverest_bin":     c.Pimalaya.NeverestBin,
-			"neverest_config":  c.Pimalaya.NeverestConfig,
-			"default_account":  c.Pimalaya.DefaultAccount,
-			"pimdir_path":      c.Pimalaya.PimdirPath,
+			"neverest_bin":    c.Pimalaya.NeverestBin,
+			"neverest_config": c.Pimalaya.NeverestConfig,
+			"default_account": c.Pimalaya.DefaultAccount,
+			"pimdir_path":     c.Pimalaya.PimdirPath,
 		},
-		"emailops": map[string]string{
-			"data_dir":            c.EmailOpsDataDir,
-			"cli_path":            c.EmailOpsCLI,
-			"repo_path":           c.EmailOpsRepoPath,
-			"default_account":     c.DefaultAccount,
+		"oauth": map[string]string{
 			"gmail_client_id":     setUnset(c.GmailClientID),
 			"gmail_client_secret": setUnset(c.GmailClientSecret),
 			"outlook_client_id":   setUnset(c.OutlookClientID),
@@ -158,28 +156,6 @@ func ResolvePath(override string) (string, error) {
 	return path, nil
 }
 
-// DefaultEmailOpsDataDir is the host-owned mailbox data directory.
-func DefaultEmailOpsDataDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	switch runtime.GOOS {
-	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", AppName, "emailops")
-	case "windows":
-		if appData := os.Getenv("APPDATA"); appData != "" {
-			return filepath.Join(appData, AppName, "emailops")
-		}
-		return filepath.Join(home, "AppData", "Roaming", AppName, "emailops")
-	default:
-		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-			return filepath.Join(xdg, AppName, "emailops")
-		}
-		return filepath.Join(home, ".local", "share", AppName, "emailops")
-	}
-}
-
 // DefaultFile returns the template written by init.
 func DefaultFile() File {
 	return File{
@@ -191,11 +167,7 @@ func DefaultFile() File {
 			DefaultAccount: "",
 			PimdirPath:     "",
 		},
-		EmailOps: EmailOpsFile{
-			DataDir:           "",
-			CLIPath:           "",
-			RepoPath:          "",
-			DefaultAccount:    "",
+		OAuth: OAuthFile{
 			GmailClientID:     "${EMAILOPS_GMAIL_CLIENT_ID}",
 			GmailClientSecret: "${EMAILOPS_GMAIL_CLIENT_SECRET}",
 			OutlookClientID:   "${EMAILOPS_OUTLOOK_CLIENT_ID}",
@@ -248,6 +220,21 @@ func load(repoRoot, overridePath string, kr operatorconfig.Keyring) (Config, err
 	return cfg, nil
 }
 
+func mergeOAuthFields(file File) OAuthFile {
+	o := file.OAuth
+	l := file.EmailOpsLegacy
+	if strings.TrimSpace(o.GmailClientID) == "" {
+		o.GmailClientID = l.GmailClientID
+	}
+	if strings.TrimSpace(o.GmailClientSecret) == "" {
+		o.GmailClientSecret = l.GmailClientSecret
+	}
+	if strings.TrimSpace(o.OutlookClientID) == "" {
+		o.OutlookClientID = l.OutlookClientID
+	}
+	return o
+}
+
 func materialize(repoRoot, path string, file File) (Config, error) {
 	const op = "config.materialize"
 	resolve := func(name string) (string, error) {
@@ -256,38 +243,23 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	oauthResolve := func(name string) (string, error) {
 		return oauthcred.Resolve(name)
 	}
+	oauthFile := mergeOAuthFields(file)
 
 	baseURL, err := ExpandString(file.Polypus.BaseURL, resolve, false)
 	if err != nil {
 		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand polypus.base_url")
 	}
-	dataDir, err := ExpandString(file.EmailOps.DataDir, resolve, false)
+	gmailID, err := ExpandString(oauthFile.GmailClientID, oauthResolve, false)
 	if err != nil {
-		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand emailops.data_dir")
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand oauth.gmail_client_id")
 	}
-	cliPath, err := ExpandString(file.EmailOps.CLIPath, resolve, false)
+	gmailSecret, err := ExpandString(oauthFile.GmailClientSecret, oauthResolve, false)
 	if err != nil {
-		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand emailops.cli_path")
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand oauth.gmail_client_secret")
 	}
-	repoPath, err := ExpandString(file.EmailOps.RepoPath, resolve, false)
+	outlookID, err := ExpandString(oauthFile.OutlookClientID, oauthResolve, false)
 	if err != nil {
-		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand emailops.repo_path")
-	}
-	account, err := ExpandString(file.EmailOps.DefaultAccount, resolve, false)
-	if err != nil {
-		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand emailops.default_account")
-	}
-	gmailID, err := ExpandString(file.EmailOps.GmailClientID, oauthResolve, false)
-	if err != nil {
-		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand emailops.gmail_client_id")
-	}
-	gmailSecret, err := ExpandString(file.EmailOps.GmailClientSecret, oauthResolve, false)
-	if err != nil {
-		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand emailops.gmail_client_secret")
-	}
-	outlookID, err := ExpandString(file.EmailOps.OutlookClientID, oauthResolve, false)
-	if err != nil {
-		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand emailops.outlook_client_id")
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand oauth.outlook_client_id")
 	}
 	neverestBin, err := ExpandString(file.Pimalaya.NeverestBin, resolve, false)
 	if err != nil {
@@ -313,43 +285,37 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 			baseURL = defaultPolypusBaseURL
 		}
 	}
-	if strings.TrimSpace(dataDir) == "" {
-		if v := strings.TrimSpace(os.Getenv("EMAILOPS_DATA_DIR")); v != "" {
-			dataDir = v
-		} else {
-			dataDir = DefaultEmailOpsDataDir()
-		}
-	}
-	if strings.TrimSpace(cliPath) == "" {
-		cliPath = strings.TrimSpace(os.Getenv("EMAILOPS_CLI"))
-	}
-	if strings.TrimSpace(repoPath) == "" {
-		repoPath = filepath.Join(repoRoot, "providers", "emailops")
-	}
 	if strings.TrimSpace(neverestBin) == "" {
 		neverestBin = strings.TrimSpace(os.Getenv("NEVEREST_BIN"))
 	}
 	if strings.TrimSpace(neverestCfg) == "" {
 		neverestCfg = strings.TrimSpace(os.Getenv("NEVEREST_CONFIG"))
 	}
+	classifyModel := strings.TrimSpace(file.Polypus.ClassifyModel)
+	judgeModel := strings.TrimSpace(file.Polypus.JudgeModel)
+	embedModel := strings.TrimSpace(file.Polypus.EmbedModel)
+	taxonomyCfg, err := resolveTaxonomy(file.Taxonomy)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
-		Path:              path,
-		RepoRoot:          repoRoot,
-		PolypusBaseURL:    strings.TrimRight(baseURL, "/"),
-		EmailOpsDataDir:   dataDir,
-		EmailOpsCLI:       cliPath,
-		EmailOpsRepoPath:  repoPath,
-		DefaultAccount:    account,
-		GmailClientID:     gmailID,
-		GmailClientSecret: gmailSecret,
-		OutlookClientID:   outlookID,
+		Path:                 path,
+		RepoRoot:             repoRoot,
+		PolypusBaseURL:       strings.TrimRight(baseURL, "/"),
+		PolypusClassifyModel: classifyModel,
+		PolypusJudgeModel:    judgeModel,
+		PolypusEmbedModel:    embedModel,
+		GmailClientID:        gmailID,
+		GmailClientSecret:    gmailSecret,
+		OutlookClientID:      outlookID,
 		Pimalaya: PimalayaConfig{
 			NeverestBin:    neverestBin,
 			NeverestConfig: neverestCfg,
 			DefaultAccount: pimAccount,
 			PimdirPath:     pimdirPath,
 		},
+		Taxonomy: taxonomyCfg,
 	}, nil
 }
 
