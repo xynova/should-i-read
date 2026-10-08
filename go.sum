@@ -143,6 +143,8 @@ github.com/behaviorengineering/operatorconfig v0.1.2 h1:j2xhS+WmWT2VThXOslZNjd6h
 github.com/behaviorengineering/operatorconfig v0.1.2/go.mod h1:YK48fp+pItReAvi+CubwdtVMFdVM9DivhIuo0fVb1/Y=
 github.com/behaviorengineering/strop v0.5.14 h1:x3ULUvHPhNUmtJaKaHfyLuWw7ozOf9k4YlW9m0VJlfs=
 github.com/behaviorengineering/strop v0.5.14/go.mod h1:EUAB1xJo/4KzPHZt+LwmXDPBXliGefVFRRtp7D7GsPE=
+github.com/behaviorengineering/taxonomy v0.4.0 h1:5hGari/IBiZY8C+S/2Hx4AhqLWUBt5g/sGq4v+nubRk=
+github.com/behaviorengineering/taxonomy v0.4.0/go.mod h1:zzLgqeJ1/1qMSILPWiIH2fRlY+DWoB3Ixg1w6gGQ+lo=
 github.com/bits-and-blooms/bitset v1.24.4 h1:95H15Og1clikBrKr/DuzMXkQzECs1M6hhoGXLwLQOZE=
 github.com/bits-and-blooms/bitset v1.24.4/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
 github.com/blang/semver v3.5.1+incompatible h1:cQNTCjp13qL8KC3Nbxr/y2Bqb63oX6wdnnjpJbkM4JQ=
