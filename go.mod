@@ -22,8 +22,6 @@ require (
 	modernc.org/sqlite v1.38.2
 )
 
-replace github.com/behaviorengineering/taxonomy => ./providers/taxonomy
-
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	cel.dev/expr v0.25.2 // indirect
