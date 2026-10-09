@@ -94,12 +94,12 @@ flowchart TD
 ## Shipped slice (taxonomy v0.3.0+)
 
 - Post-sync classify on fetch hunks; `mail report` for resume/backfill.
-- Pre-AI: INBOX (or `taxonomy.collections`) item pick, RFC822 header heuristics, senders `MatchFields` / `LearnExact` (`taxonomy.senders_path`), then taxonomy `Operate` for misses (walk on `inbox-mail`, attach on `inbox-kind`).
-- `taxonomy.strategy`: `walk` (default) or `attach` (requires `polypus.embed_model` and Essence chat; Operate timeout 180s). Thresholds: `attach_min_cosine` (0.80), `walk_reinforce_min` (0.70).
-- `taxonomy.classify_max` caps **Judge/Operate hops** only; heuristic and `sender_catalog` rows do not consume the cap.
-- `taxonomy.author_on_skip: false` (default) skips Author chat on Judge skip; set `true` to restore draft proposals. When Author runs, the host cleans the latest body (reply parser + line denoise + extractive cap) before Granite sees it; bulk classify remains pre-AI + JEV.
-- Strop `JobRunner` generator `mail_classify` wraps taxonomy `Operate`; Polypus HTTP only inside Judge/Author seats.
-- Artifacts: `tmp/unwanted-report-*.json`, progress `tmp/mail-classify-progress.json` (rows include `source`: `heuristic`, `sender_catalog`, or `judge`). When `taxonomy.pre_ai` loads senders, each row may also include `sender_term_id`, `sender_label`, and `sender_maps_to` from senders `MatchFields` (independent of inbox `source`, so `source: heuristic` can still carry a senders term). Artifact `senders_catalog_id` is set when the senders catalog is loaded; stale progress entries without sender keys stay empty until that hash is reclassified or progress is cleared.
+- INBOX (or `taxonomy.collections`) item pick, then taxonomy `Operate` per message (walk on `inbox-mail`, attach on `inbox-kind`).
+- `taxonomy.strategy`: `attach` (default; legacy `walk` is normalized to attach). Requires `polypus.embed_model` and Essence chat; Operate timeout 180s. Thresholds: `attach_min_cosine` (0.80), `walk_reinforce_min` (0.70).
+- `taxonomy.classify_max` caps Operate (Polypus) calls per run.
+- `taxonomy.author_on_skip: false` (default) skips Author chat on Judge skip; set `true` to restore draft proposals. When Author runs, the host cleans the latest body (reply parser + line denoise + extractive cap) before Granite sees it.
+- Strop `JobRunner` generator `mail_classify` wraps taxonomy `Operate`; Polypus HTTP only inside Judge/Author/Essence/Embed seats.
+- Artifacts: `tmp/unwanted-report-*.json`, progress `tmp/mail-classify-progress.json` (row `source` from Operate: `judge`, `alias`, `breadcrumb`, etc.). Clear progress after behavior changes so stale heuristic rows are not replayed.
 
 ## Next implementation slice
 

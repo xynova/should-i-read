@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/behaviorengineering/strop/pkg/embed"
-	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 	"github.com/spf13/cobra"
 
@@ -157,10 +156,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	if catalogPath == "" {
 		catalogPath = cfg.Taxonomy.CatalogPath
 	}
-	seed := config.SeedCatalogPath(repoRoot)
-	if cfg.Taxonomy.Strategy == "attach" {
-		seed = config.SeedKindCatalogPath(repoRoot)
-	}
+	seed := config.SeedKindCatalogPath(repoRoot)
 	if err := mailreport.EnsureCatalog(catalogPath, seed); err != nil {
 		return nil, "", err
 	}
@@ -196,26 +192,22 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		return nil, "", classifySkipErr(err)
 	}
 	essenceModel := author
-	embedModel := ""
-	var embedSeat harness.Embedder
-	if cfg.Taxonomy.Strategy == "attach" {
-		embedFac := mailreport.NewStropEmbedFactory()
-		embedModel, err = mailreport.ResolveEmbedModel(resolveCtx, embedFac, cfg.PolypusBaseURL, health.ModelIDs, cfg.PolypusEmbedModel)
-		if err != nil {
-			if failClosed {
-				return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "resolve embed model")
-			}
-			return nil, "", classifySkipErr(err)
+	embedFac := mailreport.NewStropEmbedFactory()
+	embedModel, err := mailreport.ResolveEmbedModel(resolveCtx, embedFac, cfg.PolypusBaseURL, health.ModelIDs, cfg.PolypusEmbedModel)
+	if err != nil {
+		if failClosed {
+			return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "resolve embed model")
 		}
-		stropEmb, err := embedFac.CreateEmbedder(resolveCtx, cfg.PolypusBaseURL, embedModel)
-		if err != nil {
-			if failClosed {
-				return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "create embedder")
-			}
-			return nil, "", classifySkipErr(err)
-		}
-		embedSeat = mailreport.NewStropEmbedSeat(stropEmb, embedModel)
+		return nil, "", classifySkipErr(err)
 	}
+	stropEmb, err := embedFac.CreateEmbedder(resolveCtx, cfg.PolypusBaseURL, embedModel)
+	if err != nil {
+		if failClosed {
+			return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "create embedder")
+		}
+		return nil, "", classifySkipErr(err)
+	}
+	embedSeat := mailreport.NewStropEmbedSeat(stropEmb, embedModel)
 	seats, err := mailreport.CreateSeats(mailreport.SeatsConfig{
 		Client:       client,
 		JudgeModel:   judge,
@@ -234,17 +226,15 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		authorSeat = seats.Author
 	}
 	hCfg := harness.Config{
-		Judge:         seats.Judge,
-		Author:        authorSeat,
-		MinJudgeScore: tryMinJudgeScore(),
-	}
-	if cfg.Taxonomy.Strategy == "attach" {
-		hCfg.Strategy = harness.StrategyAttach
-		hCfg.Embedder = seats.Embedder
-		hCfg.Essencer = seats.Essencer
-		hCfg.AttachMinCosine = cfg.Taxonomy.AttachMinCosine
-		hCfg.WalkReinforceMin = cfg.Taxonomy.WalkReinforceMin
-		hCfg.Cosine = embed.CosineSimilarity
+		Judge:            seats.Judge,
+		Author:           authorSeat,
+		MinJudgeScore:    tryMinJudgeScore(),
+		Strategy:         harness.StrategyAttach,
+		Embedder:         seats.Embedder,
+		Essencer:         seats.Essencer,
+		AttachMinCosine:  cfg.Taxonomy.AttachMinCosine,
+		WalkReinforceMin: cfg.Taxonomy.WalkReinforceMin,
+		Cosine:           embed.CosineSimilarity,
 	}
 	h, err := harness.CreateHarness(hCfg)
 	if err != nil {
@@ -257,25 +247,10 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	if err != nil {
 		return nil, "", err
 	}
-	sendersPath := cfg.Taxonomy.SendersPath
-	sendersSeed := config.SeedSendersPath(repoRoot)
-	if err := mailreport.EnsureCatalog(sendersPath, sendersSeed); err != nil {
-		return nil, "", err
-	}
-	var sendersVocab catalog.Vocabulary
-	var sendersCat *catalog.Catalog
-	if cfg.Taxonomy.PreAI {
-		sendersCat, sendersVocab, err = mailreport.LoadCatalog(sendersPath)
-		if err != nil {
-			return nil, "", err
-		}
-	}
 	progress := filepath.Join(repoRoot, "tmp", "mail-classify-progress.json")
-	preAI := cfg.Taxonomy.PreAI
 	authorOnSkip := cfg.Taxonomy.AuthorOnSkip
 	if os.Getenv("SHOULD_I_READ_TRY_MIN_JUDGE") == "0.80" {
 		progress = filepath.Join(repoRoot, "tmp", "seek-minjudge80-progress.json")
-		preAI = false
 		authorOnSkip = true
 	}
 	runner, err := mailreport.CreateRunner(mailreport.RunnerConfig{
@@ -293,11 +268,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		Strategy:         cfg.Taxonomy.Strategy,
 		AttachMinCosine:  cfg.Taxonomy.AttachMinCosine,
 		WalkReinforceMin: cfg.Taxonomy.WalkReinforceMin,
-		PreAI:            preAI,
 		AuthorOnSkip:     authorOnSkip,
-		SendersPath:      sendersPath,
-		SendersVocab:     sendersVocab,
-		SendersCat:       sendersCat,
 	}, vocab, cat)
 	if err != nil {
 		return nil, "", err
