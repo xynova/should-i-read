@@ -156,7 +156,10 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	if catalogPath == "" {
 		catalogPath = cfg.Taxonomy.CatalogPath
 	}
-	seed := config.SeedKindCatalogPath(repoRoot)
+	seed := config.SeedCatalogPath(repoRoot)
+	if cfg.Taxonomy.Strategy == "attach" {
+		seed = config.SeedKindCatalogPath(repoRoot)
+	}
 	if err := mailreport.EnsureCatalog(catalogPath, seed); err != nil {
 		return nil, "", err
 	}
@@ -191,23 +194,28 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		}
 		return nil, "", classifySkipErr(err)
 	}
-	essenceModel := author
-	embedFac := mailreport.NewStropEmbedFactory()
-	embedModel, err := mailreport.ResolveEmbedModel(resolveCtx, embedFac, cfg.PolypusBaseURL, health.ModelIDs, cfg.PolypusEmbedModel)
-	if err != nil {
-		if failClosed {
-			return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "resolve embed model")
+	embedModel := ""
+	var embedSeat harness.Embedder
+	essenceModel := ""
+	if cfg.Taxonomy.Strategy == "attach" {
+		essenceModel = author
+		embedFac := mailreport.NewStropEmbedFactory()
+		embedModel, err = mailreport.ResolveEmbedModel(resolveCtx, embedFac, cfg.PolypusBaseURL, health.ModelIDs, cfg.PolypusEmbedModel)
+		if err != nil {
+			if failClosed {
+				return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "resolve embed model")
+			}
+			return nil, "", classifySkipErr(err)
 		}
-		return nil, "", classifySkipErr(err)
-	}
-	stropEmb, err := embedFac.CreateEmbedder(resolveCtx, cfg.PolypusBaseURL, embedModel)
-	if err != nil {
-		if failClosed {
-			return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "create embedder")
+		stropEmb, err := embedFac.CreateEmbedder(resolveCtx, cfg.PolypusBaseURL, embedModel)
+		if err != nil {
+			if failClosed {
+				return nil, "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "create embedder")
+			}
+			return nil, "", classifySkipErr(err)
 		}
-		return nil, "", classifySkipErr(err)
+		embedSeat = mailreport.NewStropEmbedSeat(stropEmb, embedModel)
 	}
-	embedSeat := mailreport.NewStropEmbedSeat(stropEmb, embedModel)
 	seats, err := mailreport.CreateSeats(mailreport.SeatsConfig{
 		Client:       client,
 		JudgeModel:   judge,
@@ -226,15 +234,17 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		authorSeat = seats.Author
 	}
 	hCfg := harness.Config{
-		Judge:            seats.Judge,
-		Author:           authorSeat,
-		MinJudgeScore:    tryMinJudgeScore(),
-		Strategy:         harness.StrategyAttach,
-		Embedder:         seats.Embedder,
-		Essencer:         seats.Essencer,
-		AttachMinCosine:  cfg.Taxonomy.AttachMinCosine,
-		WalkReinforceMin: cfg.Taxonomy.WalkReinforceMin,
-		Cosine:           embed.CosineSimilarity,
+		Judge:         seats.Judge,
+		Author:        authorSeat,
+		MinJudgeScore: tryMinJudgeScore(),
+	}
+	if cfg.Taxonomy.Strategy == "attach" {
+		hCfg.Strategy = harness.StrategyAttach
+		hCfg.Embedder = seats.Embedder
+		hCfg.Essencer = seats.Essencer
+		hCfg.AttachMinCosine = cfg.Taxonomy.AttachMinCosine
+		hCfg.WalkReinforceMin = cfg.Taxonomy.WalkReinforceMin
+		hCfg.Cosine = embed.CosineSimilarity
 	}
 	h, err := harness.CreateHarness(hCfg)
 	if err != nil {
