@@ -30,11 +30,7 @@ type RunnerConfig struct {
 	PolypusURL       string
 	JudgeModel       string
 	AuthorModel      string
-	PreAI            bool
 	AuthorOnSkip     bool
-	SendersPath      string
-	SendersVocab     catalog.Vocabulary
-	SendersCat       *catalog.Catalog
 	Strategy         string
 	EmbedModel       string
 	AttachMinCosine  float64
@@ -54,13 +50,9 @@ type Runner struct {
 	polypusURL       string
 	judgeModel       string
 	authorModel      string
-	preAI            bool
 	authorOnSkip     bool
 	vocab            catalog.Vocabulary
 	cat              *catalog.Catalog
-	sendersPath      string
-	sendersVocab     catalog.Vocabulary
-	sendersCat       *catalog.Catalog
 	strategy         string
 	embedModel       string
 	attachMinCosine  float64
@@ -86,13 +78,10 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		max = 50
 	}
 	strategy := strings.TrimSpace(cfg.Strategy)
-	if strategy == "" {
-		strategy = "walk"
+	if strategy == "" || strategy == "walk" {
+		strategy = "attach"
 	}
-	world := WorldContext
-	if strategy == "attach" {
-		world = WorldContextAttach
-	}
+	world := WorldContextAttach
 	now := cfg.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -109,13 +98,9 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		judgeModel:       strings.TrimSpace(cfg.JudgeModel),
 		authorModel:      strings.TrimSpace(cfg.AuthorModel),
 		embedModel:       strings.TrimSpace(cfg.EmbedModel),
-		preAI:            cfg.PreAI,
 		authorOnSkip:     cfg.AuthorOnSkip,
 		vocab:            vocab,
 		cat:              cat,
-		sendersPath:      strings.TrimSpace(cfg.SendersPath),
-		sendersVocab:     cfg.SendersVocab,
-		sendersCat:       cfg.SendersCat,
 		strategy:         strategy,
 		attachMinCosine:  cfg.AttachMinCosine,
 		walkReinforceMin: cfg.WalkReinforceMin,
@@ -146,9 +131,6 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 		GeneratedAt:    r.now.Format(time.RFC3339),
 		Source:         source,
 		Messages:       []MessageRow{},
-	}
-	if r.sendersCat != nil {
-		art.SendersCatalogID = strings.TrimSpace(r.sendersCat.Vocab.ID)
 	}
 	art.EmbedModel = r.embedModel
 	art.AttachMinCosine = r.attachMinCosine
@@ -187,30 +169,11 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 			art.Classified++
 			continue
 		}
-		fields := item.Headers.FieldMap(item.Sender)
-		if r.preAI && r.strategy != "attach" {
-			if pre, ok := HeuristicAssign(item.Headers, item.Sender, r.cat); ok {
-				if err := r.recordPreAssign(&art, &prog, item, pre, fields); err != nil {
-					return art, err
-				}
-				continue
-			}
-			if pre, ok := SenderCatalogAssign(r.sendersCat, r.cat, fields); ok {
-				if err := r.recordPreAssign(&art, &prog, item, pre, fields); err != nil {
-					return art, err
-				}
-				continue
-			}
-		}
 		if aiHops >= r.max {
 			art.Omitted++
 			continue
 		}
 		aiHops++
-		senderCatalogHit := false
-		if r.preAI && r.sendersCat != nil {
-			_, senderCatalogHit = SenderCatalogAssign(r.sendersCat, r.cat, fields)
-		}
 		row := MessageRow{ObjectHash: hash, Subject: item.Subject, Sender: item.Sender}
 		opCtx, cancel := context.WithTimeout(ctx, r.operateTimeout())
 		res, opErr := r.runOperate(opCtx, item)
@@ -220,7 +183,6 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 				return art, opErr
 			}
 			row.Error = formatRowError(opErr)
-			stampSender(&row, r.sendersCat, fields)
 			art.Messages = append(art.Messages, row)
 			prog.Entries[hash] = progressEntryFromRow(row)
 			if saveErr := SaveProgress(r.progress, prog); saveErr != nil {
@@ -291,12 +253,6 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 				}
 			}
 		}
-		if r.apply && !senderCatalogHit && row.TermID != "" && ShouldLearnSenders(row.TermID) {
-			if learnErr := r.learnSenders(row.TermID, fields); learnErr != nil {
-				row.Error = formatRowError(learnErr)
-			}
-		}
-		stampSender(&row, r.sendersCat, fields)
 		art.Messages = append(art.Messages, row)
 		art.Classified++
 		prog.Entries[hash] = progressEntryFromRow(row)
@@ -308,64 +264,7 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 }
 
 func progressComplete(ent ProgressEntry) bool {
-	if ent.TermID != "" || len(ent.Path) > 0 {
-		return true
-	}
-	return ent.Source == SourceHeuristic || ent.Source == SourceSenderCatalog
-}
-
-func (r *Runner) recordPreAssign(art *Artifact, prog *ProgressFile, item Item, pre PreAssign, fields map[string]string) error {
-	hash := strings.TrimSpace(item.ObjectHash)
-	row := MessageRow{
-		ObjectHash: hash,
-		Subject:    item.Subject,
-		Sender:     item.Sender,
-		TermID:     pre.TermID,
-		Path:       pre.Path,
-		Label:      pre.Label,
-		Source:     pre.Source,
-	}
-	stampSender(&row, r.sendersCat, fields)
-	art.Messages = append(art.Messages, row)
-	art.Classified++
-	prog.Entries[hash] = progressEntryFromRow(row)
-	return SaveProgress(r.progress, *prog)
-}
-
-func (r *Runner) learnSenders(inboxLeaf string, fields map[string]string) error {
-	const op = "mailreport.Runner.learnSenders"
-	if r.sendersPath == "" || r.sendersCat == nil {
-		return nil
-	}
-	learnFields := LearnFieldsForSenders(fields)
-	if len(learnFields) == 0 {
-		return nil
-	}
-	termID := MintSenderTermID(learnFields["from"])
-	if termID == "" {
-		return nil
-	}
-	if _, ok := r.sendersCat.Lookup(termID); !ok {
-		r.sendersVocab.Terms = append(r.sendersVocab.Terms, catalog.Term{
-			ID:     termID,
-			Label:  termID,
-			MapsTo: inboxLeaf,
-		})
-	}
-	out, err := catalog.LearnExact(r.sendersVocab, termID, learnFields)
-	if err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "learn exact")
-	}
-	if err := SaveCatalog(r.sendersPath, out); err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "save senders catalog")
-	}
-	cat, err := catalog.BuildCatalog(out)
-	if err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "build senders catalog")
-	}
-	r.sendersVocab = out
-	r.sendersCat = cat
-	return nil
+	return ent.TermID != "" || len(ent.Path) > 0
 }
 
 func (r *Runner) runOperate(ctx context.Context, item Item) (harness.Result, error) {
@@ -413,10 +312,7 @@ func draftKind(d *DraftRecord) string {
 }
 
 func (r *Runner) operateTimeout() time.Duration {
-	if r != nil && r.strategy == "attach" {
-		return operateTimeoutAttach
-	}
-	return operateTimeoutWalk
+	return operateTimeoutAttach
 }
 
 func sourceFromOperateResult(res harness.Result) string {
@@ -480,6 +376,7 @@ func DedupeItemsByHash(items []Item) []Item {
 	for _, it := range items {
 		h := strings.TrimSpace(it.ObjectHash)
 		if h == "" {
+			out = append(out, it)
 			continue
 		}
 		if _, ok := seen[h]; ok {

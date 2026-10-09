@@ -57,3 +57,27 @@ func SaveProgress(path string, pf ProgressFile) error {
 func progressNow() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
+
+func progressEntryFromRow(row MessageRow) ProgressEntry {
+	return ProgressEntry{
+		TermID:          row.TermID,
+		Path:            row.Path,
+		Label:           row.Label,
+		Source:          row.Source,
+		Strategy:        row.Strategy,
+		Kind:            row.Kind,
+		About:           row.About,
+		Shape:           row.Shape,
+		Cosine:          row.Cosine,
+		CanonicalTermID: row.CanonicalTermID,
+		Reinforced:      row.Reinforced,
+		JudgeScore:      row.JudgeScore,
+		DraftKind:       draftKind(row.Draft),
+		CatalogApplied:  row.CatalogApplied,
+		Error:           row.Error,
+		SenderTermID:    row.SenderTermID,
+		SenderLabel:     row.SenderLabel,
+		SenderMapsTo:    row.SenderMapsTo,
+		UpdatedAt:       progressNow(),
+	}
+}

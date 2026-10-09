@@ -39,6 +39,14 @@ func (s *stubAuthor) Draft(_ context.Context, _ harness.DraftIn) (harness.DraftO
 	return s.draft, nil
 }
 
+func testInboxCatalog(t *testing.T) *catalog.Catalog {
+	cat, err := catalog.BuildCatalog(testInboxVocab())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cat
+}
+
 func testInboxVocab() catalog.Vocabulary {
 	return catalog.Vocabulary{
 		ID:    "inbox-mail",

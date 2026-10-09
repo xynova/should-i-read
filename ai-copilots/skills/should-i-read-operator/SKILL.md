@@ -89,9 +89,9 @@ pim doctor       # use mail readiness
 
 **CONSTRAINT:** Before host AI work, MUST fail closed on Polypus (`make polypus-check`). Classify Judge uses `polypus.judge_model` (or first `typesafe/jev` id from `/v1/models`). Author uses `polypus.classify_model` (or first non-jev id) only when Judge skips and `taxonomy.author_on_skip` is true; Author input is host-cleaned latest body (not bulk classify).
 
-**Classify pre-AI:** `taxonomy.collections` (default INBOX), `taxonomy.pre_ai`, `taxonomy.senders_path`, and `taxonomy.classify_max` (Operate hops only). `taxonomy.author_on_skip: false` skips Author chat on Judge skip (default report-only). Report JSON (`tmp/unwanted-report-*.json`) stamps `sender_term_id` / `sender_label` / `sender_maps_to` when senders `MatchFields` fits (even if inbox `source` is `heuristic`); inspect the artifact, not only the human classify summary box.
+**Classify:** `taxonomy.collections` (default INBOX) and `taxonomy.classify_max` (Operate calls per run). `taxonomy.author_on_skip: false` skips Author chat on Judge skip (default report-only). Every classified message goes through taxonomy **attach** `Operate` (Essence, embed, cosine); inspect `tmp/unwanted-report-*.json`, not only the human summary.
 
-**Attach strategy:** `taxonomy.strategy: attach` uses catalog `inbox-kind` (seed `config/vocabularies/inbox-kind.yaml`), `polypus.embed_model` (resolved and embedded via strop `CreateEmbedder` against the Polypus base URL), Essence chat (same model as classify author), cosine thresholds `attach_min_cosine` / `walk_reinforce_min` with `strop/pkg/embed.CosineSimilarity` injected into the harness. Walk strategy (default) stays on `inbox-mail`.
+**Attach (only strategy):** catalog `inbox-kind` (seed `config/vocabularies/inbox-kind.yaml`, default under `~/.config/should-i-read/vocabularies/`), `polypus.embed_model` via strop `CreateEmbedder`, Essence chat (same model as classify author), thresholds `attach_min_cosine` / `walk_reinforce_min` with `strop/pkg/embed.CosineSimilarity`. Legacy `taxonomy.strategy: walk` in YAML is treated as attach.
 
 ## Operator recipe
 
