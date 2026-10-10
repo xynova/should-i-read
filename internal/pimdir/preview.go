@@ -2,6 +2,7 @@ package pimdir
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -58,7 +59,7 @@ func plainFromMultipart(body io.Reader, params map[string]string, maxBytes int) 
 	mr := multipart.NewReader(body, boundary)
 	for {
 		part, err := mr.NextPart()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

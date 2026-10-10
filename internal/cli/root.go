@@ -37,7 +37,7 @@ func skipTelemetryForCmd(cmd *cobra.Command) bool {
 	}
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "configure":
+		case VerbConfigure:
 			if isTerminal(os.Stdin) {
 				return true
 			}
@@ -90,7 +90,7 @@ func Execute(ctx context.Context, repoRoot string) int {
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		if !opts.humanErr {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 		return sirerr.ExitCode(err)
 	}
@@ -121,8 +121,8 @@ func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print build version",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintln(cmd.OutOrStdout(), Version)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return writeCLILine(cmd.OutOrStdout(), Version)
 		},
 	}
 }
@@ -130,18 +130,19 @@ func newVersionCmd() *cobra.Command {
 func newInitCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
-		Use:   "init",
+		Use:   VerbInit,
 		Short: "Create ~/.config/should-i-read/config.yaml",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			const op = "cli.init"
 			examplePath := filepath.Join(repoRoot, "config", "should-i-read.example.yaml")
 			var exampleSrc []byte
+			//nolint:gosec // bundled example config under repoRoot
 			if raw, err := os.ReadFile(examplePath); err == nil {
 				exampleSrc = raw
 			}
 			path, created, err := config.WriteInit(force, exampleSrc)
 			if err != nil {
-				return err
+				return sirerr.Wrap(err, sirerr.CodeFailed, op, "write init config")
 			}
 			status := "unchanged"
 			if created {
@@ -150,11 +151,9 @@ func newInitCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 				status = "replaced"
 			}
 			if wantJSON(cmd) {
-				fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"config\":%q,\"status\":%q}\n", path, status)
-				return nil
+				return writeCLI(cmd.OutOrStdout(), "{\"ok\":true,\"config\":%q,\"status\":%q}\n", path, status)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", status, path)
-			return nil
+			return writeCLI(cmd.OutOrStdout(), "%s %s\n", status, path)
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing config.yaml")
@@ -172,8 +171,10 @@ token gmail/outlook (Neverest XOAUTH2).
 
 Prefer should-i-read configure for full operator onboarding.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprint(cmd.ErrOrStderr(), deprecationConfigure)
 			const op = "cli.setup"
+			if err := writeCLIString(cmd.ErrOrStderr(), deprecationConfigure); err != nil {
+				return sirerr.Wrap(err, sirerr.CodeFailed, op, "write deprecation")
+			}
 			// Caller deadline for optional gcloud / process work.
 			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
 			defer cancel()
@@ -194,8 +195,7 @@ Prefer should-i-read configure for full operator onboarding.`,
 			if wantJSON(cmd) {
 				return printJSON(cmd.OutOrStdout(), res)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), formatSetupResult(res))
-			return nil
+			return writeCLILine(cmd.OutOrStdout(), formatSetupResult(res))
 		},
 	}
 	return cmd
@@ -219,11 +219,9 @@ func newConfigCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 				if uerr != nil {
 					return uerr
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), userPath+" (missing; run should-i-read init)")
-				return nil
+				return writeCLILine(cmd.OutOrStdout(), userPath+" (missing; run should-i-read init)")
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), path)
-			return nil
+			return writeCLILine(cmd.OutOrStdout(), path)
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
@@ -237,8 +235,7 @@ func newConfigCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 			if wantJSON(cmd) {
 				return printJSON(cmd.OutOrStdout(), cfg.Redacted())
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), formatConfigRedacted(cfg.Redacted()))
-			return nil
+			return writeCLILine(cmd.OutOrStdout(), formatConfigRedacted(cfg.Redacted()))
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
@@ -261,8 +258,7 @@ polypus.base_url with ${POLYPUS_BASE_URL}. Does not overwrite custom Polypus URL
 			if wantJSON(cmd) {
 				return printJSON(cmd.OutOrStdout(), out)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), formatConfigBump(path, changed, notes))
-			return nil
+			return writeCLILine(cmd.OutOrStdout(), formatConfigBump(path, changed, notes))
 		},
 	})
 	return cmd
@@ -288,7 +284,9 @@ func newSecretCmd() *cobra.Command {
 				}
 				value = strings.TrimSpace(string(raw))
 			} else {
-				fmt.Fprint(os.Stderr, "value: ")
+				if err := writeCLIString(os.Stderr, "value: "); err != nil {
+					return sirerr.Wrap(err, sirerr.CodeFailed, "cli.secret.set", "write prompt")
+				}
 				raw, err := io.ReadAll(io.LimitReader(os.Stdin, 64*1024))
 				if err != nil {
 					return sirerr.Wrap(err, sirerr.CodeFailed, "cli.secret.set", "read value")
@@ -299,11 +297,9 @@ func newSecretCmd() *cobra.Command {
 				return err
 			}
 			if wantJSON(cmd) {
-				fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"name\":%q}\n", name)
-				return nil
+				return writeCLI(cmd.OutOrStdout(), "{\"ok\":true,\"name\":%q}\n", name)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Stored %s (keyring)\n", name)
-			return nil
+			return writeCLI(cmd.OutOrStdout(), "Stored %s (keyring)\n", name)
 		},
 	}
 	setCmd.Flags().BoolVar(&stdin, "stdin", false, "Read secret value from stdin")
@@ -317,11 +313,9 @@ func newSecretCmd() *cobra.Command {
 				return err
 			}
 			if wantJSON(cmd) {
-				fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"deleted\":%q}\n", args[0])
-				return nil
+				return writeCLI(cmd.OutOrStdout(), "{\"ok\":true,\"deleted\":%q}\n", args[0])
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s (keyring)\n", args[0])
-			return nil
+			return writeCLI(cmd.OutOrStdout(), "Deleted %s (keyring)\n", args[0])
 		},
 	})
 	return cmd
@@ -350,7 +344,7 @@ func newPolypusCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 				return err
 			}
 			if classifyCheck {
-				resolveCtx, cancel := context.WithTimeout(cmd.Context(), 45*time.Second)
+				resolveCtx, cancel := context.WithTimeout(cmd.Context(), classifyModelResolveTimeout)
 				defer cancel()
 				judge, src, err := mailreport.ResolveJudgeModel(resolveCtx, client, result.ModelIDs, cfg.PolypusJudgeModel)
 				if err != nil {
@@ -369,8 +363,7 @@ func newPolypusCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 			if wantJSON(cmd) {
 				return printJSON(cmd.OutOrStdout(), result)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), formatPolypusHealth(result, classifyCheck))
-			return nil
+			return writeCLILine(cmd.OutOrStdout(), formatPolypusHealth(result, classifyCheck))
 		},
 	}
 	check.Flags().BoolVar(&classifyCheck, "classify", false, "Smoke SystemOne judge and chat author for classify")

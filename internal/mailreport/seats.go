@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/behaviorengineering/strop/pkg/jev"
 	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
@@ -13,9 +15,17 @@ import (
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
+const classifyRowID = "classify-row"
+
 type polypusJudge struct {
-	client *polypus.Client
-	model  string
+	jev   *jev.Client
+	model string
+}
+
+// JudgeBatchItem is one row for batched SystemOne judge calls.
+type JudgeBatchItem struct {
+	RowID string
+	In    harness.DecideIn
 }
 
 type polypusAuthor struct {
@@ -64,8 +74,8 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 			Model:       e.model,
 			Temperature: 0,
 			Messages: []polypus.ChatMessage{
-				{Role: "system", Content: essenceSystemPrompt},
-				{Role: "user", Content: prompt},
+				{Role: polypus.RoleSystem, Content: essenceSystemPrompt},
+				{Role: polypus.RoleUser, Content: prompt},
 			},
 		})
 		if err != nil {
@@ -94,6 +104,7 @@ type SeatsConfig struct {
 	AuthorModel  string
 	EssenceModel string
 	Embedder     harness.Embedder
+	JEVClient    *jev.Client
 }
 
 // CreateSeats wires Polypus SystemOne Judge and chat Author (optional Essencer/Embedder).
@@ -111,8 +122,12 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 	if authorModel == "" {
 		return Seats{}, sirerr.New(sirerr.CodeInvalid, op, "author model id is empty")
 	}
+	jevClient := cfg.JEVClient
+	if jevClient == nil {
+		jevClient = jev.NewClient(cfg.Client.BaseURL, cfg.Client.HTTPClient, "")
+	}
 	out := Seats{
-		Judge:  &polypusJudge{client: cfg.Client, model: judgeModel},
+		Judge:  &polypusJudge{jev: jevClient, model: judgeModel},
 		Author: &polypusAuthor{client: cfg.Client, model: authorModel},
 	}
 	if essenceModel != "" {
@@ -122,22 +137,111 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 	return out, nil
 }
 
-const maxJudgeNoulQuestions = 64
-
 func (j *polypusJudge) Decide(ctx context.Context, in harness.DecideIn) (harness.DecideOut, error) {
 	const op = "mailreport.polypusJudge.Decide"
-	if j == nil || j.client == nil {
-		return harness.DecideOut{}, sirerr.New(sirerr.CodeInvalid, op, "nil judge")
+	outs, err := j.BatchDecide(ctx, []JudgeBatchItem{{RowID: classifyRowID, In: in}})
+	if err != nil {
+		return harness.DecideOut{}, err
+	}
+	if len(outs) == 0 {
+		return harness.DecideOut{}, sirerr.New(sirerr.CodeFailed, op, "empty batch result")
+	}
+	return outs[0], nil
+}
+
+// BatchDecide scores many DecideIn values, batching SystemOne when option sets match.
+func (j *polypusJudge) BatchDecide(ctx context.Context, items []JudgeBatchItem) ([]harness.DecideOut, error) {
+	const op = "mailreport.polypusJudge.BatchDecide"
+	if j == nil || j.jev == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil judge")
 	}
 	if ctx == nil {
-		return harness.DecideOut{}, sirerr.New(sirerr.CodeInvalid, op, "nil context")
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
-	if len(in.Options) == 0 {
-		return harness.DecideOut{}, sirerr.New(sirerr.CodeInvalid, op, "no packed options")
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 45*time.Second)
+		defer cancel()
 	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	rows := make([]jev.Row, 0, len(items))
+	rowMeta := make([]judgeBatchMeta, 0, len(items))
+	for _, it := range items {
+		rowID := strings.TrimSpace(it.RowID)
+		if rowID == "" {
+			rowID = classifyRowID
+		}
+		in := it.In
+		if len(in.Options) == 0 {
+			return nil, sirerr.New(sirerr.CodeInvalid, op, "no packed options")
+		}
+		allowed, criteria := packedCriteria(in.Options)
+		questions := noulQuestions(in.Options, criteria)
+		rows = append(rows, jev.Row{
+			ID:          rowID,
+			StateSuffix: strings.TrimSpace(in.Text),
+			Questions:   questions,
+		})
+		rowMeta = append(rowMeta, judgeBatchMeta{
+			rowID:      rowID,
+			options:    in.Options,
+			allowed:    allowed,
+			preferSkip: !isGateOptions(in.Options),
+		})
+	}
+	world := strings.TrimSpace(items[0].In.WorldContext)
+	reqs, err := jev.BatchRows(rows, world, jev.DefaultMaxQuestions)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeAI, op, "batch rows")
+	}
+	answersByRow := map[string]map[string]jev.Answer{}
+	for _, req := range reqs {
+		req.Model = j.model
+		raw, err := j.jev.Eval(ctx, req)
+		if err != nil {
+			if strings.Contains(err.Error(), "unavailable") {
+				return nil, sirerr.Wrap(err, sirerr.CodeUnavailable, op, "jev eval")
+			}
+			return nil, sirerr.Wrap(err, sirerr.CodeAI, op, "jev eval")
+		}
+		for key, ans := range raw {
+			rowID, choice, serr := jev.SplitKey(key)
+			if serr != nil {
+				continue
+			}
+			m := answersByRow[rowID]
+			if m == nil {
+				m = map[string]jev.Answer{}
+				answersByRow[rowID] = m
+			}
+			m[choice] = ans
+		}
+	}
+	outs := make([]harness.DecideOut, 0, len(rowMeta))
+	for _, meta := range rowMeta {
+		sys := jevAnswersToSystemOne(answersByRow[meta.rowID], meta.options)
+		dec, err := decideFromNoul(op, meta.options, meta.allowed, sys, meta.preferSkip)
+		if err != nil {
+			return nil, err
+		}
+		outs = append(outs, dec)
+	}
+	return outs, nil
+}
+
+type judgeBatchMeta struct {
+	rowID      string
+	options    []harness.PackedOption
+	allowed    map[string]struct{}
+	preferSkip bool
+}
+
+func packedCriteria(options []harness.PackedOption) (map[string]struct{}, map[string]string) {
 	allowed := map[string]struct{}{}
 	criteria := map[string]string{}
-	for _, o := range in.Options {
+	for _, o := range options {
 		allowed[o.Choice] = struct{}{}
 		label := strings.TrimSpace(o.Label)
 		if label == "" {
@@ -150,16 +254,28 @@ func (j *polypusJudge) Decide(ctx context.Context, in harness.DecideIn) (harness
 			criteria[o.Choice] = label + ": " + desc
 		}
 	}
-	state := strings.TrimSpace(in.WorldContext) + "\n\n" + strings.TrimSpace(in.Text)
-	out, err := j.systemOneNoulPerOption(ctx, state, in.Options, criteria)
-	if err != nil {
-		if isUnavailable(err) {
-			return harness.DecideOut{}, sirerr.Wrap(err, sirerr.CodeUnavailable, op, "judge systemone")
+	return allowed, criteria
+}
+
+func noulQuestions(options []harness.PackedOption, criteria map[string]string) map[string]jev.Question {
+	questions := make(map[string]jev.Question, len(options))
+	for _, o := range options {
+		questions[o.Choice] = jev.Question{
+			Type:         "noul",
+			Instructions: "Score 0 to 1 how honestly this option fits the message. " + criteria[o.Choice],
 		}
-		return harness.DecideOut{}, sirerr.Wrap(err, sirerr.CodeAI, op, "judge systemone")
 	}
-	preferSkip := !isGateOptions(in.Options)
-	return decideFromNoul(op, in.Options, allowed, out, preferSkip)
+	return questions
+}
+
+func jevAnswersToSystemOne(raw map[string]jev.Answer, options []harness.PackedOption) polypus.SystemOneResponse {
+	mapped := make(map[string]polypus.SystemOneAnswer, len(options))
+	for _, o := range options {
+		if a, ok := raw[o.Choice]; ok {
+			mapped[o.Choice] = polypus.SystemOneAnswer{Type: a.Type, Noul: a.Noul, Choice: a.Choice}
+		}
+	}
+	return polypus.SystemOneResponse{Answers: mapped}
 }
 
 func isGateOptions(options []harness.PackedOption) bool {
@@ -169,55 +285,6 @@ func isGateOptions(options []harness.PackedOption) bool {
 		}
 	}
 	return false
-}
-
-func (j *polypusJudge) systemOneNoulPerOption(ctx context.Context, state string, options []harness.PackedOption, criteria map[string]string) (polypus.SystemOneResponse, error) {
-	const op = "mailreport.polypusJudge.systemOneNoulPerOption"
-	if len(options) > maxJudgeNoulQuestions {
-		return polypus.SystemOneResponse{}, sirerr.New(sirerr.CodeAI, op, "too many packed options")
-	}
-	questions := make(map[string]polypus.SystemOneQuestion, len(options))
-	for _, o := range options {
-		qid := systemOneQuestionID(o.Choice)
-		questions[qid] = polypus.SystemOneQuestion{
-			Type:         "noul",
-			Instructions: "Score 0 to 1 how honestly this option fits the message. " + criteria[o.Choice],
-		}
-	}
-	req := polypus.SystemOneRequest{
-		Model:     j.model,
-		State:     state,
-		Questions: questions,
-	}
-	out, err := j.client.SystemOne(ctx, req)
-	if err != nil {
-		return polypus.SystemOneResponse{}, err
-	}
-	return remapSystemOneAnswers(out, options), nil
-}
-
-// systemOneQuestionID maps packed choice ids to safe question keys (colons in use: ids).
-func systemOneQuestionID(choice string) string {
-	return strings.ReplaceAll(choice, ":", "__")
-}
-
-func remapSystemOneAnswers(out polypus.SystemOneResponse, options []harness.PackedOption) polypus.SystemOneResponse {
-	if len(out.Answers) == 0 {
-		return out
-	}
-	mapped := make(map[string]polypus.SystemOneAnswer, len(out.Answers))
-	for _, o := range options {
-		qid := systemOneQuestionID(o.Choice)
-		if ans, ok := out.Answers[qid]; ok {
-			mapped[o.Choice] = ans
-			continue
-		}
-		if ans, ok := out.Answers[o.Choice]; ok {
-			mapped[o.Choice] = ans
-		}
-	}
-	out.Answers = mapped
-	return out
 }
 
 func decideFromNoul(op string, options []harness.PackedOption, allowed map[string]struct{}, out polypus.SystemOneResponse, preferSkipOnTie bool) (harness.DecideOut, error) {
@@ -275,8 +342,8 @@ func (a *polypusAuthor) Draft(ctx context.Context, in harness.DraftIn) (harness.
 		Model:       a.model,
 		Temperature: 0,
 		Messages: []polypus.ChatMessage{
-			{Role: "system", Content: authorSystemPrompt},
-			{Role: "user", Content: prompt},
+			{Role: polypus.RoleSystem, Content: authorSystemPrompt},
+			{Role: polypus.RoleUser, Content: prompt},
 		},
 	})
 	if err != nil {

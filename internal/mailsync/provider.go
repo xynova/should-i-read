@@ -29,6 +29,8 @@ func ParseProvider(raw string) (Provider, error) {
 
 func (p Provider) imapServer() string {
 	switch p {
+	case ProviderGmail:
+		return "imap.gmail.com"
 	case ProviderOutlook:
 		return "outlook.office365.com"
 	default:

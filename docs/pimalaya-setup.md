@@ -1,28 +1,28 @@
 # Pimalaya lane setup (mail sync + pimdir)
 
-**Default mail path for should-i-read.** The host installs and invokes a mail sync dependency (Neverest) that writes a local **pimdir** store; the Go CLI reads SQLite and writes report-only artifacts. Operators use `should-i-read` / Make only, starting with `make configure`.
+**Default mail path for should-i-read.** The host installs and invokes a mail sync dependency (Neverest) that writes a local **pimdir** store; the Go CLI reads SQLite and writes report-only artifacts. Operators use `should-i-read` / `go tool task` only, starting with `go tool task configure`.
 
 ## Operator checklist
 
 ```bash
-make init && make build
-make configure
-# or: make configure ARGS='--apply --provider gmail --email you@example.com'
+go tool task build && go tool task init
+go tool task configure
+# or: go tool task configure -- --apply --provider gmail --email you@example.com
 ./bin/should-i-read config bump    # when Polypus URL was literal localhost in YAML
-make configure --json
-make polypus-check
-make readiness && make sync && make export
+./bin/should-i-read configure --json
+go tool task polypus-check
+go tool task mail:readiness && go tool task mail:sync && go tool task mail:export
 ```
 
-`make build` does not install the mail sync dependency. `configure` installs or verifies it as part of onboarding. Agents: see [AGENTS.md](../AGENTS.md) operator setup.
+`go tool task build` does not install the mail sync dependency. `configure` installs or verifies it as part of onboarding. Agents: see [AGENTS.md](../AGENTS.md) operator setup.
 
 ## Mailbox onboarding (`configure`)
 
 One hub for host config, OAuth clients, mail dependency, sync profile, mailbox login, and local store init:
 
 ```bash
-make configure
-# or: make configure ARGS='--apply --provider gmail --email you@example.com'
+go tool task configure
+# or: go tool task configure -- --apply --provider gmail --email you@example.com
 ./bin/should-i-read configure --json   # readiness checklist
 ./bin/should-i-read mail status        # mail-only JSON checklist
 ```
@@ -34,14 +34,14 @@ make configure
 The sync engine is Neverest (`v0.x`, beta). Host scripts and `pim` subcommands remain for automation:
 
 ```bash
-make ensure                         # should-i-read pim ensure
+go tool task pim-ensure             # should-i-read pim ensure (internal task)
 ./bin/should-i-read pim configure ...
 ./bin/should-i-read pim ensure --check-only
 ```
 
 Do not teach these verbs in operator help; use `mail setup` / `mail status` instead.
 
-`make readiness` and `make sync` run the dependency check first. The host resolves `pimalaya.neverest_bin` / `NEVEREST_BIN` / PATH / `$CARGO_HOME/bin` so operators do not need cargo bin on PATH.
+`go tool task mail:readiness` and `go tool task mail:sync` rely on the Go CLI for dependency checks. The host resolves `pimalaya.neverest_bin` / `NEVEREST_BIN` / PATH / `$CARGO_HOME/bin` so operators do not need cargo bin on PATH.
 
 Maintainer alternatives (not the operator path): release artifacts or `cargo install --git https://github.com/pimalaya/neverest`.
 
@@ -52,8 +52,8 @@ Host-owned path: use `mail setup` above. Maintainer reference for hand-edited TO
 After configure, prefer host checks:
 
 ```bash
-make readiness    # should-i-read mail readiness
-make sync         # should-i-read mail sync
+go tool task mail:readiness    # should-i-read mail readiness
+go tool task mail:sync         # should-i-read mail sync
 ```
 
 ## Gmail IMAP with XOAUTH2
@@ -133,7 +133,7 @@ Optional alignment with host config: set `pimalaya.default_account` to the same 
 
 Fetch hunk `collection` + `id` (IMAP UID string) resolve in pimdir by `imap/<collection>` or `collection` with `items.seq = atoi(id)`, then `link_id = id`. Unresolved hunks are counted in the report artifact.
 
-`mail report` / `make report` classifies recent pimdir rows or `--in` export JSON (requires Polypus). `mail export` / `make export` only writes summary fields into JSON (subject, sender, date, `object_hash`, etc.). To read body text for one message after sync, use `should-i-read mail show <object_hash>` (copy `object_hash` from the export file). Use `--raw` to dump the full RFC822 blob.
+`mail report` / `go tool task mail:report` classifies recent pimdir rows or `--in` export JSON (requires Polypus). `mail export` / `go tool task mail:export` only writes summary fields into JSON (subject, sender, date, `object_hash`, etc.). To read body text for one message after sync, use `should-i-read mail show <object_hash>` (copy `object_hash` from the export file). Use `--raw` to dump the full RFC822 blob.
 
 `mail status` is the configure onboarding checklist; `mail readiness` is the Neverest sync-engine check (credentials and IMAP).
 

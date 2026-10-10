@@ -4,36 +4,36 @@ This host is the should-i-read operator CLI (mail sync + pimdir + Polypus). Huma
 
 ## Operator setup (fail closed)
 
-**CONSTRAINT:** Operators and agents drive mail and AI through `make` / `bin/should-i-read` only. The mail sync binary (Neverest) is an implementation detail the host resolves and invokes; do not ask humans to run it or fix PATH for it.
+**CONSTRAINT:** Operators and agents drive mail and AI through `go tool task` / `bin/should-i-read` only. The mail sync binary (Neverest) is an implementation detail the host resolves and invokes; do not ask humans to run it or fix PATH for it.
 
-**CONSTRAINT:** `make build` compiles the host Go CLI only. It does **not** install the mail sync dependency or start Polypus.
+**CONSTRAINT:** `go tool task build` compiles the host Go CLI only. It does **not** install the mail sync dependency or start Polypus.
 
-Before `make readiness` / `make sync` on a machine, agents MUST follow (or confirm already done) the sequence in [`ai-copilots/skills/should-i-read-operator/SKILL.md`](ai-copilots/skills/should-i-read-operator/SKILL.md) and [`docs/pimalaya-setup.md`](docs/pimalaya-setup.md):
+Before `go tool task mail:readiness` / `go tool task mail:sync` on a machine, agents MUST follow (or confirm already done) the sequence in [`ai-copilots/skills/should-i-read-operator/SKILL.md`](ai-copilots/skills/should-i-read-operator/SKILL.md) and [`docs/pimalaya-setup.md`](docs/pimalaya-setup.md):
 
 ```bash
-make build && make init
-make configure
-# or: make configure ARGS='--apply --provider gmail --email you@example.com'
+go tool task build && go tool task init
+go tool task configure
+# or: go tool task configure -- --apply --provider gmail --email you@example.com
 ./bin/should-i-read config bump          # when Polypus URL was literal localhost
-make polypus-check
-make readiness && make sync && make export
+go tool task polypus-check
+go tool task mail:readiness && go tool task mail:sync && go tool task mail:export
 ```
 
-**CONSTRAINT:** MUST drive first-time operator onboarding via `configure` / `make configure`. MUST NOT instruct operators to run `setup`, `mail setup`, `pim ensure`, `pim configure`, `pim init`, or bare `neverest` for first-time setup. MAY use hidden/advanced commands for debugging after `configure --json` shows a specific failure.
+**CONSTRAINT:** MUST drive first-time operator onboarding via `configure` / `go tool task configure`. MUST NOT instruct operators to run `setup`, `mail setup`, `pim ensure`, `pim configure`, `pim init`, or bare `neverest` for first-time setup. MAY use hidden/advanced commands for debugging after `configure --json` shows a specific failure.
 
 Operator CLI stdout is human-first by default; use `should-i-read --json <cmd>` or `SHOULD_I_READ_JSON=1` when a script needs JSON.
 
-| Target / command | Role |
-|------------------|------|
-| `make configure` / `should-i-read configure` | Operator onboarding hub (config, OAuth apps, mailbox) |
-| `make mail-status` / `should-i-read mail status` | Onboarding checklist (JSON) |
-| `make readiness` / `should-i-read mail readiness` | Sync engine check (IMAP); `make doctor` is an alias |
-| `make sync` / `make report` / `make export` | `mail sync` (may classify via strop JobRunner + taxonomy), `mail report`, `mail export` |
-| `make polypus-check` | Fail closed before host AI work (`mail report` needs JEV + chat models) |
+| Task / command | Role |
+|----------------|------|
+| `go tool task configure` / `should-i-read configure` | Operator onboarding hub (config, OAuth apps, mailbox) |
+| `go tool task mail:status` (internal) / `should-i-read mail status` | Onboarding checklist (JSON) |
+| `go tool task mail:readiness` / `should-i-read mail readiness` | Sync engine check (IMAP); `doctor` is a task alias |
+| `go tool task mail:sync` / `mail:report` / `mail:export` | `mail sync` (may classify via strop JobRunner + taxonomy), `mail report`, `mail export` |
+| `go tool task polypus-check` | Fail closed before host AI work (`mail report` needs JEV + chat models) |
 
 Nested provider checkouts (read-only for product patches): `providers/taxonomy`, `providers/strop`. Bump submodule gitlinks and `go.mod` after upstream tags; local dev may use `replace` to `./providers/taxonomy` until `v0.2.0` is published.
 
-MUST NOT treat a missing mail sync dependency as a host Go build bug; run `make configure` so the host installs the dependency as part of onboarding.
+MUST NOT treat a missing mail sync dependency as a host Go build bug; run `go tool task configure` so the host installs the dependency as part of onboarding.
 MUST NOT tell operators to run bare `neverest` or add `~/.cargo/bin` to PATH for product workflows.
 
 ## Load order
@@ -53,7 +53,7 @@ MUST NOT tell operators to run bare `neverest` or add `~/.cargo/bin` to PATH for
 
 ## Wire Cursor discovery
 
-Canonical operator skill lives under `ai-copilots/`. After clone or pull, run `make wire-ai-copilots` (or [`scripts/wire-cursor-skills.sh`](scripts/wire-cursor-skills.sh)). Human notes: [`docs/ai-copilots-setup.md`](docs/ai-copilots-setup.md). Agents may also execute [`ai-copilots/BOOTSTRAP.md`](ai-copilots/BOOTSTRAP.md) in **wire mode** (phases 0 → 2 → 3).
+Canonical operator skill lives under `ai-copilots/`. After clone or pull, run `go tool task wire-ai-copilots` (or [`scripts/wire-cursor-skills.sh`](scripts/wire-cursor-skills.sh)). Human notes: [`docs/ai-copilots-setup.md`](docs/ai-copilots-setup.md). Agents may also execute [`ai-copilots/BOOTSTRAP.md`](ai-copilots/BOOTSTRAP.md) in **wire mode** (phases 0 → 2 → 3).
 
 For operatorconfig library skills, resolve the module with `go list -m -f '{{.Dir}}' github.com/behaviorengineering/operatorconfig` and execute that tree's `ai-copilots/BOOTSTRAP.md` (same as [polypus-local](https://gitlab.com/xynova/polypus-local) AGENTS).
 

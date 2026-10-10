@@ -36,7 +36,7 @@ func TestSetupWaitingOnLoginNonTTY(t *testing.T) {
 	var initCalled bool
 	noToken := func(Provider, string) bool { return false }
 	w, err := CreateWorkflow(dir, "/bin/fake", WorkflowHooks{
-		EnsureDep: func(ctx context.Context, installIfMissing bool) error { return nil },
+		EnsureDep:  func(ctx context.Context, installIfMissing bool) error { return nil },
 		TokenReady: noToken,
 		InitReplica: func(ctx context.Context, cfg config.Config, account string) error {
 			initCalled = true

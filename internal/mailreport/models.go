@@ -3,7 +3,7 @@ package mailreport
 import "strings"
 
 // PickJudgeAndAuthorModels chooses SystemOne (JEV) vs chat model ids.
-func PickJudgeAndAuthorModels(ids []string, judgeYAML, authorYAML string) (judge, author string) {
+func PickJudgeAndAuthorModels(ids []string, judgeYAML, authorYAML string) (judge, author string, err error) {
 	judge = strings.TrimSpace(judgeYAML)
 	author = strings.TrimSpace(authorYAML)
 	if judge == "" {
@@ -15,9 +15,12 @@ func PickJudgeAndAuthorModels(ids []string, judgeYAML, authorYAML string) (judge
 		}
 	}
 	if author == "" {
-		author, _ = PickAuthorModel(ids, "")
+		author, err = PickAuthorModel(ids, "")
+		if err != nil {
+			return judge, "", err
+		}
 	}
-	return judge, author
+	return judge, author, nil
 }
 
 func isJevModelID(id string) bool {

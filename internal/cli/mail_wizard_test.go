@@ -5,10 +5,10 @@ import "testing"
 func TestMailSetupUseWizard(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name      string
-		tty       bool
-		wizard    bool
-		prov, em  bool
+		name       string
+		tty        bool
+		wizard     bool
+		prov, em   bool
 		wantWizard bool
 	}{
 		{"non_tty", false, false, false, false, false},

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verify the host mail-sync dependency (Neverest) before mail readiness/sync.
 # Resolution: NEVEREST_BIN → pimalaya.neverest_bin → PATH → $CARGO_HOME/bin.
-# Operators use: should-i-read pim ensure | make ensure | make doctor
+# Operators use: should-i-read pim ensure | go tool task ensure | go tool task mail:readiness
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,7 +43,7 @@ resolve_neverest() {
 
 if ! neverest_bin="$(resolve_neverest)"; then
   echo "FAIL: mail sync dependency missing (host uses Neverest under the hood)." >&2
-  echo "Install with: make ensure   # or: ./bin/should-i-read pim ensure" >&2
+  echo "Install with: go tool task ensure   # or: ./bin/should-i-read pim ensure" >&2
   echo "Or set pimalaya.neverest_bin / NEVEREST_BIN to an existing binary." >&2
   echo "See docs/pimalaya-setup.md" >&2
   exit 1
@@ -52,7 +52,7 @@ fi
 echo "Mail sync binary: $neverest_bin"
 if ! "$neverest_bin" --version; then
   echo "FAIL: mail sync binary --version failed for $neverest_bin" >&2
-  echo "Install with: make ensure" >&2
+  echo "Install with: go tool task ensure" >&2
   exit 1
 fi
 

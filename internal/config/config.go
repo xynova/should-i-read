@@ -1,13 +1,14 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	operatorconfig "github.com/behaviorengineering/operatorconfig/pkg/operatorconfig"
+	"github.com/behaviorengineering/taxonomy/pkg/harness"
 	"gopkg.in/yaml.v3"
 
 	"github.com/xynova/should-i-read/internal/oauthcred"
@@ -108,7 +109,9 @@ func (c Config) Redacted() map[string]any {
 			"judge_model":    setUnset(c.PolypusJudgeModel),
 		},
 		"taxonomy": map[string]string{
-			"catalog_path": c.Taxonomy.CatalogPath,
+			"catalog_path":    c.Taxonomy.CatalogPath,
+			"strategy":        c.Taxonomy.Strategy,
+			"min_judge_score": strconv.FormatFloat(c.Taxonomy.MinJudgeScore, 'f', -1, 64),
 		},
 		"pimalaya": map[string]string{
 			"neverest_bin":    c.Pimalaya.NeverestBin,
@@ -143,7 +146,12 @@ func UserConfigDir() (string, error) {
 
 // UserConfigFilePath returns the live config.yaml path.
 func UserConfigFilePath() (string, error) {
-	return operatorconfig.UserConfigPath(AppName, "config.yaml")
+	const op = "config.UserConfigFilePath"
+	path, err := operatorconfig.UserConfigPath(AppName, "config.yaml")
+	if err != nil {
+		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "user config path")
+	}
+	return path, nil
 }
 
 // ResolvePath picks config file: override → SHOULD_I_READ_CONFIG → XDG user file → "".
@@ -161,6 +169,9 @@ func DefaultFile() File {
 	return File{
 		Secrets: DefaultSecrets(),
 		Polypus: PolypusFile{BaseURL: "${POLYPUS_BASE_URL}"},
+		Taxonomy: TaxonomyFile{
+			Strategy: string(harness.StrategyWalk),
+		},
 		Pimalaya: PimalayaFile{
 			NeverestBin:    "",
 			NeverestConfig: "",
@@ -211,6 +222,9 @@ func load(repoRoot, overridePath string, kr operatorconfig.Keyring) (Config, err
 	}
 	if err := ResolveHostSecrets(file.Secrets, kr); err != nil {
 		return Config{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "resolve secrets")
+	}
+	if err := operatorconfig.ApplyEnvDefaults(opts); err != nil {
+		return Config{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "apply env defaults")
 	}
 
 	cfg, err := materialize(repoRoot, path, file)
@@ -279,17 +293,7 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	}
 
 	if strings.TrimSpace(baseURL) == "" {
-		if v := strings.TrimSpace(os.Getenv(envPolypusBaseURL)); v != "" {
-			baseURL = v
-		} else {
-			baseURL = defaultPolypusBaseURL
-		}
-	}
-	if strings.TrimSpace(neverestBin) == "" {
-		neverestBin = strings.TrimSpace(os.Getenv("NEVEREST_BIN"))
-	}
-	if strings.TrimSpace(neverestCfg) == "" {
-		neverestCfg = strings.TrimSpace(os.Getenv("NEVEREST_CONFIG"))
+		baseURL = defaultPolypusBaseURL
 	}
 	classifyModel := strings.TrimSpace(file.Polypus.ClassifyModel)
 	judgeModel := strings.TrimSpace(file.Polypus.JudgeModel)
@@ -336,7 +340,7 @@ func ExpandString(s string, resolve func(string) (string, error), required bool)
 				if err != nil {
 					firstErr = err
 				} else {
-					firstErr = fmt.Errorf("unresolved placeholder ${%s}", name)
+					firstErr = sirerr.New(sirerr.CodeInvalid, "config.ExpandString", "unresolved placeholder").With("name", name)
 				}
 			}
 			return ""

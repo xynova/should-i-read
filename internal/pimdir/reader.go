@@ -64,7 +64,7 @@ func (r *Reader) ListRecentEmailsIn(collections []string, limit int) ([]EmailSum
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
 	}
@@ -90,7 +90,7 @@ LIMIT ?`
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query mail summaries")
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]EmailSummary, 0, limit)
 	for rows.Next() {

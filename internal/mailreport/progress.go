@@ -45,7 +45,7 @@ func SaveProgress(path string, pf ProgressFile) error {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "encode progress")
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(raw, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(tmp, append(raw, '\n'), 0o600); err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write progress tmp")
 	}
 	if err := os.Rename(tmp, path); err != nil {

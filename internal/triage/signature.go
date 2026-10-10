@@ -5,13 +5,13 @@ package triage
 type Category string
 
 const (
-	CategoryActionable    Category = "actionable"
-	CategoryPersonal      Category = "personal"
-	CategoryNewsletter    Category = "newsletter"
-	CategoryNotification  Category = "notification"
-	CategoryColdOutreach  Category = "cold_outreach"
-	CategorySpam          Category = "spam"
-	CategoryOther         Category = "other"
+	CategoryActionable   Category = "actionable"
+	CategoryPersonal     Category = "personal"
+	CategoryNewsletter   Category = "newsletter"
+	CategoryNotification Category = "notification"
+	CategoryColdOutreach Category = "cold_outreach"
+	CategorySpam         Category = "spam"
+	CategoryOther        Category = "other"
 )
 
 // Decision is one strop structured output per message (future).

@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/xynova/should-i-read/internal/config"
-	"github.com/xynova/should-i-read/internal/token"
 	"github.com/xynova/should-i-read/internal/sirerr"
+	"github.com/xynova/should-i-read/internal/token"
 )
 
 const waitingOnMailboxLogin = "mailbox_login"

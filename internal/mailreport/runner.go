@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
+	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -35,6 +37,9 @@ type RunnerConfig struct {
 	EmbedModel       string
 	AttachMinCosine  float64
 	WalkReinforceMin float64
+	EssenceBatch     ChatLineRunner
+	EssenceModel     string
+	EssenceBatchSize int
 	Now              time.Time
 }
 
@@ -58,6 +63,10 @@ type Runner struct {
 	attachMinCosine  float64
 	walkReinforceMin float64
 	operateWorld     string
+	essenceBatch     ChatLineRunner
+	essenceModel     string
+	essenceBatchSize int
+	essenceCache     map[string]harness.EssenceOut
 	now              time.Time
 }
 
@@ -77,11 +86,14 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 	if max <= 0 {
 		max = 50
 	}
-	strategy := strings.TrimSpace(cfg.Strategy)
-	if strategy == "" || strategy == "walk" {
-		strategy = "attach"
+	strategy, err := config.NormalizeTaxonomyStrategy(cfg.Strategy)
+	if err != nil {
+		return nil, err
 	}
-	world := WorldContextAttach
+	world := WorldContext
+	if config.IsAttachStrategy(strategy) {
+		world = WorldContextAttach
+	}
 	now := cfg.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -105,6 +117,9 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		attachMinCosine:  cfg.AttachMinCosine,
 		walkReinforceMin: cfg.WalkReinforceMin,
 		operateWorld:     world,
+		essenceBatch:     cfg.EssenceBatch,
+		essenceModel:     strings.TrimSpace(cfg.EssenceModel),
+		essenceBatchSize: cfg.EssenceBatchSize,
 		now:              now,
 	}, nil
 }
@@ -135,6 +150,16 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	art.EmbedModel = r.embedModel
 	art.AttachMinCosine = r.attachMinCosine
 	art.WalkReinforceMin = r.walkReinforceMin
+	pending := r.pendingClassifyItems(items, prog)
+	if r.essenceBatch != nil && config.IsAttachStrategy(r.strategy) && len(pending) > 0 {
+		cache, prefetchErrs := prefetchEssence(ctx, r.essenceBatch, r.essenceModel, r.operateWorld, pending, r.essenceBatchSize)
+		r.essenceCache = cache
+		if len(cache) == 0 && len(prefetchErrs) > 0 {
+			return art, sirerr.New(sirerr.CodeAI, op, "essence batch prefetch produced no results").
+				With("pending", strconv.Itoa(len(pending))).
+				With("errors", strconv.Itoa(len(prefetchErrs)))
+		}
+	}
 	aiHops := 0
 	for _, item := range items {
 		if ctx.Err() != nil {
@@ -267,6 +292,21 @@ func progressComplete(ent ProgressEntry) bool {
 	return ent.TermID != "" || len(ent.Path) > 0
 }
 
+func (r *Runner) pendingClassifyItems(items []Item, prog ProgressFile) []Item {
+	var pending []Item
+	for _, item := range items {
+		hash := strings.TrimSpace(item.ObjectHash)
+		if hash == "" {
+			continue
+		}
+		if ent, ok := prog.Entries[hash]; ok && ent.Error == "" && progressComplete(ent) {
+			continue
+		}
+		pending = append(pending, item)
+	}
+	return pending
+}
+
 func (r *Runner) runOperate(ctx context.Context, item Item) (harness.Result, error) {
 	const op = "mailreport.Runner.runOperate"
 	text := formatItemText(item)
@@ -274,6 +314,12 @@ func (r *Runner) runOperate(ctx context.Context, item Item) (harness.Result, err
 		WorldContext: r.operateWorld,
 		Text:         text,
 		Catalog:      r.cat,
+	}
+	if r.essenceCache != nil {
+		hash := strings.TrimSpace(item.ObjectHash)
+		if ess, ok := r.essenceCache[hash]; ok {
+			opSpec.Essence = &ess
+		}
 	}
 	var res harness.Result
 	var opErr error
@@ -312,7 +358,10 @@ func draftKind(d *DraftRecord) string {
 }
 
 func (r *Runner) operateTimeout() time.Duration {
-	return operateTimeoutAttach
+	if config.IsAttachStrategy(r.strategy) {
+		return operateTimeoutAttach
+	}
+	return operateTimeoutWalk
 }
 
 func sourceFromOperateResult(res harness.Result) string {

@@ -52,7 +52,7 @@ Prefer injecting the Google secret via Keychain at install when the client requi
 
 ## BYO / DIY
 
-Operators who refuse product client ids: `make configure` (oauth clients step) → paste BYO
+Operators who refuse product client ids: `go tool task configure` (oauth clients step) → paste BYO
 credentials, or advanced guided Cloud/Azure steps. See [`docs/pimalaya-setup.md`](pimalaya-setup.md).
 
 ## Trust

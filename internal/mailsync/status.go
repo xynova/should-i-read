@@ -60,9 +60,7 @@ func CollectStatus(ctx context.Context, cfg config.Config) (Status, error) {
 		st.Messages = append(st.Messages, "Mailbox is not configured; run should-i-read configure.")
 	} else if raw, err := os.ReadFile(st.MailSyncConfig); err == nil {
 		body := string(raw)
-		if st.Email = parseEmailFromMailSyncTOML(body); st.Email != "" {
-			// ok
-		}
+		st.Email = parseEmailFromMailSyncTOML(body)
 		if acct := parseAccountFromMailSyncTOML(body); acct != "" && st.Account == "" {
 			st.Account = acct
 		}

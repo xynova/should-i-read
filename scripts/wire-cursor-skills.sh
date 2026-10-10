@@ -83,7 +83,7 @@ else
   done
   echo "wire-cursor-skills: strop module not available (optional). To enable:"
   echo "  go get github.com/behaviorengineering/strop@latest"
-  echo "  make wire-ai-copilots"
+  echo "  go tool task wire-ai-copilots"
 fi
 
 for name in "${HOST_SKILLS[@]}"; do

@@ -5,6 +5,8 @@ import (
 
 	ollicli "github.com/behaviorengineering/olly/pkg/cli"
 	"go.opentelemetry.io/otel"
+
+	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 var otelLife *ollicli.Lifecycle
@@ -22,7 +24,10 @@ func startTelemetry(serviceName string) error {
 	}
 	var err error
 	otelLife, err = ollicli.Start(cfg)
-	return err
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, "cli.startTelemetry", "olly start")
+	}
+	return nil
 }
 
 func stopTelemetry() error {

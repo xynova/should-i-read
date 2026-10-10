@@ -12,6 +12,12 @@ import (
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
+// RoleSystem and RoleUser are OpenAI chat message roles.
+const (
+	RoleSystem = "system"
+	RoleUser   = "user"
+)
+
 // ChatMessage is one OpenAI chat message.
 type ChatMessage struct {
 	Role    string `json:"role"`
@@ -55,7 +61,7 @@ func (c *Client) ProbeChat(ctx context.Context, model string) error {
 		Model:       strings.TrimSpace(model),
 		Temperature: 0,
 		Messages: []ChatMessage{
-			{Role: "user", Content: "Readiness probe. Reply with exactly: ok"},
+			{Role: RoleUser, Content: "Readiness probe. Reply with exactly: ok"},
 		},
 	})
 	return err
@@ -82,7 +88,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			if err := sleepContext(ctx, 2*time.Second); err != nil {
-				return "", err
+				return "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "chat retry wait")
 			}
 		}
 		content, retry, err := c.chatOnce(ctx, model, req)
@@ -98,11 +104,12 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 }
 
 func sleepContext(ctx context.Context, d time.Duration) error {
+	const op = "polypus.sleepContext"
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return sirerr.Wrap(ctx.Err(), sirerr.CodeUnavailable, op, "retry wait")
 	case <-t.C:
 		return nil
 	}

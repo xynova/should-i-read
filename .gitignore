@@ -9,7 +9,8 @@ config/polypus-operator.env
 tmp/
 logs/
 data/
-bin/
+bin/*
+!bin/.gitkeep
 
 # Machine-local Cursor wires to Go module trees (see docs/ai-copilots-setup.md)
 .cursor/skills/strop-pipeline-pattern

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -32,6 +33,31 @@ func wantJSON(cmd *cobra.Command) bool {
 	}
 	val, err := root.PersistentFlags().GetBool("json")
 	return err == nil && val
+}
+
+// writeCLI writes formatted CLI output; returns write errors for RunE handlers.
+func writeCLI(w io.Writer, format string, args ...any) error {
+	if w == nil {
+		w = os.Stdout
+	}
+	_, err := fmt.Fprintf(w, format, args...)
+	return err
+}
+
+func writeCLILine(w io.Writer, s string) error {
+	if w == nil {
+		w = os.Stdout
+	}
+	_, err := fmt.Fprintln(w, s)
+	return err
+}
+
+func writeCLIString(w io.Writer, s string) error {
+	if w == nil {
+		w = os.Stdout
+	}
+	_, err := fmt.Fprint(w, s)
+	return err
 }
 
 func printJSON(w io.Writer, v any) error {

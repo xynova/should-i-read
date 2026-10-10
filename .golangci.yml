@@ -1,0 +1,77 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errorlint
+    - exhaustive
+    - goconst
+    - gocognit
+    - gosec
+    - godot
+  settings:
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    exhaustive:
+      default-signifies-exhaustive: false
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+      ignore-tests: true
+    gocognit:
+      # Raised until complexity debt is paid (default C11 min-complexity is 20).
+      min-complexity: 80
+    godot:
+      period: true
+      capital: true
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: '(.+)_test\.go'
+        linters:
+          - gosec
+      - path: internal/config/
+        linters:
+          - gosec
+        text: G101|G304
+      - path: internal/oauthcred/
+        linters:
+          - gosec
+        text: G101
+      - path: internal/token/store\.go
+        linters:
+          - gosec
+        text: G101|G117
+      - path: internal/pimdir/reader\.go
+        linters:
+          - gosec
+        text: G202|G304
+      - path: internal/mailreport/catalog\.go
+        linters:
+          - gosec
+        text: G703|G304
+      - path: internal/mailreport/progress\.go
+        linters:
+          - gosec
+        text: G304
+      - path: internal/pimalaya/runner\.go
+        linters:
+          - gosec
+        text: G204|G703
+      - path: internal/setup/
+        linters:
+          - gosec
+        text: G204|G304
+      - path: internal/mailsync/
+        linters:
+          - gosec
+        text: G304
+
+formatters:
+  enable:
+    - gofumpt

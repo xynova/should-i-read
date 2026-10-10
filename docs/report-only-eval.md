@@ -32,8 +32,8 @@ flowchart TD
   cluster --> tldr
 ```
 
-1. Sync mail with `make sync`. After a successful fetch, the host classifies newly fetched unique messages (cap per `taxonomy.classify_max`; use `--no-classify` to skip). Polypus down after sync: replica stays; classify skipped; exit 0.
-2. Resume or backfill with `make report` / `should-i-read mail report` (lists recent pimdir rows or reads `--in` export JSON). Requires Polypus up (fail closed) and a SystemOne judge resolved via `polypus check --classify` or successful in-process discovery.
+1. Sync mail with `go tool task mail:sync`. After a successful fetch, the host classifies newly fetched unique messages (cap per `taxonomy.classify_max`; use `--no-classify` to skip). Polypus down after sync: replica stays; classify skipped; exit 0.
+2. Resume or backfill with `go tool task mail:report` / `should-i-read mail report` (lists recent pimdir rows or reads `--in` export JSON). Requires Polypus up (fail closed) and a SystemOne judge resolved via `polypus check --classify` or successful in-process discovery.
 3. For each message, taxonomy `Operate` runs **walk** (default) or **attach** (`taxonomy.strategy: attach`). Walk: Judge SystemOne noul per sibling at each hop, then optional Author + gate via Polypus chat. Attach: Five Whys Essence chat, embeddings, cosine alias or Walk reinforce or breadcrumb create on `inbox-kind`. Report rows include `path`, and attach rows add `kind`, `about`, `shape`, `cosine`, `canonical_term_id`, `reinforced`. Accepted drafts update the active catalog YAML unless `--no-apply`.
 4. **Later:** cluster by sender domain and/or embeddings via Polypus; TLDR per cluster.
 5. Write `tmp/unwanted-report-<timestamp>.json`. **No mailbox trash/spam/delete API calls.**

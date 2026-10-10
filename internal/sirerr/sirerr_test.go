@@ -19,6 +19,8 @@ func TestExitCodeMapping(t *testing.T) {
 		{sirerr.CodeNetwork, 5},
 		{sirerr.CodeAI, 6},
 		{sirerr.CodeFailed, 1},
+		{sirerr.CodeUnavailable, 5},
+		{sirerr.CodeNeedsReview, 7},
 	}
 	for _, tc := range cases {
 		got := sirerr.ExitCode(sirerr.New(tc.code, "op", "msg"))

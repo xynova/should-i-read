@@ -15,7 +15,7 @@ func formatPimalayaHuman(res *pimalaya.Result, accountHint string) string {
 		return ""
 	}
 	rep := pimalaya.SummarizeNeverestJSON(res.Raw)
-	if rep.Recognized && rep.Kind == "sync" {
+	if rep.Recognized && rep.Kind == VerbSync {
 		return formatSyncReport(rep)
 	}
 	if len(bytesTrim(res.Raw)) == 0 && res.Exit == 0 {
@@ -45,7 +45,7 @@ func formatPimalayaFailureHuman(res *pimalaya.Result, err error, accountHint str
 			return clui.FormatBox(title, b.String())
 		}
 	}
-	if rep.Recognized && rep.Kind == "sync" {
+	if rep.Recognized && rep.Kind == VerbSync {
 		b.WriteString(formatSyncReport(rep))
 		b.WriteByte('\n')
 	}
@@ -82,9 +82,9 @@ func formatSyncReport(rep pimalaya.EngineReport) string {
 		b.WriteString(clui.OK("Already up to date"))
 		b.WriteByte('\n')
 	} else {
-		b.WriteString(fmt.Sprintf("Fetched %d · removed from local store %d", rep.Fetch, rep.Delete))
+		fmt.Fprintf(&b, "Fetched %d · removed from local store %d", rep.Fetch, rep.Delete)
 		if rep.Other > 0 {
-			b.WriteString(fmt.Sprintf(" · other %d", rep.Other))
+			fmt.Fprintf(&b, " · other %d", rep.Other)
 		}
 		b.WriteByte('\n')
 	}
@@ -92,7 +92,7 @@ func formatSyncReport(rep pimalaya.EngineReport) string {
 		for _, f := range rep.Folders {
 			b.WriteString(clui.Muted("  "))
 			b.WriteString(f.Collection)
-			b.WriteString(fmt.Sprintf(": +%d / -%d", f.Fetch, f.Delete))
+			fmt.Fprintf(&b, ": +%d / -%d", f.Fetch, f.Delete)
 			b.WriteByte('\n')
 		}
 	} else if len(rep.Folders) > 8 {
