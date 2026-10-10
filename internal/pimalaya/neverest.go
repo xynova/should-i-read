@@ -18,11 +18,11 @@ func CreateNeverest(cfg config.Config) (*Neverest, error) {
 	const op = "pimalaya.CreateNeverest"
 	bin, err := ResolveBin(cfg.Pimalaya.NeverestBin, "neverest")
 	if err != nil {
-		return nil, err
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "resolve neverest bin")
 	}
 	runner, err := Create(bin)
 	if err != nil {
-		return nil, err
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create neverest runner")
 	}
 	runner.ConfigPath = strings.TrimSpace(cfg.Pimalaya.NeverestConfig)
 	return &Neverest{Runner: runner}, nil

@@ -13,22 +13,22 @@ Host Go CLI for local inbox triage: **mail sync + pimdir**, **Polypus** as the o
 | [`AGENTS.md`](AGENTS.md) | Agent entry: load order into ai-copilots |
 | [`ai-copilots/`](ai-copilots/) | Canonical operator skill + BOOTSTRAP |
 
-Agents start at [`AGENTS.md`](AGENTS.md). Operator settings: `~/.config/should-i-read/config.yaml` (`make init`). Polypus: `POLYPUS_BASE_URL` / `polypus.base_url` in config (see `make config bump` / [`docs/ai-provider-seam.md`](docs/ai-provider-seam.md)).
+Agents start at [`AGENTS.md`](AGENTS.md). Operator settings: `~/.config/should-i-read/config.yaml` (`go tool task init`). Polypus: `POLYPUS_BASE_URL` / `polypus.base_url` in config (see `should-i-read config bump` / [`docs/ai-provider-seam.md`](docs/ai-provider-seam.md)).
 
 ## Quick start
 
 ```bash
-make wire-ai-copilots
-make build
-make init
-make configure                # TTY hub, or ARGS='--apply --provider gmail --email you@example.com'
+go tool task wire-ai-copilots
+go tool task build
+go tool task init
+go tool task configure                # TTY hub, or -- --apply --provider gmail --email you@example.com
 ./bin/should-i-read config bump   # Polypus placeholder when YAML still has localhost
 ./bin/should-i-read configure --json   # readiness checklist
-make polypus-check
+go tool task polypus-check
 
-make readiness                # mail readiness (make doctor alias)
-make sync                     # mail sync
-make export                   # mail export → tmp/mail-export-*.json
+go tool task mail:readiness           # mail readiness (doctor alias)
+go tool task mail:sync                # mail sync
+go tool task mail:export              # mail export → tmp/mail-export-*.json
 ```
 
 Set `pimalaya.pimdir_path` in config to the directory that contains `pimdir.db`. Multi-account: `token gmail --account <label>` and matching sync-config `token.command_args`.

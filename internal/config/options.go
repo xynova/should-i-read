@@ -15,6 +15,9 @@ func Options(flagPath string) operatorconfig.Options {
 		ConfigEnv:      envConfigPath,
 		ConfigFlagPath: strings.TrimSpace(flagPath),
 		Filename:       "config.yaml",
+		EnvDefaults: []operatorconfig.EnvDefault{
+			{Env: envPolypusBaseURL, Value: defaultPolypusBaseURL},
+		},
 	}
 }
 

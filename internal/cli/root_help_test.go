@@ -20,7 +20,7 @@ func TestMailSyncHelp_inheritsJSONFlag(t *testing.T) {
 	root.SetArgs([]string{"mail", "sync", "--help"})
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
-}
+	}
 	out := buf.String()
 	if !strings.Contains(out, "--json") {
 		t.Fatalf("mail sync --help missing --json:\n%s", out)

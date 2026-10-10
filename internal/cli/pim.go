@@ -62,6 +62,7 @@ func runPimEnsure(ctx context.Context, repoRoot string, checkOnly bool) error {
 		script = "check-neverest.sh"
 	}
 	path := filepath.Join(repoRoot, "scripts", script)
+	//nolint:gosec // fixed script name under repo scripts/
 	c := exec.CommandContext(ctx, path)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -82,7 +83,7 @@ func newPimConfigureCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 		skipInit  bool
 	)
 	cmd := &cobra.Command{
-		Use:   "configure",
+		Use:   VerbConfigure,
 		Short: "Write mail sync config and patch host operator config",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPimConfigure(cmd, repoRoot, opts, pimConfigureFlags{
@@ -175,7 +176,7 @@ func runPimConfigure(cmd *cobra.Command, repoRoot string, opts *rootOptions, fla
 func newPimInitCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var account string
 	cmd := &cobra.Command{
-		Use:   "init",
+		Use:   VerbInit,
 		Short: "Initialize the local pimdir replica for a sync account",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := opts.mustLoad(repoRoot)
@@ -214,7 +215,9 @@ func isTerminal(f *os.File) bool {
 
 func promptLine(w io.Writer, label string) (string, error) {
 	if w != nil {
-		fmt.Fprint(w, label)
+		if err := writeCLIString(w, label); err != nil {
+			return "", sirerr.Wrap(err, sirerr.CodeFailed, "cli.prompt", "write label")
+		}
 	}
 	var line string
 	if _, err := fmt.Fscanln(os.Stdin, &line); err != nil {
@@ -250,8 +253,8 @@ func newPimDigestCheckCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 			if wantJSON(cmd) {
 				return printJSON(cmd.OutOrStdout(), art)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), clui.FormatBox("Digest", "Report-only scaffold (empty)\n"+clui.Muted("mode report_only")))
-			return nil
+			box := clui.FormatBox("Digest", "Report-only scaffold (empty)\n"+clui.Muted("mode report_only"))
+			return writeCLILine(cmd.OutOrStdout(), box)
 		},
 	}
 }
@@ -271,7 +274,7 @@ func newPimDoctorCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 func newPimSyncCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var account string
 	cmd := &cobra.Command{
-		Use:        "sync",
+		Use:        VerbSync,
 		Hidden:     true,
 		Deprecated: "use should-i-read mail sync",
 		Short:      "Sync mail into the local pimdir store",

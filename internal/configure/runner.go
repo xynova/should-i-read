@@ -84,7 +84,7 @@ func oauthTokenReady(provider mailsync.Provider, account string) bool {
 	}
 }
 
-// RunStep executes one configure step. forceRun runs even when probe is OK.
+// RunStep executes one configure step. ForceRun runs even when probe is OK.
 func (r *Runner) RunStep(ctx context.Context, stepID string, opts Options, out, errW io.Writer, forceRun bool) (StepResult, config.Config, error) {
 	const op = "configure.RunStep"
 	if r == nil {
@@ -232,9 +232,7 @@ func (r *Runner) mailFields(opts Options, cfg config.Config) (mailsync.Provider,
 	providerRaw := strings.TrimSpace(opts.Provider)
 	if email == "" && cfg.Pimalaya.NeverestConfig != "" {
 		if raw, err := os.ReadFile(cfg.Pimalaya.NeverestConfig); err == nil {
-			if email = mailsync.EmailFromMailSyncTOML(string(raw)); email != "" {
-				// ok
-			}
+			email = mailsync.EmailFromMailSyncTOML(string(raw))
 			if providerRaw == "" {
 				providerRaw = string(mailsync.InferProviderFromMailSyncTOML(string(raw)))
 			}

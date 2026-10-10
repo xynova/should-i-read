@@ -11,7 +11,7 @@ func TestEnsureCatalog_copiesSeedOnce(t *testing.T) {
 	seed := filepath.Join(dir, "seed.yaml")
 	catalog := filepath.Join(dir, "runtime", "inbox-mail.yaml")
 	seedBody := []byte("vocabulary:\n  id: inbox-mail\n  terms: []\n")
-	if err := os.WriteFile(seed, seedBody, 0o644); err != nil {
+	if err := os.WriteFile(seed, seedBody, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := EnsureCatalog(catalog, seed); err != nil {

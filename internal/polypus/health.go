@@ -3,9 +3,9 @@ package polypus
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -109,21 +109,24 @@ func (c *Client) Check(ctx context.Context) (*HealthResult, error) {
 }
 
 func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) {
+	const op = "polypus.Client.get"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
 	if err != nil {
-		return nil, err
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "new request")
 	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, sirerr.Wrap(err, sirerr.CodeNetwork, op, "http get")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, err
+		return nil, sirerr.Wrap(err, sirerr.CodeNetwork, op, "read body")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, sirerr.New(sirerr.CodeUnavailable, op, "HTTP status").
+			With("status", strconv.Itoa(resp.StatusCode)).
+			With("body", truncate(string(body), 200))
 	}
 	return json.RawMessage(body), nil
 }

@@ -10,7 +10,7 @@ alwaysApply: true
 
 **Moral:** This repo consumes providers. It does not fork them. Host logic is Go. AI exits only through Polypus.
 
-Detail lives in [docs/ai-provider-seam.md](docs/ai-provider-seam.md), [docs/pimalaya-setup.md](docs/pimalaya-setup.md), and [docs/report-only-eval.md](docs/report-only-eval.md). Go quality: skill `golang-quality`. Operator workflow: skill `should-i-read-operator`. Operator home config: skill `operator-config` (`make init` → `~/.config/should-i-read/config.yaml`).
+Detail lives in [docs/ai-provider-seam.md](docs/ai-provider-seam.md), [docs/pimalaya-setup.md](docs/pimalaya-setup.md), and [docs/report-only-eval.md](docs/report-only-eval.md). Go quality: skill `golang-quality`. Operator workflow: skill `should-i-read-operator`. Operator home config: skill `operator-config` (`go tool task init` → `~/.config/should-i-read/config.yaml`).
 
 ## Provider boundaries
 
@@ -107,7 +107,7 @@ Auto-move high-confidence spam to Trash from the first Jev integration
 
 | Do | Don't |
 |----|-------|
-| Use host `configure` / `make readiness|sync|export` for mail | Patch nested providers for host needs |
+| Use host `configure` / `go tool task mail:readiness|mail:sync|mail:export` for mail | Patch nested providers for host needs |
 | Write host orchestration in Go | Put product logic in provider trees |
 | Send all AI through Polypus (`POLYPUS_BASE_URL` / config) | Point clients at leaf AI vendors |
 | Keep unwanted-mail report-only until eval | Delete or quarantine mail early |

@@ -2,6 +2,7 @@ package mailtext
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -75,7 +76,7 @@ func walkMultipart(boundary string, body []byte) (plain, html string, err error)
 	r := multipart.NewReader(bytes.NewReader(body), boundary)
 	for {
 		p, err := r.NextPart()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

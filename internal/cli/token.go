@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/sirerr"
 	"github.com/xynova/should-i-read/internal/token"
 )
 
@@ -39,7 +40,7 @@ func newTokenProviderCmd(
 	cmd.PersistentFlags().StringVar(&account, "account", "", "Account label for keyring token namespace")
 
 	cmd.AddCommand(&cobra.Command{
-		Use:   "login",
+		Use:   VerbLogin,
 		Short: "Browser login; store tokens in OS keyring",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := opts.mustLoad(repoRoot)
@@ -106,7 +107,9 @@ func newTokenProviderCmd(
 		if err != nil {
 			return err
 		}
-		fmt.Fprint(cmd.OutOrStdout(), access)
+		if err := writeCLIString(cmd.OutOrStdout(), access); err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, "cli.token.access", "write access token")
+		}
 		return nil
 	}
 	cmd.SetOut(os.Stdout)

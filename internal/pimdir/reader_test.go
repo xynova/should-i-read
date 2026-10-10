@@ -36,7 +36,7 @@ func initFixtureDB(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	schema := `
 CREATE TABLE store_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -102,11 +102,11 @@ INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date
 		t.Fatal(err)
 	}
 	blobPath := filepath.Join(dir, "objects", "ab", "cd", "abcd1234efgh5678")
-	if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(blobPath), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	const blob = "From: alice@example.com\r\nSubject: Hello pimdir\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello body\r\n"
-	if err := os.WriteFile(blobPath, []byte(blob), 0o644); err != nil {
+	if err := os.WriteFile(blobPath, []byte(blob), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

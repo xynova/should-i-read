@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the host mail-sync dependency (Neverest) when missing.
-# Operators: make ensure | should-i-read pim ensure
+# Operators: go tool task ensure | should-i-read pim ensure
 # Does not replace an existing resolved binary unless NEVEREST_FORCE_INSTALL=1.
 set -euo pipefail
 
@@ -17,7 +17,7 @@ if ! command -v cargo >/dev/null 2>&1; then
   echo "FAIL: cargo not on PATH; cannot install the mail sync dependency from git." >&2
   echo "Install Rust (https://rustup.rs) or place a Neverest binary and set pimalaya.neverest_bin." >&2
   echo "Releases: https://github.com/pimalaya/neverest/releases" >&2
-  echo "Then re-run: make ensure" >&2
+  echo "Then re-run: go tool task ensure" >&2
   exit 1
 fi
 

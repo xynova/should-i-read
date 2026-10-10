@@ -16,17 +16,14 @@ var (
 	styleHint  = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	styleLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
 	styleBox   = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("63")).
-		Padding(0, 1).
-		MarginBottom(1)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("63")).
+			Padding(0, 1).
+			MarginBottom(1)
 )
 
 func colorEnabled() bool {
-	if strings.TrimSpace(os.Getenv("NO_COLOR")) != "" {
-		return false
-	}
-	return true
+	return strings.TrimSpace(os.Getenv("NO_COLOR")) == ""
 }
 
 // Title renders a section title.

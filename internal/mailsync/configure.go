@@ -33,14 +33,14 @@ func (e *ConfigureError) Unwrap() error {
 
 // Options drives pim configure.
 type Options struct {
-	Provider   Provider
-	Account    string
-	Email      string
-	StoreRoot  string
-	Force      bool
-	RepoRoot   string
-	HostBin    string
-	SkipInit   bool
+	Provider    Provider
+	Account     string
+	Email       string
+	StoreRoot   string
+	Force       bool
+	RepoRoot    string
+	HostBin     string
+	SkipInit    bool
 	InitReplica ReplicaInit
 }
 
@@ -49,17 +49,17 @@ type ReplicaInit func(ctx context.Context, cfg config.Config, account string) er
 
 // Result is returned after configure completes.
 type Result struct {
-	Provider         string `json:"provider"`
-	Account          string `json:"account"`
-	Email            string `json:"email"`
-	MailSyncConfig   string `json:"mail_sync_config"`
-	PimdirPath       string `json:"pimdir_path"`
-	HostConfigPath   string `json:"host_config_path"`
-	ConfigWritten    bool   `json:"config_written"`
-	HostConfigPatched bool  `json:"host_config_patched"`
-	InitSkipped      bool   `json:"init_skipped"`
-	AlreadyConfigured bool  `json:"already_configured"`
-	NextSteps        []string `json:"next_steps"`
+	Provider          string   `json:"provider"`
+	Account           string   `json:"account"`
+	Email             string   `json:"email"`
+	MailSyncConfig    string   `json:"mail_sync_config"`
+	PimdirPath        string   `json:"pimdir_path"`
+	HostConfigPath    string   `json:"host_config_path"`
+	ConfigWritten     bool     `json:"config_written"`
+	HostConfigPatched bool     `json:"host_config_patched"`
+	InitSkipped       bool     `json:"init_skipped"`
+	AlreadyConfigured bool     `json:"already_configured"`
+	NextSteps         []string `json:"next_steps"`
 }
 
 // Service runs mail sync configuration.

@@ -5,7 +5,7 @@ Canonical operator content lives under [`ai-copilots/`](../ai-copilots/). Cursor
 ## After clone or pull
 
 ```bash
-make wire-ai-copilots
+go tool task wire-ai-copilots
 ```
 
 That runs [`scripts/wire-cursor-skills.sh`](../scripts/wire-cursor-skills.sh), which:
@@ -19,24 +19,24 @@ Shared pack skills (golang-quality, operator-config, etc.) are separate symlinks
 
 ## Strop skills
 
-`go.mod` pins `github.com/behaviorengineering/strop` (indirect) so `make wire-ai-copilots` can link pipeline skills after `go mod download`:
+`go.mod` pins `github.com/behaviorengineering/strop` (indirect) so `go tool task wire-ai-copilots` can link pipeline skills after `go mod download`:
 
 ```bash
 go mod download
-make wire-ai-copilots
+go tool task wire-ai-copilots
 ```
 
 To bump the pin:
 
 ```bash
 go get github.com/behaviorengineering/strop@latest
-make wire-ai-copilots
+go tool task wire-ai-copilots
 ```
 
 Or point at a checkout:
 
 ```bash
-STROP_MOD=/path/to/strop make wire-ai-copilots
+STROP_MOD=/path/to/strop go tool task wire-ai-copilots
 ```
 
 ## Agents

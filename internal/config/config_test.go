@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	operatorconfig "github.com/behaviorengineering/operatorconfig/pkg/operatorconfig"
-
 )
 
 func TestExpandString(t *testing.T) {
@@ -167,12 +166,62 @@ func TestMergeOAuthFieldsPrefersOAuthSection(t *testing.T) {
 	}
 }
 
+func TestLoadPolypusBaseURLDefaultWhenUnset(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	body := `
+polypus:
+  base_url: "${POLYPUS_BASE_URL}"
+`
+	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envPolypusBaseURL, "")
+	cfg, err := Load("/repo", cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PolypusBaseURL != defaultPolypusBaseURL {
+		t.Fatalf("polypus: %q", cfg.PolypusBaseURL)
+	}
+}
+
+func TestLoadNeverestIgnoresEnvWhenYAMLEmpty(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	body := `
+polypus:
+  base_url: "http://127.0.0.1:1320"
+pimalaya:
+  neverest_bin: ""
+`
+	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NEVEREST_BIN", "/tmp/should-not-use-neverest")
+	cfg, err := Load("/repo", cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Pimalaya.NeverestBin != "" {
+		t.Fatalf("neverest_bin: %q", cfg.Pimalaya.NeverestBin)
+	}
+}
+
+func TestDefaultFileTaxonomyWalk(t *testing.T) {
+	t.Parallel()
+	f := DefaultFile()
+	if f.Taxonomy.Strategy != "walk" {
+		t.Fatalf("strategy %q", f.Taxonomy.Strategy)
+	}
+}
+
 func TestLoadPolypusBaseURLFromEnvWhenYAMLEmpty(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "config.yaml")
 	body := `
 polypus:
-  base_url: ""
+  base_url: "${POLYPUS_BASE_URL}"
 `
 	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
 		t.Fatal(err)

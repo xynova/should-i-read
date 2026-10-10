@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"net/mail"
 	"strings"
+
+	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 // MailHeaders are RFC822 fields used for pre-AI classification.
@@ -21,7 +23,7 @@ type MailHeaders struct {
 func ParseMailHeaders(raw []byte) (MailHeaders, error) {
 	msg, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
-		return MailHeaders{}, err
+		return MailHeaders{}, sirerr.Wrap(err, sirerr.CodeInvalid, "pimdir.ParseMailHeaders", "read message")
 	}
 	h := msg.Header
 	return MailHeaders{

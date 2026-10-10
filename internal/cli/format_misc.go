@@ -20,7 +20,7 @@ func formatPolypusHealth(h *polypus.HealthResult, classifyChecked bool) string {
 	b.WriteByte('\n')
 	b.WriteString(clui.Muted(h.BaseURL))
 	b.WriteByte('\n')
-	b.WriteString(fmt.Sprintf("%d model(s) enabled", h.ModelCount))
+	fmt.Fprintf(&b, "%d model(s) enabled", h.ModelCount)
 	if len(h.ModelIDs) > 0 {
 		b.WriteByte('\n')
 		ids := h.ModelIDs
@@ -112,7 +112,7 @@ func formatConfigureSession(session configure.SessionResult) string {
 			if r.OK {
 				mark = clui.MarkOK()
 			}
-			b.WriteString(fmt.Sprintf("%s  %s\n", mark, configure.StepTitle(r.Step)))
+			fmt.Fprintf(&b, "%s  %s\n", mark, configure.StepTitle(r.Step))
 		}
 	}
 	b.WriteString(configure.FormatHubSummary(session.Snapshot))
@@ -136,11 +136,11 @@ func mailSetupStepLabel(id string) string {
 	switch strings.TrimSpace(id) {
 	case "ensure":
 		return "Mail sync dependency"
-	case "configure":
+	case VerbConfigure:
 		return "Mailbox config"
-	case "login":
+	case VerbLogin:
 		return "Mailbox login"
-	case "init":
+	case VerbInit:
 		return "Local mail store init"
 	default:
 		if id == "" {
@@ -163,7 +163,7 @@ func formatMailSetupResult(res mailsync.SetupResult) string {
 		if d := strings.TrimSpace(step.Detail); d != "" {
 			line += "  " + clui.Muted(d)
 		}
-		b.WriteString(fmt.Sprintf("%s  %s\n", mark, line))
+		fmt.Fprintf(&b, "%s  %s\n", mark, line)
 	}
 	if w := strings.TrimSpace(res.WaitingOn); w != "" {
 		b.WriteString("\n")
@@ -183,7 +183,7 @@ func formatMailConfigureResult(res mailsync.Result) string {
 		b.WriteByte('\n')
 	}
 	if res.Provider != "" {
-		b.WriteString(fmt.Sprintf("%s / %s\n", res.Provider, res.Account))
+		fmt.Fprintf(&b, "%s / %s\n", res.Provider, res.Account)
 	}
 	if p := strings.TrimSpace(res.MailSyncConfig); p != "" {
 		b.WriteString(clui.Muted("mail-sync: " + p))
@@ -207,7 +207,7 @@ func formatTokenStatus(m map[string]string) string {
 		if v == "(set)" {
 			mark = clui.MarkOK()
 		}
-		b.WriteString(fmt.Sprintf("%s  %s: %s\n", mark, k, v))
+		fmt.Fprintf(&b, "%s  %s: %s\n", mark, k, v)
 	}
 	return clui.FormatBox("Token status", strings.TrimRight(b.String(), "\n"))
 }

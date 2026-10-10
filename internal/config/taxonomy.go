@@ -8,10 +8,12 @@ import (
 )
 
 const (
-	defaultClassifyMax     = 50
-	defaultCollectionINBOX = "imap/INBOX"
-	defaultAttachMinCosine = 0.80
-	defaultWalkReinforce   = 0.70
+	defaultClassifyMax      = 50
+	defaultCollectionINBOX  = "imap/INBOX"
+	defaultAttachMinCosine  = 0.80
+	defaultWalkReinforce    = 0.70
+	defaultEssenceBatchSize = 8
+	maxEssenceBatchSize     = 16
 )
 
 // TaxonomyFile is the taxonomy YAML section.
@@ -21,8 +23,10 @@ type TaxonomyFile struct {
 	Collections      []string `yaml:"collections"`
 	AuthorOnSkip     *bool    `yaml:"author_on_skip"`
 	Strategy         string   `yaml:"strategy"`
+	MinJudgeScore    float64  `yaml:"min_judge_score"`
 	AttachMinCosine  float64  `yaml:"attach_min_cosine"`
 	WalkReinforceMin float64  `yaml:"walk_reinforce_min"`
+	EssenceBatchSize int      `yaml:"essence_batch_size"`
 }
 
 // TaxonomyConfig is resolved taxonomy settings.
@@ -32,8 +36,10 @@ type TaxonomyConfig struct {
 	Collections      []string
 	AuthorOnSkip     bool
 	Strategy         string
+	MinJudgeScore    float64
 	AttachMinCosine  float64
 	WalkReinforceMin float64
+	EssenceBatchSize int
 }
 
 // SeedCatalogPath returns the repo seed vocabulary path.
@@ -58,26 +64,27 @@ func DefaultCatalogPath() (string, error) {
 
 // DefaultKindCatalogPath returns the operator-writable inbox-kind catalog path.
 func DefaultKindCatalogPath() (string, error) {
+	const op = "config.DefaultKindCatalogPath"
 	dir, err := UserConfigDir()
 	if err != nil {
-		return "", err
+		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "user config dir")
 	}
 	return filepath.Join(dir, "vocabularies", "inbox-kind.yaml"), nil
 }
 
 func resolveTaxonomy(file TaxonomyFile) (TaxonomyConfig, error) {
 	const op = "config.resolveTaxonomy"
-	strategy := strings.TrimSpace(file.Strategy)
-	if strategy == "" || strategy == "walk" {
-		strategy = "attach"
-	}
-	if strategy != "attach" {
-		return TaxonomyConfig{}, sirerr.New(sirerr.CodeInvalid, op, "taxonomy.strategy must be attach")
+	strategy, err := NormalizeTaxonomyStrategy(file.Strategy)
+	if err != nil {
+		return TaxonomyConfig{}, err
 	}
 	path := strings.TrimSpace(file.CatalogPath)
 	if path == "" {
-		var err error
-		path, err = DefaultKindCatalogPath()
+		if IsAttachStrategy(strategy) {
+			path, err = DefaultKindCatalogPath()
+		} else {
+			path, err = DefaultCatalogPath()
+		}
 		if err != nil {
 			return TaxonomyConfig{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "default catalog path")
 		}
@@ -105,14 +112,23 @@ func resolveTaxonomy(file TaxonomyFile) (TaxonomyConfig, error) {
 	if walkMin > attachMin {
 		return TaxonomyConfig{}, sirerr.New(sirerr.CodeInvalid, op, "walk_reinforce_min must be <= attach_min_cosine")
 	}
+	essenceBatch := file.EssenceBatchSize
+	if essenceBatch <= 0 {
+		essenceBatch = defaultEssenceBatchSize
+	}
+	if essenceBatch > maxEssenceBatchSize {
+		essenceBatch = maxEssenceBatchSize
+	}
 	return TaxonomyConfig{
 		CatalogPath:      path,
 		ClassifyMax:      max,
 		Collections:      collections,
 		AuthorOnSkip:     authorOnSkip,
 		Strategy:         strategy,
+		MinJudgeScore:    file.MinJudgeScore,
 		AttachMinCosine:  attachMin,
 		WalkReinforceMin: walkMin,
+		EssenceBatchSize: essenceBatch,
 	}, nil
 }
 

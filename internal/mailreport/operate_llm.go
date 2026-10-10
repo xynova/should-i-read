@@ -2,7 +2,6 @@ package mailreport
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -95,31 +94,31 @@ func sourceFromResult(res harness.Result) string {
 }
 
 func (o *operateLLM) GenerateWithJSON(ctx context.Context, prompt string, opts ...core.GenerateOption) (map[string]any, error) {
-	return nil, fmt.Errorf("operateLLM: GenerateWithJSON not supported")
+	return nil, sirerr.New(sirerr.CodeInvalid, "mailreport.operateLLM", "GenerateWithJSON not supported")
 }
 
 func (o *operateLLM) GenerateWithFunctions(ctx context.Context, prompt string, functions []map[string]any, options ...core.GenerateOption) (map[string]any, error) {
-	return nil, fmt.Errorf("operateLLM: GenerateWithFunctions not supported")
+	return nil, sirerr.New(sirerr.CodeInvalid, "mailreport.operateLLM", "GenerateWithFunctions not supported")
 }
 
 func (o *operateLLM) CreateEmbedding(ctx context.Context, input string, options ...core.EmbeddingOption) (*core.EmbeddingResult, error) {
-	return nil, fmt.Errorf("operateLLM: CreateEmbedding not supported")
+	return nil, sirerr.New(sirerr.CodeInvalid, "mailreport.operateLLM", "CreateEmbedding not supported")
 }
 
 func (o *operateLLM) CreateEmbeddings(ctx context.Context, inputs []string, options ...core.EmbeddingOption) (*core.BatchEmbeddingResult, error) {
-	return nil, fmt.Errorf("operateLLM: CreateEmbeddings not supported")
+	return nil, sirerr.New(sirerr.CodeInvalid, "mailreport.operateLLM", "CreateEmbeddings not supported")
 }
 
 func (o *operateLLM) StreamGenerate(ctx context.Context, prompt string, opts ...core.GenerateOption) (*core.StreamResponse, error) {
-	return nil, fmt.Errorf("operateLLM: StreamGenerate not supported")
+	return nil, sirerr.New(sirerr.CodeInvalid, "mailreport.operateLLM", "StreamGenerate not supported")
 }
 
 func (o *operateLLM) GenerateWithContent(ctx context.Context, content []core.ContentBlock, options ...core.GenerateOption) (*core.LLMResponse, error) {
-	return nil, fmt.Errorf("operateLLM: GenerateWithContent not supported")
+	return nil, sirerr.New(sirerr.CodeInvalid, "mailreport.operateLLM", "GenerateWithContent not supported")
 }
 
 func (o *operateLLM) StreamGenerateWithContent(ctx context.Context, content []core.ContentBlock, options ...core.GenerateOption) (*core.StreamResponse, error) {
-	return nil, fmt.Errorf("operateLLM: StreamGenerateWithContent not supported")
+	return nil, sirerr.New(sirerr.CodeInvalid, "mailreport.operateLLM", "StreamGenerateWithContent not supported")
 }
 
 func (o *operateLLM) ProviderName() string { return "taxonomy-operate" }

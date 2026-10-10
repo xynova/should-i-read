@@ -23,7 +23,7 @@ polypus:
   embed_model: "cf_local/@cf/baai/bge-m3"
 
 taxonomy:
-  # Optional; default ~/.config/should-i-read/vocabularies/inbox-kind.yaml
+  # Optional; walk defaults to inbox-mail under ~/.config/should-i-read/vocabularies/
   catalog_path: ""
   # Folders for mail report listing (default imap/INBOX). Empty list = all folders.
   collections:
@@ -32,12 +32,17 @@ taxonomy:
   author_on_skip: false
   # Max Operate (Polypus) calls per run (default 50)
   classify_max: 0
-  # Classify uses attach (Essence + embed on inbox-kind catalog)
-  strategy: attach
+  # walk (Judge tree) or attach (Essence + embed on inbox-kind catalog)
+  strategy: walk
+  # Harness min judge gate; 0 disables (default)
+  min_judge_score: 0
   attach_min_cosine: 0.80
   walk_reinforce_min: 0.70
+  # Attach essence prefetch batch size (default 8, max 16)
+  essence_batch_size: 8
 
 pimalaya:
+  # Empty: resolve neverest from PATH or ~/.cargo/bin
   neverest_bin: ""
   neverest_config: ""
   default_account: ""

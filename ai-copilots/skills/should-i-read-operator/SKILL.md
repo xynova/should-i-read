@@ -13,9 +13,9 @@ Architecture: `.cursor/rules/architecture.mdc`. **Setup:** [`docs/pimalaya-setup
 
 ## When to load
 
-- First-time operator setup (`make configure`, `configure --json`)
+- First-time operator setup (`go tool task configure`, `configure --json`)
 - Polypus health before AI work
-- Day-2 `make readiness|sync|report|export`, token brokers for multi-account labels
+- Day-2 `go tool task mail:readiness|mail:sync|mail:report|mail:export`, token brokers for multi-account labels
 
 ## CLI output
 
@@ -29,34 +29,34 @@ Token bare invoke (`token gmail`) still prints only the access token for Neveres
 
 ## Mail command vocabulary
 
-| Operator intent | CLI | Make |
+| Operator intent | CLI | Task |
 |-----------------|-----|------|
-| Onboarding checklist (config, token, store) | `mail status` | `make mail-status` |
-| Sync engine check (IMAP, credentials) | `mail readiness` | `make readiness` (`make doctor` alias) |
-| Pull mail into local store | `mail sync` (`--no-classify` optional) | `make sync` |
-| Classify mail (report-only) | `mail report` | `make report` |
-| Export summary JSON | `mail export` | `make export` |
+| Onboarding checklist (config, token, store) | `mail status` | `go tool task mail:status` (internal) |
+| Sync engine check (IMAP, credentials) | `mail readiness` | `go tool task mail:readiness` (`doctor` alias) |
+| Pull mail into local store | `mail sync` (`--no-classify` optional) | `go tool task mail:sync` |
+| Classify mail (report-only) | `mail report` | `go tool task mail:report` |
+| Export summary JSON | `mail export` | `go tool task mail:export` |
 | Read one message body | `mail show <ref>` | (CLI only) |
 
 **CONSTRAINT:** MUST use `mail readiness`, `mail sync`, `mail export`, and `mail show` in operator guidance. MUST NOT instruct `pim doctor`, `pim sync`, `pim snapshot`, or `pim show` for normal day-2 work.
 
 ## First-time setup
 
-**CONSTRAINT:** Before `make readiness` / `make sync` on a new machine, MUST complete this sequence (or confirm it already ran).
+**CONSTRAINT:** Before `go tool task mail:readiness` / `go tool task mail:sync` on a new machine, MUST complete this sequence (or confirm it already ran).
 
-**CONSTRAINT:** `make build` is compile-only. Onboarding uses `make configure` / `should-i-read configure` (see [`AGENTS.md`](../../AGENTS.md)).
+**CONSTRAINT:** `go tool task build` is compile-only. Onboarding uses `go tool task configure` / `should-i-read configure` (see [`AGENTS.md`](../../AGENTS.md)).
 
 **CONSTRAINT:** MUST drive first-time onboarding via **`configure`**. MUST NOT instruct operators to run `setup`, `mail setup`, `pim ensure`, `pim configure`, `pim init`, or bare `neverest` for first-time setup. MAY use hidden `pim` commands only after `configure --json` shows a specific failure.
 
-1. `make build && make init` → `~/.config/should-i-read/config.yaml` (mode `0600`)
-2. `make configure` (TTY hub) or `make configure ARGS='--apply --provider gmail --email you@example.com'`
+1. `go tool task build && go tool task init` → `~/.config/should-i-read/config.yaml` (mode `0600`)
+2. `go tool task configure` (TTY hub) or `go tool task configure -- --apply --provider gmail --email you@example.com`
 3. `./bin/should-i-read config bump` when `polypus.base_url` is still literal `http://127.0.0.1:1320`
-4. `make polypus-check`
-5. `make readiness` → `make sync` → `make export` (optional: `mail show <object_hash>` to read one synced body)
+4. `go tool task polypus-check`
+5. `go tool task mail:readiness` → `go tool task mail:sync` → `go tool task mail:export` (optional: `mail show <object_hash>` to read one synced body)
 
 Inspect: `./bin/should-i-read configure --json` / `mail status`; `config path` / `config show`.
 
-When the sync dependency is missing, run `make configure` (hub runs the dependency step). That is not a Go build bug.
+When the sync dependency is missing, run `go tool task configure` (hub runs the dependency step). That is not a Go build bug.
 
 **Trust:** OAuth client ids identify the app; mailbox tokens live in host keyring, not in YAML.
 
@@ -69,25 +69,25 @@ When the sync dependency is missing, run `make configure` (hub runs the dependen
 
 ## Core constraints
 
-**CONSTRAINT:** Host workflows MUST use `make` / `bin/should-i-read` or documented Make aliases.
+**CONSTRAINT:** Host workflows MUST use `go tool task` / `bin/should-i-read` or documented task aliases.
 
-- MUST: `make configure` for onboarding; `configure --json` for hub checklist; `make readiness|sync|export` for day-2; `make polypus-check` before AI
+- MUST: `go tool task configure` for onboarding; `configure --json` for hub checklist; `go tool task mail:readiness|sync|export` for day-2; `go tool task polypus-check` before AI
 - MUST NOT: dial OpenRouter, Ollama, or other leaf AI vendors from host product paths
 
 CORRECT:
 ```bash
-make init && make configure
-make polypus-check
-make readiness && make sync && make export
+go tool task init && go tool task configure
+go tool task polypus-check
+go tool task mail:readiness && go tool task mail:sync && go tool task mail:export
 ```
 
 PROHIBITED:
 ```bash
-neverest check   # operators use make readiness
+neverest check   # operators use go tool task mail:readiness
 pim doctor       # use mail readiness
 ```
 
-**CONSTRAINT:** Before host AI work, MUST fail closed on Polypus (`make polypus-check`). Classify Judge uses `polypus.judge_model` (or first `typesafe/jev` id from `/v1/models`). Author uses `polypus.classify_model` (or first non-jev id) only when Judge skips and `taxonomy.author_on_skip` is true; Author input is host-cleaned latest body (not bulk classify).
+**CONSTRAINT:** Before host AI work, MUST fail closed on Polypus (`go tool task polypus-check`). Classify Judge uses `polypus.judge_model` (or first `typesafe/jev` id from `/v1/models`). Author uses `polypus.classify_model` (or first non-jev id) only when Judge skips and `taxonomy.author_on_skip` is true; Author input is host-cleaned latest body (not bulk classify).
 
 **Classify:** `taxonomy.collections` (default INBOX) and `taxonomy.classify_max` (Operate calls per run). `taxonomy.author_on_skip: false` skips Author chat on Judge skip (default report-only). Every classified message goes through taxonomy **attach** `Operate` (Essence, embed, cosine); inspect `tmp/unwanted-report-*.json`, not only the human summary.
 
@@ -95,10 +95,10 @@ pim doctor       # use mail readiness
 
 ## Operator recipe
 
-1. `make wire-ai-copilots` (Cursor skills)
-2. `make build && make init && make configure`
+1. `go tool task wire-ai-copilots` (Cursor skills; darwin/linux)
+2. `go tool task build && go tool task init && go tool task configure`
 3. `config bump` + `polypus-check` as needed
-4. `make readiness` → `make sync` → `make export`
+4. `go tool task mail:readiness` → `go tool task mail:sync` → `go tool task mail:export`
 
 ## Pre-completion checklist
 

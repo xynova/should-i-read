@@ -65,14 +65,14 @@ type MailboxPrefill struct {
 
 // Options drives configure runs.
 type Options struct {
-	Provider  string
-	Email     string
-	Account   string
-	StoreRoot string
-	Force     bool
-	SkipLogin bool
+	Provider    string
+	Email       string
+	Account     string
+	StoreRoot   string
+	Force       bool
+	SkipLogin   bool
 	Interactive bool
-	Apply     bool
-	JSONOnly  bool
-	Step      string
+	Apply       bool
+	JSONOnly    bool
+	Step        string
 }

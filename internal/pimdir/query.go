@@ -2,6 +2,7 @@ package pimdir
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -54,14 +55,14 @@ func (r *Reader) queryOneSummary(op, q string, arg string) (EmailSummary, error)
 	if err != nil {
 		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
 		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
 	}
 	row := db.QueryRow(q, arg)
 	s, err := scanEmailSummary(row)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return EmailSummary{}, sirerr.New(sirerr.CodeNotFound, op, "mail summary not found").With("ref", arg)
 		}
 		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "query mail summary")

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -44,7 +43,9 @@ func newMailSetupCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 		Deprecated: "use should-i-read configure",
 		Long:       `Deprecated. Use should-i-read configure instead.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprint(cmd.ErrOrStderr(), deprecationConfigure)
+			if err := writeCLIString(cmd.ErrOrStderr(), deprecationConfigure); err != nil {
+				return sirerr.Wrap(err, sirerr.CodeFailed, "cli.mail.setup", "write deprecation")
+			}
 			return runMailSetup(cmd, repoRoot, mailSetupFlags{
 				provider: provider, account: account, email: email,
 				storeRoot: storeRoot, force: force, skipLogin: skipLogin,
@@ -167,6 +168,8 @@ func runMailStatus(cmd *cobra.Command, opts *rootOptions, repoRoot string) error
 	if wantJSON(cmd) {
 		return printJSON(cmd.OutOrStdout(), st)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), formatMailStatus(st))
+	if err := writeCLILine(cmd.OutOrStdout(), formatMailStatus(st)); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write mail status")
+	}
 	return nil
 }

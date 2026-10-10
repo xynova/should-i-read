@@ -29,7 +29,7 @@ func formatMailStatus(st mailsync.Status) string {
 		if row.ok {
 			mark = clui.MarkOK()
 		}
-		b.WriteString(fmt.Sprintf("%s  %s\n", mark, row.label))
+		fmt.Fprintf(&b, "%s  %s\n", mark, row.label)
 	}
 	if st.Ready {
 		b.WriteString("\n")

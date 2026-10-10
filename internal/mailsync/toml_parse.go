@@ -5,9 +5,11 @@ import (
 	"strings"
 )
 
-var xoauth2UsernameRE = regexp.MustCompile(`(?m)^imap\.sasl\.xoauth2\.username\s*=\s*"([^"]+)"`)
-var imapServerRE = regexp.MustCompile(`(?m)^imap\.server\s*=\s*"([^"]+)"`)
-var storeRootRE = regexp.MustCompile(`(?m)^store\.root\s*=\s*"([^"]+)"`)
+var (
+	xoauth2UsernameRE = regexp.MustCompile(`(?m)^imap\.sasl\.xoauth2\.username\s*=\s*"([^"]+)"`)
+	imapServerRE      = regexp.MustCompile(`(?m)^imap\.server\s*=\s*"([^"]+)"`)
+	storeRootRE       = regexp.MustCompile(`(?m)^store\.root\s*=\s*"([^"]+)"`)
+)
 
 func parseEmailFromMailSyncTOML(body string) string {
 	m := xoauth2UsernameRE.FindStringSubmatch(body)

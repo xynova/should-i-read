@@ -2,7 +2,6 @@ package configure
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 
@@ -45,10 +44,10 @@ func RunHub(ctx context.Context, r *Runner, prompter HubPrompter, opts Options, 
 		applyMailFromSnapshot(&opts, snap)
 
 		ClearScreen(out)
-		fmt.Fprintln(out, FormatChecklist(snap))
+		writeTTYLine(out, FormatChecklist(snap))
 		if lastErr != nil {
-			fmt.Fprintln(out, FormatStepFailed(lastErr))
-			fmt.Fprintln(out)
+			writeTTYLine(out, FormatStepFailed(lastErr))
+			writeTTYLine(out, "")
 			lastErr = nil
 		}
 
@@ -58,15 +57,15 @@ func RunHub(ctx context.Context, r *Runner, prompter HubPrompter, opts Options, 
 		}
 		switch action {
 		case HubQuit:
-			fmt.Fprintln(out, FormatHubSummary(snap))
+			writeTTYLine(out, FormatHubSummary(snap))
 			return session, nil
 		case HubRunMissing:
 			subOpts := opts
 			subOpts.Interactive = true
 			applyMailFromSnapshot(&subOpts, snap)
-			fmt.Fprintln(out, clui.Muted("Running missing steps…"))
+			writeTTYLine(out, clui.Muted("Running missing steps…"))
 			if email := strings.TrimSpace(subOpts.Email); email != "" {
-				fmt.Fprintln(out, clui.Muted("Using saved mailbox "+email))
+				writeTTYLine(out, clui.Muted("Using saved mailbox "+email))
 			}
 			res, err := r.RunAllMissing(ctx, subOpts, out, errW, prompter.ConfirmBrowserLogin)
 			session.Ran = append(session.Ran, res.Ran...)
@@ -95,9 +94,9 @@ func RunHub(ctx context.Context, r *Runner, prompter HubPrompter, opts Options, 
 				opts.Email = subOpts.Email
 				opts.Account = subOpts.Account
 			} else if needsMailFields(stepID) && strings.TrimSpace(subOpts.Email) != "" {
-				fmt.Fprintln(out, clui.Muted("Using saved mailbox "+strings.TrimSpace(subOpts.Email)))
+				writeTTYLine(out, clui.Muted("Using saved mailbox "+strings.TrimSpace(subOpts.Email)))
 			}
-			fmt.Fprintf(out, "%s\n", clui.Muted("→ "+StepTitle(stepID)+"…"))
+			writeTTY(out, "%s\n", clui.Muted("→ "+StepTitle(stepID)+"…"))
 			stepRes, _, err := r.RunStep(ctx, stepID, subOpts, out, errW, true)
 			session.Ran = append(session.Ran, stepRes)
 			if err != nil {

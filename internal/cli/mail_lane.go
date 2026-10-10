@@ -47,7 +47,7 @@ func newMailSyncCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var account string
 	var noClassify bool
 	cmd := &cobra.Command{
-		Use:   "sync",
+		Use:   VerbSync,
 		Short: "Sync mail into the local store",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMailSync(cmd, opts, repoRoot, account, noClassify)
@@ -153,7 +153,7 @@ func runMailExport(cmd *cobra.Command, repoRoot, storeDir string, limit int, out
 	out := outPath
 	if out == "" {
 		tmpDir := filepath.Join(repoRoot, "tmp")
-		if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		if err := os.MkdirAll(tmpDir, 0o750); err != nil {
 			return sirerr.Wrap(err, sirerr.CodeFailed, op, "create tmp dir")
 		}
 		out = filepath.Join(tmpDir, fmt.Sprintf("mail-export-%s.json", time.Now().UTC().Format("20060102T150405Z")))
@@ -162,14 +162,19 @@ func runMailExport(cmd *cobra.Command, repoRoot, storeDir string, limit int, out
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "encode artifact")
 	}
-	if err := os.WriteFile(out, append(raw, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(out, append(raw, '\n'), 0o600); err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write artifact").With("path", out)
 	}
 	if wantJSON(cmd) {
-		fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"path\":%q,\"count\":%d}\n", out, art.Count)
+		if err := writeCLI(cmd.OutOrStdout(), "{\"ok\":true,\"path\":%q,\"count\":%d}\n", out, art.Count); err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "write export json")
+		}
 		return nil
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s\n", clui.FormatBox("Export", fmt.Sprintf("Exported %d messages\n%s", art.Count, out)))
+	box := clui.FormatBox("Export", fmt.Sprintf("Exported %d messages\n%s", art.Count, out))
+	if err := writeCLI(cmd.OutOrStdout(), "%s\n", box); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write export summary")
+	}
 	return nil
 }
 
@@ -226,7 +231,9 @@ func runMailShow(ctx context.Context, out io.Writer, storeDir, ref string, rawOu
 		}
 		return nil
 	}
-	printMailShowHeader(out, summary)
+	if err := printMailShowHeader(out, summary); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write message header")
+	}
 	prev, err := pimdir.DecodeMessagePreview(blob, maxBody)
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "decode message preview")
@@ -235,17 +242,25 @@ func runMailShow(ctx context.Context, out io.Writer, storeDir, ref string, rawOu
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write body")
 	}
 	if prev.Truncated {
-		fmt.Fprintf(out, "\n--- body truncated at %d bytes; use --raw for full RFC822 ---\n", maxBody)
+		if err := writeCLI(out, "\n--- body truncated at %d bytes; use --raw for full RFC822 ---\n", maxBody); err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "write truncation notice")
+		}
 	}
 	return nil
 }
 
-func printMailShowHeader(w io.Writer, s pimdir.EmailSummary) {
+func printMailShowHeader(w io.Writer, s pimdir.EmailSummary) error {
 	if w == nil {
-		return
+		return nil
 	}
-	if s.Subject != "" {
-		fmt.Fprintf(w, "%s %s\n", clui.Label("Subject:"), s.Subject)
+	writeField := func(label, value string) error {
+		if value == "" {
+			return nil
+		}
+		return writeCLI(w, "%s %s\n", clui.Label(label), value)
+	}
+	if err := writeField("Subject:", s.Subject); err != nil {
+		return err
 	}
 	from := strings.TrimSpace(s.SenderName)
 	if from == "" {
@@ -253,20 +268,21 @@ func printMailShowHeader(w io.Writer, s pimdir.EmailSummary) {
 	} else if strings.TrimSpace(s.Sender) != "" {
 		from = from + " <" + strings.TrimSpace(s.Sender) + ">"
 	}
-	if from != "" {
-		fmt.Fprintf(w, "%s %s\n", clui.Label("From:"), from)
+	if err := writeField("From:", from); err != nil {
+		return err
 	}
-	if s.Date != "" {
-		fmt.Fprintf(w, "%s %s\n", clui.Label("Date:"), s.Date)
+	if err := writeField("Date:", s.Date); err != nil {
+		return err
 	}
-	if s.Collection != "" {
-		fmt.Fprintf(w, "%s %s\n", clui.Label("Collection:"), s.Collection)
+	if err := writeField("Collection:", s.Collection); err != nil {
+		return err
 	}
-	if s.MessageID != "" {
-		fmt.Fprintf(w, "%s %s\n", clui.Label("Message-ID:"), s.MessageID)
+	if err := writeField("Message-ID:", s.MessageID); err != nil {
+		return err
 	}
-	if s.ObjectHash != "" {
-		fmt.Fprintf(w, "%s %s\n", clui.Label("Object-Hash:"), s.ObjectHash)
+	if err := writeField("Object-Hash:", s.ObjectHash); err != nil {
+		return err
 	}
-	fmt.Fprintln(w)
+	_, err := fmt.Fprintln(w)
+	return err
 }

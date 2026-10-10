@@ -19,7 +19,7 @@ func mailSetupUseWizard(tty, wizardFlag, providerFlagSet, emailFlagSet bool) boo
 	if wizardFlag {
 		return true
 	}
-	return !(providerFlagSet && emailFlagSet)
+	return !providerFlagSet || !emailFlagSet
 }
 
 func runMailSetupWizard(ctx context.Context, flags mailSetupFlags) (mailSetupFlags, error) {
@@ -35,7 +35,7 @@ func runMailSetupWizard(ctx context.Context, flags mailSetupFlags) (mailSetupFla
 	provider := strings.TrimSpace(flags.provider)
 	email := strings.TrimSpace(flags.email)
 	account := strings.TrimSpace(flags.account)
-	nextStep := "login"
+	nextStep := VerbLogin
 	if flags.skipLogin {
 		nextStep = "save"
 	}
@@ -74,7 +74,7 @@ func runMailSetupWizard(ctx context.Context, flags mailSetupFlags) (mailSetupFla
 			huh.NewSelect[string]().
 				Title("Next step").
 				Options(
-					huh.NewOption("Login", "login"),
+					huh.NewOption("Login", VerbLogin),
 					huh.NewOption("Save config only", "save"),
 				).
 				Value(&nextStep),
@@ -95,7 +95,7 @@ func runMailSetupWizard(ctx context.Context, flags mailSetupFlags) (mailSetupFla
 func validateMailboxEmail(s string) error {
 	s = strings.TrimSpace(s)
 	if s == "" || !strings.Contains(s, "@") || strings.HasPrefix(s, "@") {
-		return errors.New("enter a valid mailbox address")
+		return sirerr.New(sirerr.CodeInvalid, "cli.validateMailboxEmail", "enter a valid mailbox address")
 	}
 	return nil
 }

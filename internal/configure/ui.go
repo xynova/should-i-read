@@ -27,12 +27,24 @@ func StepTitle(id string) string {
 	return id
 }
 
-// ClearScreen clears the terminal when w is a TTY-like writer that supports ANSI.
-func ClearScreen(w io.Writer) {
+// writeTTY writes interactive configure output; ignores write errors on broken pipes.
+func writeTTY(w io.Writer, format string, args ...any) {
 	if w == nil {
 		return
 	}
-	fmt.Fprint(w, "\033[H\033[2J")
+	_, _ = fmt.Fprintf(w, format, args...)
+}
+
+func writeTTYLine(w io.Writer, s string) {
+	if w == nil {
+		return
+	}
+	_, _ = fmt.Fprintln(w, s)
+}
+
+// ClearScreen clears the terminal when w is a TTY-like writer that supports ANSI.
+func ClearScreen(w io.Writer) {
+	writeTTY(w, "\033[H\033[2J")
 }
 
 // FormatChecklist renders a compact readiness card (titles only; no repeated detail prose).

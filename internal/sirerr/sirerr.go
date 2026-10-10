@@ -117,6 +117,8 @@ func ExitCode(err error) int {
 		return 7
 	case CodeUnavailable:
 		return 5
+	case CodeFailed:
+		return 1
 	default:
 		return 1
 	}

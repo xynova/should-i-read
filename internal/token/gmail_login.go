@@ -50,7 +50,7 @@ func GmailLogin(ctx context.Context, cfg config.Config, account string) error {
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "listen localhost callback")
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	port := ln.Addr().(*net.TCPAddr).Port
 	conf.RedirectURL = fmt.Sprintf("http://127.0.0.1:%d/oauth2/callback", port)
@@ -69,6 +69,7 @@ func GmailLogin(ctx context.Context, cfg config.Config, account string) error {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	srv := &http.Server{
+		ReadHeaderTimeout: 10 * time.Second,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/oauth2/callback" {
 				http.NotFound(w, r)
@@ -76,18 +77,18 @@ func GmailLogin(ctx context.Context, cfg config.Config, account string) error {
 			}
 			q := r.URL.Query()
 			if q.Get("error") != "" {
-				errCh <- fmt.Errorf("oauth error: %s", q.Get("error"))
+				errCh <- sirerr.New(sirerr.CodeAuth, "token.gmailOAuthCallback", "oauth error").With("error", q.Get("error"))
 				_, _ = io.WriteString(w, "Authorization failed. You can close this tab.")
 				return
 			}
 			if q.Get("state") != state {
-				errCh <- fmt.Errorf("oauth state mismatch")
+				errCh <- sirerr.New(sirerr.CodeAuth, "token.gmailOAuthCallback", "oauth state mismatch")
 				_, _ = io.WriteString(w, "State mismatch. You can close this tab.")
 				return
 			}
 			code := q.Get("code")
 			if code == "" {
-				errCh <- fmt.Errorf("missing authorization code")
+				errCh <- sirerr.New(sirerr.CodeAuth, "token.gmailOAuthCallback", "missing authorization code")
 				_, _ = io.WriteString(w, "Missing code. You can close this tab.")
 				return
 			}

@@ -2,14 +2,13 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/xynova/should-i-read/internal/configure"
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/configure"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -25,7 +24,7 @@ func newConfigureCmd(rootOpts *rootOptions, repoRoot string) *cobra.Command {
 		skipLogin bool
 	)
 	cmd := &cobra.Command{
-		Use:   "configure",
+		Use:   VerbConfigure,
 		Short: "Operator onboarding hub (config, OAuth apps, mailbox)",
 		Long: `Interactive operator configure: host config, OAuth app credentials, mailbox sync,
 login, and local store. TTY shows a hub menu to run or fix steps. Use --json, --apply,
@@ -50,7 +49,7 @@ or --step for automation.`,
 }
 
 type configureFlags struct {
-	apply, force, skipLogin                bool
+	apply, force, skipLogin                   bool
 	step, provider, account, email, storeRoot string
 }
 
@@ -78,7 +77,10 @@ func runConfigure(cmd *cobra.Command, repoRoot string, rootOpts *rootOptions, fl
 	out := cmd.OutOrStdout()
 	errW := cmd.ErrOrStderr()
 
-	cfg, _ := config.Load(repoRoot, "")
+	cfg, err := config.Load(repoRoot, "")
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "load config")
+	}
 	snap, err := configure.CollectSnapshot(ctx, repoRoot, cfg)
 	if err != nil {
 		return err
@@ -112,14 +114,22 @@ func runConfigure(cmd *cobra.Command, repoRoot string, rootOpts *rootOptions, fl
 			}
 			return err
 		}
-		fmt.Fprintln(out, formatConfigureSession(session))
+		if wErr := writeCLILine(out, formatConfigureSession(session)); wErr != nil && err == nil {
+			return sirerr.Wrap(wErr, sirerr.CodeFailed, op, "write configure session")
+		}
 		return err
 	}
 
 	if flags.step != "" {
 		stepRes, _, err := runner.RunStep(ctx, flags.step, opts, out, errW, true)
-		cfg, _ = config.Load(repoRoot, "")
-		snap, _ = configure.CollectSnapshot(ctx, repoRoot, cfg)
+		cfg, loadErr := config.Load(repoRoot, "")
+		if loadErr != nil && err == nil {
+			return sirerr.Wrap(loadErr, sirerr.CodeFailed, op, "reload config after step")
+		}
+		snap, snapErr := configure.CollectSnapshot(ctx, repoRoot, cfg)
+		if snapErr != nil && err == nil {
+			return sirerr.Wrap(snapErr, sirerr.CodeFailed, op, "collect snapshot after step")
+		}
 		session := configure.SessionResult{
 			Snapshot: snap,
 			Ran:      []configure.StepResult{stepRes},
@@ -130,7 +140,9 @@ func runConfigure(cmd *cobra.Command, repoRoot string, rootOpts *rootOptions, fl
 			}
 			return err
 		}
-		fmt.Fprintln(out, formatConfigureSession(session))
+		if wErr := writeCLILine(out, formatConfigureSession(session)); wErr != nil && err == nil {
+			return sirerr.Wrap(wErr, sirerr.CodeFailed, op, "write configure session")
+		}
 		return err
 	}
 

@@ -1,0 +1,202 @@
+version: "3"
+
+vars:
+  VERSION: '{{.VERSION | default "dev"}}'
+  BIN: ./bin/should-i-read{{exeExt}}
+  LDFLAGS: '-X github.com/xynova/should-i-read/internal/cli.Version={{.VERSION}}'
+
+tasks:
+  default:
+    desc: List local-dev tasks
+    aliases: [help]
+    silent: true
+    summary: |
+      Bare go tool task (and help) runs this task.
+      Prints go tool task --list, then a short day-2 mail footer.
+      go tool task --list alone skips this task and has no footer.
+    cmds:
+      - go tool task --list
+      - |
+        echo ""
+        echo "Day-2 mail:"
+        echo "  1. go tool task mail:readiness"
+        echo "  2. go tool task mail:sync"
+        echo "  3. go tool task mail:export"
+        echo "Cobra flags after --. Details: go tool task --summary <name>"
+
+  format:
+    desc: Format with gofumpt
+    summary: |
+      Runs go tool gofumpt -w on ./cmd ./internal.
+      Nested providers/ are out of scope.
+    cmds:
+      - go tool gofumpt -w ./cmd ./internal
+
+  lint:
+    desc: Run golangci-lint
+    summary: |
+      Runs go tool golangci-lint run --timeout 5m on ./cmd/... ./internal/....
+      Nested providers/ are out of scope.
+    cmds:
+      - go tool golangci-lint run --timeout 5m ./cmd/... ./internal/...
+
+  vet:
+    desc: Run go vet
+    summary: |
+      Runs go vet on ./cmd/... ./internal/....
+    cmds:
+      - go vet ./cmd/... ./internal/...
+
+  test:
+    desc: Run unit tests
+    summary: |
+      Runs go test ./... from the module root.
+    cmds:
+      - go test ./...
+
+  tidy:
+    desc: go mod tidy (direct proxy for fresh module tags)
+    summary: |
+      Runs go mod tidy with GOPROXY=direct.
+    cmds:
+      - GOPROXY=direct go mod tidy
+
+  build:
+    desc: Build the CLI into bin/
+    summary: |
+      Compiles ./cmd/should-i-read into {{.BIN}} with Version ldflags.
+      Does not install the mail sync dependency or start Polypus.
+    cmds:
+      - go build -ldflags "{{.LDFLAGS}}" -o "{{.BIN}}" ./cmd/should-i-read
+
+  init:
+    desc: Create user config if missing
+    summary: |
+      Builds the CLI if needed, then runs init.
+      Creates user config only if missing.
+    deps: [build]
+    cmds:
+      - "{{.BIN}} init"
+
+  configure:
+    desc: Operator onboarding hub
+    summary: |
+      Builds the CLI if needed, then runs configure.
+      Pass Cobra flags after -- (example: --apply --provider gmail --email you@example.com).
+    deps: [build]
+    cmds:
+      - "{{.BIN}} configure {{.CLI_ARGS}}"
+
+  mail:readiness:
+    desc: Sync engine check (IMAP)
+    aliases: [doctor]
+    summary: |
+      Builds the CLI if needed, then runs mail readiness.
+      Alias: doctor. Does not pull mail.
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail readiness"
+
+  mail:sync:
+    desc: Pull mail into local store
+    summary: |
+      Builds the CLI if needed, then runs mail sync.
+      Pass Cobra flags after -- (example: --no-classify).
+      Does not call scripts/check-neverest.sh; the CLI fail-closes on a missing sync binary.
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail sync {{.CLI_ARGS}}"
+
+  mail:export:
+    desc: Export summary JSON
+    summary: |
+      Builds the CLI if needed, then runs mail export.
+      Pass Cobra flags after --. Writes summary JSON, not full bodies.
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail export {{.CLI_ARGS}}"
+
+  mail:report:
+    desc: Classify mail (report-only)
+    summary: |
+      Builds the CLI if needed, then runs mail report.
+      Pass Cobra flags after --. Requires Polypus. Does not mutate the mailbox.
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail report {{.CLI_ARGS}}"
+
+  polypus-check:
+    desc: Fail-closed Polypus probe
+    summary: |
+      Builds the CLI if needed, then runs polypus check.
+      Pass Cobra flags after -- (example: --classify).
+    deps: [build]
+    cmds:
+      - "{{.BIN}} polypus check {{.CLI_ARGS}}"
+
+  hooks-install:
+    desc: Install Lefthook git hooks
+    summary: |
+      Runs lefthook install. Does not build the CLI.
+    cmds:
+      - lefthook install
+
+  setup:
+    internal: true
+    deps: [build]
+    cmds:
+      - "{{.BIN}} setup"
+
+  mail:status:
+    internal: true
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail status"
+
+  mail:setup:
+    internal: true
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail setup {{.CLI_ARGS}}"
+
+  pim-ensure:
+    internal: true
+    aliases: [ensure]
+    deps: [build]
+    cmds:
+      - "{{.BIN}} pim ensure"
+
+  pim-configure:
+    internal: true
+    deps: [build]
+    cmds:
+      - "{{.BIN}} pim configure {{.CLI_ARGS}}"
+
+  version:
+    internal: true
+    deps: [build]
+    cmds:
+      - "{{.BIN}} version"
+
+  pim-deps-check:
+    internal: true
+    platforms: [darwin, linux]
+    cmds:
+      - scripts/check-neverest.sh
+
+  check-polypus:
+    internal: true
+    deps: [build, polypus-check]
+    platforms: [darwin, linux]
+    cmds:
+      - scripts/check-polypus.sh
+
+  wire-ai-copilots:
+    internal: true
+    platforms: [darwin, linux]
+    cmds:
+      - scripts/wire-cursor-skills.sh
+
+  bootstrap-ai-copilots:
+    internal: true
+    deps: [wire-ai-copilots]

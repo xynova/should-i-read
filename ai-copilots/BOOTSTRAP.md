@@ -44,7 +44,7 @@ Only when the user asked to refresh or regenerate skill bodies. Edit files under
 From the repository root:
 
 ```bash
-make wire-ai-copilots
+go tool task wire-ai-copilots
 ```
 
 Implementation: [`scripts/wire-cursor-skills.sh`](../scripts/wire-cursor-skills.sh). Host skills use **relative** symlinks (committed). Strop skills are optional and machine-local (gitignored); see [`docs/ai-copilots-setup.md`](../docs/ai-copilots-setup.md).
