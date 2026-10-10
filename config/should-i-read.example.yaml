@@ -1,5 +1,9 @@
 # should-i-read operator config (example / init template)
 #
+# Optional CLI brand colors (xterm-256 indices, also used by Taskfile list):
+#   export OPERATOR_CLI_THEME_ACCENT=42   # verbs, titles, success (default green)
+#   export OPERATOR_CLI_THEME_MARK=214    # bullets, borders (default gold)
+#
 # Live file: ~/.config/should-i-read/config.yaml (mode 0600)
 # Override: --config or SHOULD_I_READ_CONFIG
 #

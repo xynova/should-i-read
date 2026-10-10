@@ -4,6 +4,16 @@ vars:
   VERSION: '{{.VERSION | default "dev"}}'
   BIN: ./bin/should-i-read{{exeExt}}
   LDFLAGS: '-X github.com/xynova/should-i-read/internal/cli.Version={{.VERSION}}'
+  # xterm-256 indices; override with OPERATOR_CLI_THEME_ACCENT / OPERATOR_CLI_THEME_MARK.
+  THEME_ACCENT: '{{.OPERATOR_CLI_THEME_ACCENT | default "42"}}'
+  THEME_MARK: '{{.OPERATOR_CLI_THEME_MARK | default "214"}}'
+
+env:
+  FORCE_COLOR: "1"
+  TASK_COLOR: "true"
+  TASK_COLOR_GREEN: '38;5;{{.THEME_ACCENT}}'
+  TASK_COLOR_YELLOW: '38;5;{{.THEME_MARK}}'
+  TASK_COLOR_CYAN: '38;5;{{.THEME_MARK}}'
 
 tasks:
   default:
@@ -15,13 +25,16 @@ tasks:
       Prints go tool task --list, then a short day-2 mail footer.
       go tool task --list alone skips this task and has no footer.
     cmds:
-      - go tool task --list
+      - go tool task --list --color | awk 'NR == 1 { print; print ""; next } { print }'
       - |
         echo ""
+        echo ""
         echo "Day-2 mail:"
+        echo ""
         echo "  1. go tool task mail:readiness"
         echo "  2. go tool task mail:sync"
         echo "  3. go tool task mail:export"
+        echo ""
         echo "Cobra flags after --. Details: go tool task --summary <name>"
 
   format:
