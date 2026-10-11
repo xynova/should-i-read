@@ -23,3 +23,8 @@ bin/*
 *.swp
 .idea/
 .vscode/
+
+# BEGIN cursor-packs wired Cursor discovery (do not edit; run sync-wired-cursor-gitignore.sh)
+# Wired by BOOTSTRAP / make wire-cursor-skills; not committed (see author-ai-copilots).
+.cursor/debug-*.log
+# END cursor-packs wired Cursor discovery
