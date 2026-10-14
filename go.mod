@@ -7,7 +7,7 @@ require (
 	github.com/XiaoConstantine/dspy-go v0.89.0
 	github.com/behaviorengineering/olly v0.2.0
 	github.com/behaviorengineering/operatorconfig v0.2.0
-	github.com/behaviorengineering/strop v0.5.14
+	github.com/behaviorengineering/strop v0.5.17
 	github.com/behaviorengineering/taxonomy v0.4.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
