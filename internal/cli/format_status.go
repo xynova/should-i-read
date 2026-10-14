@@ -31,9 +31,13 @@ func formatMailStatus(st mailsync.Status) string {
 		}
 		fmt.Fprintf(&b, "%s  %s\n", mark, row.label)
 	}
+	cs := st.ClassifyStore
+	if cs.Path != "" || cs.Complete+cs.Pending+cs.Error+cs.Running > 0 {
+		fmt.Fprintf(&b, "%s  Classify store  %d complete, %d pending\n", clui.MarkOK(), cs.Complete, cs.Pending)
+	}
 	if st.Ready {
 		b.WriteString("\n")
-		b.WriteString(clui.OK("Ready for make readiness && make sync"))
+		b.WriteString(clui.OK("Ready for go tool task mail:readiness && go tool task mail:sync"))
 	} else if len(st.NextSteps) > 0 {
 		b.WriteString("\n")
 		b.WriteString(clui.Hint(st.NextSteps[0]))

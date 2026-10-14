@@ -197,13 +197,6 @@ tasks:
     cmds:
       - scripts/check-neverest.sh
 
-  check-polypus:
-    internal: true
-    deps: [build, polypus-check]
-    platforms: [darwin, linux]
-    cmds:
-      - scripts/check-polypus.sh
-
   wire-ai-copilots:
     internal: true
     platforms: [darwin, linux]

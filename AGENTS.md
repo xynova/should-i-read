@@ -45,11 +45,12 @@ MUST NOT tell operators to run bare `neverest` or add `~/.cargo/bin` to PATH for
 3. [`github.com/behaviorengineering/operatorconfig`](https://github.com/behaviorengineering/operatorconfig) via [`internal/config`](internal/config) and [`internal/secret`](internal/secret) (env → keyring → optional SOPS; `secrets:` list in config drives load-time resolve, same pattern as polypus-local / Polypus `serve`)
 4. [`docs/pimalaya-setup.md`](docs/pimalaya-setup.md) (operator path: mail sync, pim, token brokers)
 5. [`ai-copilots/skills/should-i-read-operator/SKILL.md`](ai-copilots/skills/should-i-read-operator/SKILL.md) (init, configure hub, polypus check)
-6. [`ai-copilots/skills/pimalaya-ecosystem/SKILL.md`](ai-copilots/skills/pimalaya-ecosystem/SKILL.md) and [`docs/pimalaya-ecosystem/INDEX.md`](docs/pimalaya-ecosystem/INDEX.md) (ecosystem index)
-7. [`docs/oauth-product-apps.md`](docs/oauth-product-apps.md) (product-owned OAuth apps vs BYO)
-8. [`docs/ai-provider-seam.md`](docs/ai-provider-seam.md) (Polypus-only AI)
-9. **strop** (`github.com/behaviorengineering/strop`): run that module's `ai-copilots/BOOTSTRAP.md` wire phase (or host `ai-copilots/BOOTSTRAP.md` strop block) for `strop-*` skills before JobRunner work
-10. **olly** (`github.com/behaviorengineering/olly`): CLI telemetry via `internal/cli/telemetry.go` (failure dumps under `logs/failures`)
+6. [`ai-copilots/skills/host-classify-store/SKILL.md`](ai-copilots/skills/host-classify-store/SKILL.md) (classify ledger) and [`ai-copilots/skills/hoststore-sqlite/SKILL.md`](ai-copilots/skills/hoststore-sqlite/SKILL.md) (modernc + golang-migrate)
+7. [`ai-copilots/skills/pimalaya-ecosystem/SKILL.md`](ai-copilots/skills/pimalaya-ecosystem/SKILL.md) and [`docs/pimalaya-ecosystem/INDEX.md`](docs/pimalaya-ecosystem/INDEX.md) (ecosystem index)
+8. [`docs/oauth-product-apps.md`](docs/oauth-product-apps.md) (product-owned OAuth apps vs BYO)
+9. [`docs/ai-provider-seam.md`](docs/ai-provider-seam.md) (Polypus-only AI)
+10. **strop** (`github.com/behaviorengineering/strop`): run that module's `ai-copilots/BOOTSTRAP.md` wire phase (or host `ai-copilots/BOOTSTRAP.md` strop block) for `strop-*` skills before JobRunner work
+11. **olly** (`github.com/behaviorengineering/olly`): CLI telemetry via `internal/cli/telemetry.go` (failure dumps under `logs/failures`)
 
 ## Wire Cursor discovery
 

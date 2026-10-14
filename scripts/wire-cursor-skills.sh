@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
-HOST_SKILLS=(should-i-read-operator pimalaya-ecosystem)
+HOST_SKILLS=(should-i-read-operator pimalaya-ecosystem host-classify-store hoststore-sqlite)
 STROP_SKILLS=(strop-pipeline-pattern strop-orchestration strop-human-review inference-pace)
 
 mkdir -p .cursor/skills

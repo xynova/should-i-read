@@ -22,6 +22,7 @@ func newMailCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd.AddCommand(newMailSyncCmd(opts, repoRoot))
 	cmd.AddCommand(newMailExportCmd(opts, repoRoot))
 	cmd.AddCommand(newMailReportCmd(opts, repoRoot))
+	cmd.AddCommand(newMailSimilarCmd(opts, repoRoot))
 	cmd.AddCommand(newMailShowCmd(opts, repoRoot))
 	return cmd
 }
@@ -165,6 +166,7 @@ func runMailStatus(cmd *cobra.Command, opts *rootOptions, repoRoot string) error
 	if err != nil {
 		return err
 	}
+	st.ClassifyStore = collectClassifyStoreStatus(ctx, cfg)
 	if wantJSON(cmd) {
 		return printJSON(cmd.OutOrStdout(), st)
 	}

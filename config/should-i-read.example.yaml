@@ -25,6 +25,17 @@ polypus:
   judge_model: "cf_local/typesafe/jev"
   # Attach embeddings (default cf_local/@cf/baai/bge-m3 when listed)
   embed_model: "cf_local/@cf/baai/bge-m3"
+  # Optional cluster TLDR chat model; empty uses classify_model
+  tldr_model: ""
+
+cluster:
+  # Min cosine for embedding attach into an in-artifact term cluster (default 0.80)
+  min_cosine: 0.80
+  # Term ids that get suggested_action quarantine_candidate in reports (empty = all review).
+  # Example for this catalog: failure, cloud-infrastructure
+  quarantine_terms: []
+  # Noul cutoff for needs_reply / involves_decision on clusters (default 0.50)
+  attention_true_min: 0.50
 
 taxonomy:
   # Optional; walk defaults to inbox-mail under ~/.config/should-i-read/vocabularies/
@@ -52,6 +63,14 @@ pimalaya:
   default_account: ""
   # Directory containing pimdir.db (Neverest account store)
   pimdir_path: ""
+  # IMAP folders skipped on mail sync. Omit for Gmail Spam/Trash; [] syncs every folder.
+  sync_exclude_collections:
+    - "[Gmail]/Spam"
+    - "[Gmail]/Trash"
+
+store:
+  # Classify ledger (state + embeddings). Empty: Application Support or XDG .../host/should-i-read.db
+  path: ""
 
 oauth:
   gmail_client_id: "${EMAILOPS_GMAIL_CLIENT_ID}"

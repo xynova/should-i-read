@@ -122,7 +122,7 @@ func FormatStepFailed(err error) string {
 // FormatHubSummary is the quiet exit line after an interactive hub session.
 func FormatHubSummary(snap Snapshot) string {
 	if snap.Ready {
-		return clui.OK("Ready.") + clui.Muted("  Next: make readiness && make sync")
+		return clui.OK("Ready.") + clui.Muted("  Next: go tool task mail:readiness && go tool task mail:sync")
 	}
 	waiting := snap.WaitingOn
 	if waiting == "" {

@@ -37,7 +37,7 @@ func (n *Neverest) Check(ctx context.Context) (*Result, error) {
 }
 
 // Sync runs neverest sync for an optional account id.
-func (n *Neverest) Sync(ctx context.Context, account string) (*Result, error) {
+func (n *Neverest) Sync(ctx context.Context, account string, excludeCollections []string) (*Result, error) {
 	const op = "pimalaya.Neverest.Sync"
 	if n == nil || n.Runner == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil neverest")
@@ -47,7 +47,15 @@ func (n *Neverest) Sync(ctx context.Context, account string) (*Result, error) {
 		n.Runner.Account = strings.TrimSpace(account)
 	}
 	defer func() { n.Runner.Account = prev }()
-	return n.Runner.RunJSON(ctx, "sync")
+	args := []string{"sync"}
+	for _, raw := range excludeCollections {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		args = append(args, "--exclude-collection", name)
+	}
+	return n.Runner.RunJSON(ctx, args...)
 }
 
 // Init runs neverest init for the configured account.

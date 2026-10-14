@@ -33,8 +33,8 @@ Token bare invoke (`token gmail`) still prints only the access token for Neveres
 |-----------------|-----|------|
 | Onboarding checklist (config, token, store) | `mail status` | `go tool task mail:status` (internal) |
 | Sync engine check (IMAP, credentials) | `mail readiness` | `go tool task mail:readiness` (`doctor` alias) |
-| Pull mail into local store | `mail sync` (`--no-classify` optional) | `go tool task mail:sync` |
-| Classify mail (report-only) | `mail report` | `go tool task mail:report` |
+| Pull mail into local store | `mail sync` (`--no-classify`, `--exclude-collection` optional) | `go tool task mail:sync` |
+| Classify mail (report-only, clusters + TLDR) | `mail report` | `go tool task mail:report` |
 | Export summary JSON | `mail export` | `go tool task mail:export` |
 | Read one message body | `mail show <ref>` | (CLI only) |
 
@@ -87,9 +87,11 @@ neverest check   # operators use go tool task mail:readiness
 pim doctor       # use mail readiness
 ```
 
-**CONSTRAINT:** Before host AI work, MUST fail closed on Polypus (`go tool task polypus-check`). Classify Judge uses `polypus.judge_model` (or first `typesafe/jev` id from `/v1/models`). Author uses `polypus.classify_model` (or first non-jev id) only when Judge skips and `taxonomy.author_on_skip` is true; Author input is host-cleaned latest body (not bulk classify).
+**CONSTRAINT:** Before host AI work, MUST fail closed on Polypus (`go tool task polypus-check`). Model discovery uses `GET /v1/apis` (merged flavor lists). Classify Judge uses `polypus.judge_model` (or first `typesafe/jev` id from discovery). Author uses `polypus.classify_model` (or first non-jev id) only when Judge skips and `taxonomy.author_on_skip` is true; Author input is host-cleaned latest body (not bulk classify).
 
-**Classify:** `taxonomy.collections` (default INBOX) and `taxonomy.classify_max` (Operate calls per run). `taxonomy.author_on_skip: false` skips Author chat on Judge skip (default report-only). Every classified message goes through taxonomy **attach** `Operate` (Essence, embed, cosine); inspect `tmp/unwanted-report-*.json`, not only the human summary.
+**Classify:** `taxonomy.collections` (default INBOX) and `taxonomy.classify_max` (Operate calls per run). `taxonomy.author_on_skip: false` skips Author chat on Judge skip (default report-only). Inspect `tmp/unwanted-report-*.json` for per-message taxonomy fields, `cluster_id`, and `clusters[]` (TLDR + `suggested_action`). Essence parse failures dump the last chat completion under `tmp/essence-parse/<object_hash>.json`. Optional `cluster.quarantine_terms` marks clusters `quarantine_candidate` (report-only; no mailbox moves). Live resume: classify ledger plus cluster fingerprint cache (`store.path`); see [`host-classify-store`](../host-classify-store/SKILL.md). `mail similar <object_hash>` uses stored embeddings.
+
+**Sync folders:** `pimalaya.sync_exclude_collections` (default `[Gmail]/Spam` and `[Gmail]/Trash`) plus `--exclude-collection`. An empty YAML list syncs every folder. This is not `taxonomy.collections` (report listing only).
 
 **Attach (only strategy):** catalog `inbox-kind` (seed `config/vocabularies/inbox-kind.yaml`, default under `~/.config/should-i-read/vocabularies/`), `polypus.embed_model` via strop `CreateEmbedder`, Essence chat (same model as classify author), thresholds `attach_min_cosine` / `walk_reinforce_min` with `strop/pkg/embed.CosineSimilarity`. Legacy `taxonomy.strategy: walk` in YAML is treated as attach.
 

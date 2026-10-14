@@ -48,10 +48,32 @@ func TestRenderAccountTOML(t *testing.T) {
 		`imap.sasl.xoauth2.username = "me@example.com"`,
 		`token.command = ["/bin/should-i-read","token","gmail","--account","gmail"]`,
 		`store.root = "/data/pim/gmail"`,
+		`imap.collection.filter = "all"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
 		}
+	}
+}
+
+func TestRenderAccountTOML_excludeCollections(t *testing.T) {
+	t.Parallel()
+	body, err := renderAccountTOML(accountTemplateData{
+		Account:            "gmail",
+		IMAPServer:         "imap.gmail.com",
+		Email:              "me@example.com",
+		StoreRoot:          "/data/pim/gmail",
+		TokenCommandTOML:   `["/bin/should-i-read","token","gmail"]`,
+		ExcludeCollections: []string{"[Gmail]/Spam", "[Gmail]/Trash"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `imap.collection.filter.exclude = ["[Gmail]/Spam","[Gmail]/Trash"]`) {
+		t.Fatalf("missing exclude filter in:\n%s", body)
+	}
+	if strings.Contains(body, `imap.collection.filter = "all"`) {
+		t.Fatalf("did not expect all filter in:\n%s", body)
 	}
 }
 

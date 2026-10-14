@@ -28,6 +28,14 @@ test -d "$ROOT/ai-copilots/skills/should-i-read-operator" || {
   echo "missing ai-copilots/skills/should-i-read-operator under $ROOT"
   exit 1
 }
+test -d "$ROOT/ai-copilots/skills/host-classify-store" || {
+  echo "missing ai-copilots/skills/host-classify-store under $ROOT"
+  exit 1
+}
+test -d "$ROOT/ai-copilots/skills/hoststore-sqlite" || {
+  echo "missing ai-copilots/skills/hoststore-sqlite under $ROOT"
+  exit 1
+}
 echo "Module root: $ROOT"
 ```
 
@@ -67,6 +75,10 @@ test -L "$ROOT/.cursor/skills/should-i-read-operator"
 test -f "$ROOT/.cursor/skills/should-i-read-operator/SKILL.md"
 test -L "$ROOT/.cursor/skills/pimalaya-ecosystem"
 test -f "$ROOT/.cursor/skills/pimalaya-ecosystem/SKILL.md"
+test -L "$ROOT/.cursor/skills/host-classify-store"
+test -f "$ROOT/.cursor/skills/host-classify-store/SKILL.md"
+test -L "$ROOT/.cursor/skills/hoststore-sqlite"
+test -f "$ROOT/.cursor/skills/hoststore-sqlite/SKILL.md"
 test -f "$ROOT/AGENTS.md"
 ```
 

@@ -158,13 +158,14 @@ func (r *Runner) runStepBody(ctx context.Context, stepID string, opts Options, o
 			return res, cfg, err
 		}
 		_, err = svc.Configure(ctx, mailsync.Options{
-			Provider:  prov,
-			Account:   account,
-			Email:     email,
-			StoreRoot: strings.TrimSpace(opts.StoreRoot),
-			Force:     opts.Force,
-			HostBin:   r.hostBin,
-			SkipInit:  true,
+			Provider:           prov,
+			Account:            account,
+			Email:              email,
+			StoreRoot:          strings.TrimSpace(opts.StoreRoot),
+			Force:              opts.Force,
+			HostBin:            r.hostBin,
+			SkipInit:           true,
+			ExcludeCollections: cfg.Pimalaya.SyncExcludeCollections,
 		})
 		if err != nil {
 			res.Detail = "Could not save mailbox settings."

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xynova/should-i-read/internal/clui"
+	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/sirerr"
@@ -46,19 +47,21 @@ func runMailReadiness(cmd *cobra.Command, opts *rootOptions, repoRoot string) er
 func newMailSyncCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var account string
 	var noClassify bool
+	var excludeCollections []string
 	cmd := &cobra.Command{
 		Use:   VerbSync,
 		Short: "Sync mail into the local store",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMailSync(cmd, opts, repoRoot, account, noClassify)
+			return runMailSync(cmd, opts, repoRoot, account, noClassify, excludeCollections)
 		},
 	}
 	cmd.Flags().StringVar(&account, "account", "", "Mail account id from sync config")
 	cmd.Flags().BoolVar(&noClassify, "no-classify", false, "Skip taxonomy classify after a successful sync")
+	cmd.Flags().StringArrayVar(&excludeCollections, "exclude-collection", nil, "Skip IMAP collection (repeatable; merged with pimalaya.sync_exclude_collections)")
 	return cmd
 }
 
-func runMailSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, account string, noClassify bool) error {
+func runMailSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, account string, noClassify bool, flagExcludes []string) error {
 	ctx := cmd.Context()
 	cfg, err := opts.mustLoad(repoRoot)
 	if err != nil {
@@ -68,18 +71,19 @@ func runMailSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, account
 	if acct == "" {
 		acct = cfg.Pimalaya.DefaultAccount
 	}
+	excludes := config.MergeStringLists(cfg.Pimalaya.SyncExcludeCollections, flagExcludes)
 	nev, err := pimalaya.CreateNeverest(cfg)
 	if err != nil {
 		return err
 	}
-	res, err := nev.Sync(ctx, acct)
+	res, err := nev.Sync(ctx, acct, excludes)
 	if err != nil {
 		return finishPimalaya(cmd, opts, res, err, acct)
 	}
 	if err := finishPimalaya(cmd, opts, res, nil, acct); err != nil {
 		return err
 	}
-	return runMailClassifyAfterSync(cmd, opts, repoRoot, res, noClassify, 8192)
+	return runMailClassifyAfterSync(cmd, opts, repoRoot, res, noClassify, 8192, excludes)
 }
 
 func finishPimalaya(cmd *cobra.Command, opts *rootOptions, res *pimalaya.Result, err error, accountHint string) error {

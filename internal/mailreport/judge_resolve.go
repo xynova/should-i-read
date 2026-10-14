@@ -21,7 +21,7 @@ type SystemOneProber interface {
 	ProbeSystemOne(ctx context.Context, model string) error
 }
 
-// DefaultSystemOneJudgeCandidates returns off-catalog ids when sync omits JEV from /v1/models.
+// DefaultSystemOneJudgeCandidates returns off-catalog ids when JEV is missing from merged discovery.
 func DefaultSystemOneJudgeCandidates() []string {
 	return []string{
 		"cf_local/typesafe/jev",
@@ -94,7 +94,7 @@ func ResolveJudgeModel(ctx context.Context, prober SystemOneProber, catalogIDs [
 		}
 	}
 
-	return "", "", sirerr.New(sirerr.CodeUnavailable, op, "no SystemOne judge resolved; set polypus.judge_model, confirm gateway allows typesafe/jev on POST /v1/systemone (JEV may be missing from /v1/models when models.sync is on), run: should-i-read polypus check --classify")
+	return "", "", sirerr.New(sirerr.CodeUnavailable, op, "no SystemOne judge resolved; set polypus.judge_model, confirm gateway allows typesafe/jev on POST /v1/systemone and lists it under GET /v1/apis/systemone/models, run: should-i-read polypus check --classify")
 }
 
 // probeJudge returns ok when the probe succeeded; permanent 4xx returns ok=false, err=nil; abort errors return err.

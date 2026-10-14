@@ -3,8 +3,8 @@ package mailreport
 import (
 	"encoding/json"
 	"os"
-	"time"
 
+	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -31,53 +31,34 @@ func LoadProgress(path string) (ProgressFile, error) {
 	return pf, nil
 }
 
-// SaveProgress writes progress atomically.
-func SaveProgress(path string, pf ProgressFile) error {
-	const op = "mailreport.SaveProgress"
-	if path == "" {
+// ProgressEntriesForImport converts JSON progress entries for hoststore import.
+func ProgressEntriesForImport(entries map[string]ProgressEntry) map[string]hoststore.ProgressEntry {
+	if len(entries) == 0 {
 		return nil
 	}
-	if pf.Entries == nil {
-		pf.Entries = map[string]ProgressEntry{}
+	out := make(map[string]hoststore.ProgressEntry, len(entries))
+	for k, v := range entries {
+		out[k] = hoststore.ProgressEntry{
+			TermID:          v.TermID,
+			Path:            v.Path,
+			Label:           v.Label,
+			Source:          v.Source,
+			Strategy:        v.Strategy,
+			Kind:            v.Kind,
+			About:           v.About,
+			Shape:           v.Shape,
+			Cosine:          v.Cosine,
+			CanonicalTermID: v.CanonicalTermID,
+			Reinforced:      v.Reinforced,
+			JudgeScore:      v.JudgeScore,
+			DraftKind:       v.DraftKind,
+			CatalogApplied:  v.CatalogApplied,
+			Error:           v.Error,
+			SenderTermID:    v.SenderTermID,
+			SenderLabel:     v.SenderLabel,
+			SenderMapsTo:    v.SenderMapsTo,
+			UpdatedAt:       v.UpdatedAt,
+		}
 	}
-	raw, err := json.MarshalIndent(pf, "", "  ")
-	if err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "encode progress")
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(raw, '\n'), 0o600); err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write progress tmp")
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "rename progress")
-	}
-	return nil
-}
-
-func progressNow() string {
-	return time.Now().UTC().Format(time.RFC3339)
-}
-
-func progressEntryFromRow(row MessageRow) ProgressEntry {
-	return ProgressEntry{
-		TermID:          row.TermID,
-		Path:            row.Path,
-		Label:           row.Label,
-		Source:          row.Source,
-		Strategy:        row.Strategy,
-		Kind:            row.Kind,
-		About:           row.About,
-		Shape:           row.Shape,
-		Cosine:          row.Cosine,
-		CanonicalTermID: row.CanonicalTermID,
-		Reinforced:      row.Reinforced,
-		JudgeScore:      row.JudgeScore,
-		DraftKind:       draftKind(row.Draft),
-		CatalogApplied:  row.CatalogApplied,
-		Error:           row.Error,
-		SenderTermID:    row.SenderTermID,
-		SenderLabel:     row.SenderLabel,
-		SenderMapsTo:    row.SenderMapsTo,
-		UpdatedAt:       progressNow(),
-	}
+	return out
 }

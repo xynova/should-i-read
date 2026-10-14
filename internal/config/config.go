@@ -23,6 +23,11 @@ const (
 	envPolypusBaseURL     = "POLYPUS_BASE_URL"
 )
 
+// DefaultSyncExcludeCollections are IMAP folders skipped when the YAML key is omitted.
+func DefaultSyncExcludeCollections() []string {
+	return []string{"[Gmail]/Spam", "[Gmail]/Trash"}
+}
+
 var placeholderRE = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // File is the on-disk YAML shape (placeholders allowed).
@@ -33,6 +38,13 @@ type File struct {
 	OAuth          OAuthFile               `yaml:"oauth"`
 	EmailOpsLegacy OAuthFile               `yaml:"emailops"` // deprecated; merged into oauth on load
 	Pimalaya       PimalayaFile            `yaml:"pimalaya"`
+	Store          StoreFile               `yaml:"store"`
+	Cluster        ClusterFile             `yaml:"cluster"`
+}
+
+// StoreFile is the host classify ledger YAML section.
+type StoreFile struct {
+	Path string `yaml:"path"`
 }
 
 // PolypusFile is the polypus YAML section.
@@ -41,14 +53,16 @@ type PolypusFile struct {
 	ClassifyModel string `yaml:"classify_model"`
 	JudgeModel    string `yaml:"judge_model"`
 	EmbedModel    string `yaml:"embed_model"`
+	TldrModel     string `yaml:"tldr_model"`
 }
 
 // PimalayaFile is the Neverest / pimdir YAML section.
 type PimalayaFile struct {
-	NeverestBin    string `yaml:"neverest_bin"`
-	NeverestConfig string `yaml:"neverest_config"`
-	DefaultAccount string `yaml:"default_account"`
-	PimdirPath     string `yaml:"pimdir_path"`
+	NeverestBin            string    `yaml:"neverest_bin"`
+	NeverestConfig         string    `yaml:"neverest_config"`
+	DefaultAccount         string    `yaml:"default_account"`
+	PimdirPath             string    `yaml:"pimdir_path"`
+	SyncExcludeCollections *[]string `yaml:"sync_exclude_collections"`
 }
 
 // OAuthFile holds OAuth client ids for mail token brokers.
@@ -66,19 +80,23 @@ type Config struct {
 	PolypusClassifyModel string
 	PolypusJudgeModel    string
 	PolypusEmbedModel    string
+	PolypusTldrModel     string
 	GmailClientID        string
 	GmailClientSecret    string
 	OutlookClientID      string
 	Pimalaya             PimalayaConfig
 	Taxonomy             TaxonomyConfig
+	StorePath            string
+	Cluster              ClusterConfig
 }
 
 // PimalayaConfig is resolved Neverest / pimdir settings.
 type PimalayaConfig struct {
-	NeverestBin    string
-	NeverestConfig string
-	DefaultAccount string
-	PimdirPath     string
+	NeverestBin            string
+	NeverestConfig         string
+	DefaultAccount         string
+	PimdirPath             string
+	SyncExcludeCollections []string
 }
 
 // OAuthEnv returns env vars for OAuth client credentials (token subprocesses).
@@ -107,6 +125,11 @@ func (c Config) Redacted() map[string]any {
 			"base_url":       c.PolypusBaseURL,
 			"classify_model": setUnset(c.PolypusClassifyModel),
 			"judge_model":    setUnset(c.PolypusJudgeModel),
+			"tldr_model":     setUnset(c.PolypusTldrModel),
+		},
+		"cluster": map[string]string{
+			"min_cosine":       strconv.FormatFloat(c.Cluster.MinCosine, 'f', -1, 64),
+			"quarantine_terms": strings.Join(c.Cluster.QuarantineTerms, ","),
 		},
 		"taxonomy": map[string]string{
 			"catalog_path":    c.Taxonomy.CatalogPath,
@@ -114,15 +137,19 @@ func (c Config) Redacted() map[string]any {
 			"min_judge_score": strconv.FormatFloat(c.Taxonomy.MinJudgeScore, 'f', -1, 64),
 		},
 		"pimalaya": map[string]string{
-			"neverest_bin":    c.Pimalaya.NeverestBin,
-			"neverest_config": c.Pimalaya.NeverestConfig,
-			"default_account": c.Pimalaya.DefaultAccount,
-			"pimdir_path":     c.Pimalaya.PimdirPath,
+			"neverest_bin":             c.Pimalaya.NeverestBin,
+			"neverest_config":          c.Pimalaya.NeverestConfig,
+			"default_account":          c.Pimalaya.DefaultAccount,
+			"pimdir_path":              c.Pimalaya.PimdirPath,
+			"sync_exclude_collections": strings.Join(c.Pimalaya.SyncExcludeCollections, ","),
 		},
 		"oauth": map[string]string{
 			"gmail_client_id":     setUnset(c.GmailClientID),
 			"gmail_client_secret": setUnset(c.GmailClientSecret),
 			"outlook_client_id":   setUnset(c.OutlookClientID),
+		},
+		"store": map[string]string{
+			"path": c.StorePath,
 		},
 	}
 }
@@ -173,16 +200,18 @@ func DefaultFile() File {
 			Strategy: string(harness.StrategyWalk),
 		},
 		Pimalaya: PimalayaFile{
-			NeverestBin:    "",
-			NeverestConfig: "",
-			DefaultAccount: "",
-			PimdirPath:     "",
+			NeverestBin:            "",
+			NeverestConfig:         "",
+			DefaultAccount:         "",
+			PimdirPath:             "",
+			SyncExcludeCollections: ptrStringList(DefaultSyncExcludeCollections()),
 		},
 		OAuth: OAuthFile{
 			GmailClientID:     "${EMAILOPS_GMAIL_CLIENT_ID}",
 			GmailClientSecret: "${EMAILOPS_GMAIL_CLIENT_SECRET}",
 			OutlookClientID:   "${EMAILOPS_OUTLOOK_CLIENT_ID}",
 		},
+		Store: StoreFile{Path: ""},
 	}
 }
 
@@ -298,9 +327,25 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	classifyModel := strings.TrimSpace(file.Polypus.ClassifyModel)
 	judgeModel := strings.TrimSpace(file.Polypus.JudgeModel)
 	embedModel := strings.TrimSpace(file.Polypus.EmbedModel)
+	tldrModel := strings.TrimSpace(file.Polypus.TldrModel)
 	taxonomyCfg, err := resolveTaxonomy(file.Taxonomy)
 	if err != nil {
 		return Config{}, err
+	}
+	clusterCfg, err := resolveCluster(file.Cluster)
+	if err != nil {
+		return Config{}, err
+	}
+	storePath, err := ExpandString(file.Store.Path, resolve, false)
+	if err != nil {
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand store.path")
+	}
+	storePath = strings.TrimSpace(storePath)
+	if storePath == "" {
+		storePath, err = DefaultHostStorePath()
+		if err != nil {
+			return Config{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "resolve default host store path")
+		}
 	}
 
 	return Config{
@@ -310,17 +355,38 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 		PolypusClassifyModel: classifyModel,
 		PolypusJudgeModel:    judgeModel,
 		PolypusEmbedModel:    embedModel,
+		PolypusTldrModel:     tldrModel,
 		GmailClientID:        gmailID,
 		GmailClientSecret:    gmailSecret,
 		OutlookClientID:      outlookID,
 		Pimalaya: PimalayaConfig{
-			NeverestBin:    neverestBin,
-			NeverestConfig: neverestCfg,
-			DefaultAccount: pimAccount,
-			PimdirPath:     pimdirPath,
+			NeverestBin:            neverestBin,
+			NeverestConfig:         neverestCfg,
+			DefaultAccount:         pimAccount,
+			PimdirPath:             pimdirPath,
+			SyncExcludeCollections: resolveSyncExcludeCollections(file.Pimalaya.SyncExcludeCollections),
 		},
-		Taxonomy: taxonomyCfg,
+		Taxonomy:  taxonomyCfg,
+		StorePath: storePath,
+		Cluster:   clusterCfg,
 	}, nil
+}
+
+func resolveSyncExcludeCollections(in *[]string) []string {
+	if in == nil {
+		return DefaultSyncExcludeCollections()
+	}
+	return uniqueNonEmptyStrings(*in)
+}
+
+func ptrStringList(in []string) *[]string {
+	out := append([]string{}, in...)
+	return &out
+}
+
+// MergeStringLists returns unique trimmed strings from a then b, first-seen order.
+func MergeStringLists(a, b []string) []string {
+	return uniqueNonEmptyStrings(append(append([]string{}, a...), b...))
 }
 
 // ExpandString replaces ${VAR} using resolve. If required and any placeholder

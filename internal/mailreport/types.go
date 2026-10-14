@@ -3,6 +3,7 @@ package mailreport
 import (
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
+	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/pimdir"
 )
 
@@ -33,6 +34,34 @@ type DraftRecord struct {
 	Alias       string `json:"alias,omitempty"`
 }
 
+const (
+	SuggestedReview              = hoststore.SuggestedReview
+	SuggestedQuarantineCandidate = hoststore.SuggestedQuarantineCandidate
+)
+
+// Attention is report-only urgency and action signals from Jev noul scores.
+type Attention struct {
+	Urgency              float64 `json:"urgency"`
+	NeedsReply           bool    `json:"needs_reply"`
+	InvolvesDecision     bool    `json:"involves_decision"`
+	NeedsReplyNoul       float64 `json:"needs_reply_noul,omitempty"`
+	InvolvesDecisionNoul float64 `json:"involves_decision_noul,omitempty"`
+}
+
+// ClusterRow is one cluster in the report artifact.
+type ClusterRow struct {
+	ID              string     `json:"id"`
+	TermID          string     `json:"term_id,omitempty"`
+	SenderDomain    string     `json:"sender_domain,omitempty"`
+	Size            int        `json:"size"`
+	TLDR            string     `json:"tldr,omitempty"`
+	SuggestedAction string     `json:"suggested_action"`
+	Attention       *Attention `json:"attention,omitempty"`
+	MemberHashes    []string   `json:"member_hashes"`
+	Fingerprint     string     `json:"fingerprint,omitempty"`
+	TLDRError       string     `json:"tldr_error,omitempty"`
+}
+
 // MessageRow is one classified message in the artifact.
 type MessageRow struct {
 	ObjectHash      string       `json:"object_hash"`
@@ -53,9 +82,13 @@ type MessageRow struct {
 	Draft           *DraftRecord `json:"draft,omitempty"`
 	CatalogApplied  bool         `json:"catalog_applied"`
 	Error           string       `json:"error,omitempty"`
+	EmbedPersist    string       `json:"embed_persist,omitempty"`
 	SenderTermID    string       `json:"sender_term_id,omitempty"`
 	SenderLabel     string       `json:"sender_label,omitempty"`
 	SenderMapsTo    string       `json:"sender_maps_to,omitempty"`
+	ClusterID       string       `json:"cluster_id,omitempty"`
+	Attention       *Attention   `json:"attention,omitempty"`
+	AttentionError  string       `json:"attention_error,omitempty"`
 }
 
 // Artifact is the report-only JSON output.
@@ -77,7 +110,13 @@ type Artifact struct {
 	AliasesAdded     int          `json:"aliases_added"`
 	LeavesAdded      int          `json:"leaves_added"`
 	ReportPath       string       `json:"report_path,omitempty"`
+	TldrModel        string       `json:"tldr_model,omitempty"`
+	AttentionTrueMin float64      `json:"attention_true_min,omitempty"`
+	AttentionScored  int          `json:"attention_scored,omitempty"`
+	AttentionOmitted int          `json:"attention_omitted,omitempty"`
+	EssenceDumpDir   string       `json:"essence_dump_dir,omitempty"`
 	Messages         []MessageRow `json:"messages"`
+	Clusters         []ClusterRow `json:"clusters,omitempty"`
 }
 
 // ProgressEntry is stored per object_hash for resume.

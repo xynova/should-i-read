@@ -132,6 +132,52 @@ oauth:
 	}
 }
 
+func TestLoadSyncExcludeCollections(t *testing.T) {
+	dir := t.TempDir()
+	omitted := filepath.Join(dir, "omitted.yaml")
+	if err := os.WriteFile(omitted, []byte("polypus:\n  base_url: http://127.0.0.1:1320\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load("/repo", omitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := DefaultSyncExcludeCollections()
+	if len(cfg.Pimalaya.SyncExcludeCollections) != len(want) {
+		t.Fatalf("omitted: got %v want %v", cfg.Pimalaya.SyncExcludeCollections, want)
+	}
+	for i, name := range want {
+		if cfg.Pimalaya.SyncExcludeCollections[i] != name {
+			t.Fatalf("omitted[%d]: %q", i, cfg.Pimalaya.SyncExcludeCollections[i])
+		}
+	}
+
+	empty := filepath.Join(dir, "empty.yaml")
+	if err := os.WriteFile(empty, []byte("pimalaya:\n  sync_exclude_collections: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load("/repo", empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Pimalaya.SyncExcludeCollections) != 0 {
+		t.Fatalf("empty list: got %v", cfg.Pimalaya.SyncExcludeCollections)
+	}
+
+	custom := filepath.Join(dir, "custom.yaml")
+	body := "pimalaya:\n  sync_exclude_collections:\n    - Junk Email\n    - Deleted Items\n"
+	if err := os.WriteFile(custom, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load("/repo", custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Pimalaya.SyncExcludeCollections) != 2 || cfg.Pimalaya.SyncExcludeCollections[0] != "Junk Email" {
+		t.Fatalf("custom: %v", cfg.Pimalaya.SyncExcludeCollections)
+	}
+}
+
 func TestLoadMergesLegacyEmailOpsOAuthSection(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "config.yaml")

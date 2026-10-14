@@ -34,4 +34,7 @@ store.root = "/data/pim/gmail"
 	if !strings.Contains(string(got), `"--account","gmail"`) {
 		t.Fatalf("expected --account in token command:\n%s", got)
 	}
+	if !strings.Contains(string(got), `imap.collection.filter = "all"`) {
+		t.Fatalf("token repair must keep existing filter:\n%s", got)
+	}
 }

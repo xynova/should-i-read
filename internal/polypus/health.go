@@ -48,13 +48,7 @@ func Create(baseURL string, httpClient *http.Client) (*Client, error) {
 	return &Client{BaseURL: baseURL, HTTPClient: httpClient, ChatHTTP: chatHTTP}, nil
 }
 
-type modelsResponse struct {
-	Data []struct {
-		ID string `json:"id"`
-	} `json:"data"`
-}
-
-// Check hits /health and /v1/models; fails closed when unreachable or zero models.
+// Check hits /health and lists enabled models via GET /v1/apis (merged flavor lists).
 func (c *Client) Check(ctx context.Context) (*HealthResult, error) {
 	const op = "polypus.Client.Check"
 	if c == nil {
@@ -79,24 +73,9 @@ func (c *Client) Check(ctx context.Context) (*HealthResult, error) {
 		status = "ok"
 	}
 
-	modelsBody, err := c.get(ctx, "/v1/models")
+	ids, err := c.listEnabledModelIDs(ctx)
 	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeUnavailable, op, "polypus /v1/models unreachable").
-			With("base_url", c.BaseURL)
-	}
-	var models modelsResponse
-	if err := json.Unmarshal(modelsBody, &models); err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "decode /v1/models")
-	}
-	ids := make([]string, 0, len(models.Data))
-	for _, m := range models.Data {
-		if m.ID != "" {
-			ids = append(ids, m.ID)
-		}
-	}
-	if len(ids) == 0 {
-		return nil, sirerr.New(sirerr.CodeUnavailable, op, "no enabled models; check Polypus allow-lists").
-			With("base_url", c.BaseURL)
+		return nil, err
 	}
 
 	return &HealthResult{

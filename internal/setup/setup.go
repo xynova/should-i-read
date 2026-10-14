@@ -245,7 +245,7 @@ func (w *Wizard) Run(ctx context.Context) (Result, error) {
 		NextSteps: []string{
 			"make configure ARGS='--apply --provider gmail --email YOUR_EMAIL'",
 			"./bin/should-i-read config bump  # Polypus ${POLYPUS_BASE_URL} when needed",
-			"make polypus-check && make readiness && make sync",
+			"go tool task polypus-check && go tool task mail:readiness && go tool task mail:sync",
 			"AGENTS.md — full operator sequence (host CLI only)",
 		},
 	}
