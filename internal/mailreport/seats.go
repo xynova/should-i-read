@@ -3,10 +3,12 @@ package mailreport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/behaviorengineering/strop/pkg/integrity"
 	"github.com/behaviorengineering/strop/pkg/jev"
 	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
@@ -54,6 +56,8 @@ type authorJSON struct {
 type polypusEssencer struct {
 	client *polypus.Client
 	model  string
+	dump   *essenceDumper
+	shell  *integrity.Shell
 }
 
 func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (harness.EssenceOut, error) {
@@ -65,46 +69,57 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 	var out harness.EssenceOut
 	var retErr error
 	defer func() { endSeatSpan(span, retErr) }()
+	if e.shell == nil {
+		retErr = sirerr.New(sirerr.CodeInvalid, op, "nil essence integrity shell")
+		return harness.EssenceOut{}, retErr
+	}
 	messageText := AuthorMessageBody(in.Text)
 	prompt := strings.TrimSpace(in.WorldContext) + "\n\nMessage:\n" + messageText
-	const maxAttempts = 3
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		content, err := e.client.Chat(ctx, polypus.ChatRequest{
-			Model:       e.model,
-			Temperature: 0,
-			Messages: []polypus.ChatMessage{
-				{Role: polypus.RoleSystem, Content: essenceSystemPrompt},
-				{Role: polypus.RoleUser, Content: prompt},
-			},
-		})
-		if err != nil {
-			code := sirerr.CodeAI
-			if c, ok := sirerr.AsCode(err); ok && c == sirerr.CodeUnavailable {
-				code = sirerr.CodeUnavailable
-			}
-			retErr = sirerr.Wrap(err, code, op, "essence chat")
+	raw, runErr := e.shell.Run(ctx, essenceSystemPrompt, prompt)
+	if runErr == nil {
+		parsed, parseErr := parseEssenceResponse(raw)
+		if parseErr != nil {
+			retErr = sirerr.Wrap(parseErr, sirerr.CodeAI, op, "essence parse")
 			return harness.EssenceOut{}, retErr
 		}
-		parsed, err := parseEssenceResponse(content)
-		if err == nil {
-			out = parsed
-			return out, nil
+		out = parsed
+		return out, nil
+	}
+	if errors.Is(runErr, integrity.ErrInvalid) {
+		retErr = sirerr.Wrap(runErr, sirerr.CodeInvalid, op, "essence integrity")
+		return harness.EssenceOut{}, retErr
+	}
+	if !errors.Is(runErr, integrity.ErrExhausted) {
+		code := sirerr.CodeAI
+		if c, ok := sirerr.AsCode(runErr); ok && c == sirerr.CodeUnavailable {
+			code = sirerr.CodeUnavailable
 		}
-		lastErr = err
+		retErr = sirerr.Wrap(runErr, code, op, "essence chat")
+		return harness.EssenceOut{}, retErr
+	}
+	lastErr := integrity.ValidationError(runErr)
+	if lastErr == nil {
+		lastErr = runErr
 	}
 	retErr = sirerr.Wrap(lastErr, sirerr.CodeAI, op, "essence parse after retries")
+	if e.dump != nil && strings.TrimSpace(raw) != "" {
+		id := essenceDumpIDFromCtx(ctx)
+		path, dumpErr := e.dump.writeLast(id, e.model, messageText, raw, essenceParseMaxAttempts, lastErr)
+		retErr = attachEssenceDump(retErr, path, dumpErr)
+	}
 	return harness.EssenceOut{}, retErr
 }
 
 // SeatsConfig wires Polypus models for taxonomy seats.
 type SeatsConfig struct {
-	Client       *polypus.Client
-	JudgeModel   string
-	AuthorModel  string
-	EssenceModel string
-	Embedder     harness.Embedder
-	JEVClient    *jev.Client
+	Client         *polypus.Client
+	JudgeModel     string
+	AuthorModel    string
+	EssenceModel   string
+	EssenceDumpDir string
+	Now            time.Time
+	Embedder       harness.Embedder
+	JEVClient      *jev.Client
 }
 
 // CreateSeats wires Polypus SystemOne Judge and chat Author (optional Essencer/Embedder).
@@ -131,7 +146,16 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 		Author: &polypusAuthor{client: cfg.Client, model: authorModel},
 	}
 	if essenceModel != "" {
-		out.Essencer = &polypusEssencer{client: cfg.Client, model: essenceModel}
+		shell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel)
+		if err != nil {
+			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence integrity shell")
+		}
+		out.Essencer = &polypusEssencer{
+			client: cfg.Client,
+			model:  essenceModel,
+			dump:   CreateEssenceDumper(EssenceDumpConfig{Dir: cfg.EssenceDumpDir, Now: cfg.Now}),
+			shell:  shell,
+		}
 	}
 	out.Embedder = cfg.Embedder
 	return out, nil
