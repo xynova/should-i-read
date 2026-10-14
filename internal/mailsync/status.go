@@ -13,18 +13,28 @@ import (
 
 // Status is mailbox readiness in product language.
 type Status struct {
-	Ready          bool     `json:"ready"`
-	DepOK          bool     `json:"dep_ok"`
-	ConfigOK       bool     `json:"config_ok"`
-	TokenOK        bool     `json:"token_ok"`
-	StoreOK        bool     `json:"store_ok"`
-	Provider       string   `json:"provider,omitempty"`
-	Account        string   `json:"account,omitempty"`
-	Email          string   `json:"email,omitempty"`
-	MailSyncConfig string   `json:"mail_sync_config,omitempty"`
-	PimdirPath     string   `json:"pimdir_path,omitempty"`
-	Messages       []string `json:"messages"`
-	NextSteps      []string `json:"next_steps,omitempty"`
+	Ready          bool                `json:"ready"`
+	DepOK          bool                `json:"dep_ok"`
+	ConfigOK       bool                `json:"config_ok"`
+	TokenOK        bool                `json:"token_ok"`
+	StoreOK        bool                `json:"store_ok"`
+	Provider       string              `json:"provider,omitempty"`
+	Account        string              `json:"account,omitempty"`
+	Email          string              `json:"email,omitempty"`
+	MailSyncConfig string              `json:"mail_sync_config,omitempty"`
+	PimdirPath     string              `json:"pimdir_path,omitempty"`
+	Messages       []string            `json:"messages"`
+	NextSteps      []string            `json:"next_steps,omitempty"`
+	ClassifyStore  ClassifyStoreStatus `json:"classify_store,omitempty"`
+}
+
+// ClassifyStoreStatus is host ledger counts for mail status JSON.
+type ClassifyStoreStatus struct {
+	Path     string `json:"path,omitempty"`
+	Complete int    `json:"complete"`
+	Error    int    `json:"error"`
+	Running  int    `json:"running"`
+	Pending  int    `json:"pending"`
 }
 
 // CollectStatus probes filesystem and keyring without running a full sync check.

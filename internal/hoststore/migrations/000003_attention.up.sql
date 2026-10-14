@@ -1,0 +1,10 @@
+ALTER TABLE classify_state ADD COLUMN urgency REAL NOT NULL DEFAULT 0;
+ALTER TABLE classify_state ADD COLUMN needs_reply_noul REAL NOT NULL DEFAULT 0;
+ALTER TABLE classify_state ADD COLUMN involves_decision_noul REAL NOT NULL DEFAULT 0;
+ALTER TABLE classify_state ADD COLUMN attention_scored INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE classify_state ADD COLUMN attention_error TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE clusters ADD COLUMN urgency REAL NOT NULL DEFAULT 0;
+ALTER TABLE clusters ADD COLUMN needs_reply INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE clusters ADD COLUMN involves_decision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE clusters ADD COLUMN attention_scored INTEGER NOT NULL DEFAULT 0;

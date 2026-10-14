@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/behaviorengineering/strop/pkg/jev"
+	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
 	"github.com/xynova/should-i-read/internal/polypus"
@@ -224,5 +228,117 @@ func TestCreateSeats_emptyJudge(t *testing.T) {
 	}
 	if _, err := CreateSeats(SeatsConfig{Client: c, AuthorModel: "chat"}); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestPolypusEssencerSuccessOnAttempt2(t *testing.T) {
+	whyOnly := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\n"
+	full := whyOnly + "ABOUT: about\nSHAPE: shape\nKIND: notification > software-release > changelog\n"
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		n := calls.Add(1)
+		content := whyOnly
+		if n >= 2 {
+			content = full
+			var body struct {
+				Messages []polypus.ChatMessage `json:"messages"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err == nil && len(body.Messages) >= 4 {
+				if body.Messages[2].Role != polypus.RoleAssistant || !strings.Contains(body.Messages[2].Content, "WHY1:") {
+					t.Errorf("assistant turn: %+v", body.Messages[2])
+				}
+				if body.Messages[3].Role != polypus.RoleUser || !strings.Contains(strings.ToLower(body.Messages[3].Content), "continue") {
+					t.Errorf("complete user turn: %+v", body.Messages[3])
+				}
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]string{"content": content}},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	client, err := polypus.Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := CreateSeats(SeatsConfig{
+		Client:       client,
+		JudgeModel:   "jev",
+		AuthorModel:  "chat",
+		EssenceModel: "granite",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := seats.Essencer.Essence(ctx, harness.EssenceIn{WorldContext: WorldContextAttach, Text: "Subject: t\n\nbody"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.ParseKindSegments(out.Kind)) < 3 {
+		t.Fatalf("kind %q", out.Kind)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("chat calls=%d", calls.Load())
+	}
+}
+
+func TestPolypusEssencerDumpsLastParseFailure(t *testing.T) {
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nKIND: gitlab > pipeline\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]string{"content": raw}},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	client, err := polypus.Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	seats, err := CreateSeats(SeatsConfig{
+		Client:         client,
+		JudgeModel:     "jev",
+		AuthorModel:    "chat",
+		EssenceModel:   "granite",
+		EssenceDumpDir: dir,
+		Now:            time.Date(2026, 10, 13, 15, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx = withEssenceDumpID(ctx, "qmdiovp3ibpm6np7uzh4z3dg52vn5b7l3ia54ezijbyhcjyn3x7a")
+	_, err = seats.Essencer.Essence(ctx, harness.EssenceIn{WorldContext: WorldContextAttach, Text: "Subject: consilium | Failed pipeline\n\nbody"})
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "dump=") {
+		t.Fatalf("missing dump field: %v", err)
+	}
+	path := filepath.Join(dir, "qmdiovp3ibpm6np7uzh4z3dg52vn5b7l3ia54ezijbyhcjyn3x7a.json")
+	got, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(got), `"raw": "WHY1: a`) {
+		t.Fatalf("dump missing raw: %s", got)
+	}
+	if !strings.Contains(string(got), "about or shape empty") {
+		t.Fatalf("dump missing parse_error: %s", got)
 	}
 }

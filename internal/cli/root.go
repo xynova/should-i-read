@@ -329,7 +329,7 @@ func newPolypusCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var classifyCheck bool
 	check := &cobra.Command{
 		Use:   "check",
-		Short: "Fail-closed /health and /v1/models probe",
+		Short: "Fail-closed /health and /v1/apis model discovery",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := opts.mustLoad(repoRoot)
 			if err != nil {

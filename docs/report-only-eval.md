@@ -13,7 +13,7 @@ Decide whether taxonomy-backed classification is accurate enough to justify quar
 | Host mail lane (Neverest + pimdir) | Sync, local storage, post-sync classify, mail export | Direct OpenRouter or TypeSafe calls |
 | Polypus | All model HTTP (`/v1/*`), allow-lists, breakers | Mailbox semantics |
 | Taxonomy harness (host seats) | Walk: Judge + Author on `inbox-mail`. Attach: Essence + embed + optional Walk reinforce on `inbox-kind` | Mailbox mutation |
-| Chat/summary model (via Polypus, later) | Cluster TLDR text | Per-message leaf assignment (current slice) |
+| Chat/summary model (via Polypus) | Cluster TLDR text (`polypus.tldr_model` or `classify_model`) | Per-message leaf assignment |
 
 ## Pipeline (report only)
 
@@ -23,20 +23,20 @@ flowchart TD
   classify[Taxonomy classify via Polypus chat]
   report[tmp/unwanted-report-*.json]
   export[mail export optional]
-  cluster[Cluster by features later]
-  tldr[TLDR via Polypus chat later]
+  cluster[Cluster by term or domain]
+  tldr[TLDR via Polypus chat]
   sync --> classify
-  classify --> report
-  export --> classify
-  report --> cluster
+  classify --> cluster
   cluster --> tldr
+  tldr --> report
+  export --> classify
 ```
 
 1. Sync mail with `go tool task mail:sync`. After a successful fetch, the host classifies newly fetched unique messages (cap per `taxonomy.classify_max`; use `--no-classify` to skip). Polypus down after sync: replica stays; classify skipped; exit 0.
 2. Resume or backfill with `go tool task mail:report` / `should-i-read mail report` (lists recent pimdir rows or reads `--in` export JSON). Requires Polypus up (fail closed) and a SystemOne judge resolved via `polypus check --classify` or successful in-process discovery.
 3. For each message, taxonomy `Operate` runs **walk** (default) or **attach** (`taxonomy.strategy: attach`). Walk: Judge SystemOne noul per sibling at each hop, then optional Author + gate via Polypus chat. Attach: Five Whys Essence chat, embeddings, cosine alias or Walk reinforce or breadcrumb create on `inbox-kind`. Report rows include `path`, and attach rows add `kind`, `about`, `shape`, `cosine`, `canonical_term_id`, `reinforced`. Accepted drafts update the active catalog YAML unless `--no-apply`.
-4. **Later:** cluster by sender domain and/or embeddings via Polypus; TLDR per cluster.
-5. Write `tmp/unwanted-report-<timestamp>.json`. **No mailbox trash/spam/delete API calls.**
+4. Cluster messages in the report by `canonical_term_id` / `term_id`, then sender domain; optional embedding attach via `cluster.min_cosine`. One TLDR per cluster via Polypus chat (cached in host SQLite by fingerprint).
+5. Write `tmp/unwanted-report-<timestamp>.json` with `cluster_id` on each message and `clusters[]` summaries. **No mailbox trash/spam/delete API calls.**
 
 ## Output schema (minimum)
 
@@ -99,9 +99,10 @@ flowchart TD
 - `taxonomy.classify_max` caps Operate (Polypus) calls per run.
 - `taxonomy.author_on_skip: false` (default) skips Author chat on Judge skip; set `true` to restore draft proposals. When Author runs, the host cleans the latest body (reply parser + line denoise + extractive cap) before Granite sees it.
 - Strop `JobRunner` generator `mail_classify` wraps taxonomy `Operate`; Polypus HTTP only inside Judge/Author/Essence/Embed seats.
-- Artifacts: `tmp/unwanted-report-*.json`, progress `tmp/mail-classify-progress.json` (row `source` from Operate: `judge`, `alias`, `breadcrumb`, etc.). Clear progress after behavior changes so stale heuristic rows are not replayed.
+- Artifacts: `tmp/unwanted-report-*.json` (snapshot) with `clusters[]`, per-message `cluster_id`, `suggested_action` (`review` or `quarantine_candidate` when `cluster.quarantine_terms` matches), and nested `attention` on messages and clusters (`urgency`, `needs_reply`, `involves_decision` from Jev SystemOne via Polypus; report-only). When Essence parse fails after retries, the last chat completion is written to `tmp/essence-parse/<object_hash>.json` (`essence_dump_dir` on the report). Live classify state, embeddings, attention nouls, and cluster TLDR cache: host SQLite (`store.path`; tables `classify_state`, `embeddings`, `clusters`, `cluster_members`). `tmp/mail-classify-progress.json` is import-only when the ledger is empty.
+- Config: `cluster.min_cosine`, `cluster.quarantine_terms`, `cluster.attention_true_min` (default 0.50), optional `polypus.tldr_model`.
 
 ## Next implementation slice
 
-1. Clustering + cluster TLDR via Polypus embeddings and chat.
-2. Tune eval thresholds against labeled samples (schema below is aspirational for clustering).
+1. Tune eval thresholds and `is_unwanted` scoring against labeled samples (aspirational `decisions` block in the schema below).
+2. Reversible quarantine automation only after exit criteria pass (still no permanent delete in v1).

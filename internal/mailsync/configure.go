@@ -33,15 +33,16 @@ func (e *ConfigureError) Unwrap() error {
 
 // Options drives pim configure.
 type Options struct {
-	Provider    Provider
-	Account     string
-	Email       string
-	StoreRoot   string
-	Force       bool
-	RepoRoot    string
-	HostBin     string
-	SkipInit    bool
-	InitReplica ReplicaInit
+	Provider           Provider
+	Account            string
+	Email              string
+	StoreRoot          string
+	Force              bool
+	RepoRoot           string
+	HostBin            string
+	SkipInit           bool
+	InitReplica        ReplicaInit
+	ExcludeCollections []string
 }
 
 // ReplicaInit initializes the pimdir replica (typically neverest init).
@@ -127,12 +128,17 @@ func (s *Service) Configure(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	excludes := opts.ExcludeCollections
+	if excludes == nil {
+		excludes = config.DefaultSyncExcludeCollections()
+	}
 	body, err := renderAccountTOML(accountTemplateData{
-		Account:          account,
-		IMAPServer:       opts.Provider.imapServer(),
-		Email:            email,
-		StoreRoot:        storeRoot,
-		TokenCommandTOML: tokenArgv,
+		Account:            account,
+		IMAPServer:         opts.Provider.imapServer(),
+		Email:              email,
+		StoreRoot:          storeRoot,
+		TokenCommandTOML:   tokenArgv,
+		ExcludeCollections: excludes,
 	})
 	if err != nil {
 		return Result{}, err
@@ -203,8 +209,8 @@ func (s *Service) Configure(ctx context.Context, opts Options) (Result, error) {
 func nextSteps(provider Provider, account string) []string {
 	return []string{
 		"should-i-read mail setup",
-		"make polypus-check",
-		"make readiness && make sync",
+		"go tool task polypus-check",
+		"go tool task mail:readiness && go tool task mail:sync",
 	}
 }
 

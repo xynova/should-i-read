@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -27,7 +27,7 @@ type RunnerConfig struct {
 	Pipeline         *Pipeline
 	CatalogPath      string
 	ApplyCatalog     bool
-	ProgressPath     string
+	Store            *hoststore.Store
 	ClassifyMax      int
 	PolypusURL       string
 	JudgeModel       string
@@ -40,6 +40,13 @@ type RunnerConfig struct {
 	EssenceBatch     ChatLineRunner
 	EssenceModel     string
 	EssenceBatchSize int
+	TldrBatch        ChatLineRunner
+	TldrModel        string
+	ClusterMinCosine float64
+	QuarantineTerms  []string
+	Attention        AttentionClient
+	AttentionTrueMin float64
+	EssenceDumpDir   string
 	Now              time.Time
 }
 
@@ -50,7 +57,7 @@ type Runner struct {
 	pipe             *Pipeline
 	catalogPath      string
 	apply            bool
-	progress         string
+	store            *hoststore.Store
 	max              int
 	polypusURL       string
 	judgeModel       string
@@ -67,6 +74,14 @@ type Runner struct {
 	essenceModel     string
 	essenceBatchSize int
 	essenceCache     map[string]harness.EssenceOut
+	tldrBatch        ChatLineRunner
+	tldrModel        string
+	clusterMinCosine float64
+	quarantineTerms  []string
+	attention        AttentionClient
+	attentionTrueMin float64
+	essenceDumpDir   string
+	aiHops           int
 	now              time.Time
 }
 
@@ -78,6 +93,9 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 	}
 	if cat == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil catalog")
+	}
+	if cfg.Store == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil store")
 	}
 	if cfg.Pipeline != nil && cfg.Pipeline.Jobs == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "pipeline missing job runner")
@@ -104,7 +122,7 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		pipe:             cfg.Pipeline,
 		catalogPath:      cfg.CatalogPath,
 		apply:            cfg.ApplyCatalog,
-		progress:         cfg.ProgressPath,
+		store:            cfg.Store,
 		max:              max,
 		polypusURL:       cfg.PolypusURL,
 		judgeModel:       strings.TrimSpace(cfg.JudgeModel),
@@ -120,8 +138,23 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		essenceBatch:     cfg.EssenceBatch,
 		essenceModel:     strings.TrimSpace(cfg.EssenceModel),
 		essenceBatchSize: cfg.EssenceBatchSize,
+		tldrBatch:        cfg.TldrBatch,
+		tldrModel:        strings.TrimSpace(cfg.TldrModel),
+		clusterMinCosine: cfg.ClusterMinCosine,
+		quarantineTerms:  append([]string{}, cfg.QuarantineTerms...),
+		attention:        cfg.Attention,
+		attentionTrueMin: cfg.AttentionTrueMin,
+		essenceDumpDir:   strings.TrimSpace(cfg.EssenceDumpDir),
 		now:              now,
 	}, nil
+}
+
+// Close closes the injected store.
+func (r *Runner) Close() error {
+	if r == nil || r.store == nil {
+		return nil
+	}
+	return r.store.Close()
 }
 
 // Classify runs Operate for each item (sequential).
@@ -133,9 +166,8 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	if ctx == nil {
 		return Artifact{}, sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
-	prog, err := LoadProgress(r.progress)
-	if err != nil {
-		return Artifact{}, err
+	if r.store == nil {
+		return Artifact{}, sirerr.New(sirerr.CodeInvalid, op, "nil store")
 	}
 	art := Artifact{
 		Mode:           "report_only",
@@ -150,156 +182,198 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	art.EmbedModel = r.embedModel
 	art.AttachMinCosine = r.attachMinCosine
 	art.WalkReinforceMin = r.walkReinforceMin
-	pending := r.pendingClassifyItems(items, prog)
+	art.EssenceDumpDir = r.essenceDumpDir
+	pending := r.pendingClassifyItems(ctx, items)
 	if r.essenceBatch != nil && config.IsAttachStrategy(r.strategy) && len(pending) > 0 {
 		cache, prefetchErrs := prefetchEssence(ctx, r.essenceBatch, r.essenceModel, r.operateWorld, pending, r.essenceBatchSize)
 		r.essenceCache = cache
-		if len(cache) == 0 && len(prefetchErrs) > 0 {
-			return art, sirerr.New(sirerr.CodeAI, op, "essence batch prefetch produced no results").
-				With("pending", strconv.Itoa(len(pending))).
-				With("errors", strconv.Itoa(len(prefetchErrs)))
-		}
+		_ = prefetchErrs // misses fall back to per-message Essencer during Operate.
 	}
-	aiHops := 0
+	r.aiHops = 0
 	for _, item := range items {
 		if ctx.Err() != nil {
 			break
 		}
-		hash := strings.TrimSpace(item.ObjectHash)
-		if hash == "" {
-			art.Unresolved++
-			continue
-		}
-		if ent, ok := prog.Entries[hash]; ok && ent.Error == "" && progressComplete(ent) {
-			art.Messages = append(art.Messages, MessageRow{
-				ObjectHash:      hash,
-				Subject:         item.Subject,
-				Sender:          item.Sender,
-				TermID:          ent.TermID,
-				Path:            ent.Path,
-				Label:           ent.Label,
-				Source:          ent.Source,
-				Strategy:        ent.Strategy,
-				Kind:            ent.Kind,
-				About:           ent.About,
-				Shape:           ent.Shape,
-				Cosine:          ent.Cosine,
-				CanonicalTermID: ent.CanonicalTermID,
-				Reinforced:      ent.Reinforced,
-				JudgeScore:      ent.JudgeScore,
-				SenderTermID:    ent.SenderTermID,
-				SenderLabel:     ent.SenderLabel,
-				SenderMapsTo:    ent.SenderMapsTo,
-			})
-			art.Classified++
-			continue
-		}
-		if aiHops >= r.max {
-			art.Omitted++
-			continue
-		}
-		aiHops++
-		row := MessageRow{ObjectHash: hash, Subject: item.Subject, Sender: item.Sender}
-		opCtx, cancel := context.WithTimeout(ctx, r.operateTimeout())
-		res, opErr := r.runOperate(opCtx, item)
-		cancel()
-		if opErr != nil {
-			if isUnavailable(opErr) {
-				return art, opErr
-			}
-			row.Error = formatRowError(opErr)
-			art.Messages = append(art.Messages, row)
-			prog.Entries[hash] = progressEntryFromRow(row)
-			if saveErr := SaveProgress(r.progress, prog); saveErr != nil {
-				return art, saveErr
-			}
-			continue
-		}
-		row.Strategy = string(res.Strategy)
-		if row.Strategy == "" {
-			row.Strategy = r.strategy
-		}
-		row.Kind = res.Kind
-		row.About = res.About
-		row.Shape = res.Shape
-		row.Cosine = res.Cosine
-		row.CanonicalTermID = res.CanonicalID
-		row.Reinforced = res.Reinforced
-		row.JudgeScore = res.JudgeScore
-		row.Path = res.Path
-		if len(res.Assigned) > 0 {
-			row.TermID = res.Assigned[0].TermID
-			row.Label = res.Assigned[0].Label
-			row.Source = res.Assigned[0].Source
-			if row.Source == "" {
-				row.Source = sourceFromOperateResult(res)
-			}
-		}
-		if res.Draft != nil {
-			row.Draft = &DraftRecord{
-				Kind:        res.Draft.Kind,
-				ID:          res.Draft.ID,
-				Parent:      res.Draft.Parent,
-				Label:       res.Draft.Label,
-				Description: res.Draft.Description,
-				LeafID:      res.Draft.LeafID,
-				Alias:       res.Draft.Alias,
-			}
-		}
-		if res.DraftAccepted && r.apply {
-			termsBefore := len(r.vocab.Terms)
-			vocab, applyErr := harness.Apply(r.vocab, res)
-			if applyErr != nil {
-				row.Error = formatRowError(applyErr)
-			} else {
-				if err := SaveCatalog(r.catalogPath, vocab); err != nil {
-					row.Error = formatRowError(err)
-				} else {
-					r.vocab = vocab
-					cat, buildErr := catalog.BuildCatalog(vocab)
-					if buildErr != nil {
-						row.Error = formatRowError(buildErr)
-					} else {
-						r.cat = cat
-						row.CatalogApplied = true
-						if res.Draft != nil {
-							switch res.Draft.Kind {
-							case harness.DraftKindAlias:
-								art.AliasesAdded++
-							case harness.DraftKindNewLeaf, harness.DraftKindBreadcrumb:
-								added := len(vocab.Terms) - termsBefore
-								if added < 1 {
-									added = 1
-								}
-								art.LeavesAdded += added
-							}
-						}
-					}
-				}
-			}
-		}
-		art.Messages = append(art.Messages, row)
-		art.Classified++
-		prog.Entries[hash] = progressEntryFromRow(row)
-		if err := SaveProgress(r.progress, prog); err != nil {
+		if err := r.classifyItem(ctx, item, &r.aiHops, &art); err != nil {
 			return art, err
 		}
 	}
 	return art, nil
 }
 
-func progressComplete(ent ProgressEntry) bool {
-	return ent.TermID != "" || len(ent.Path) > 0
+func (r *Runner) classifyItem(ctx context.Context, item Item, aiHops *int, art *Artifact) error {
+	hash := strings.TrimSpace(item.ObjectHash)
+	if hash == "" {
+		art.Unresolved++
+		return nil
+	}
+	got, getErr := r.store.Get(ctx, hash)
+	if getErr == nil && isResumeComplete(got) {
+		art.Messages = append(art.Messages, r.messageRowFromState(item, got))
+		art.Classified++
+		return nil
+	}
+	if getErr != nil {
+		if code, ok := sirerr.AsCode(getErr); !ok || code != sirerr.CodeNotFound {
+			return getErr
+		}
+	}
+	if *aiHops >= r.max {
+		art.Omitted++
+		return nil
+	}
+	token, skip, err := r.store.Claim(ctx, hash)
+	if err != nil {
+		return err
+	}
+	if skip {
+		got, getErr := r.store.Get(ctx, hash)
+		if getErr != nil {
+			return getErr
+		}
+		art.Messages = append(art.Messages, r.messageRowFromState(item, got))
+		art.Classified++
+		return nil
+	}
+	*aiHops++
+	return r.operateAndPersist(ctx, hash, token, item, art)
 }
 
-func (r *Runner) pendingClassifyItems(items []Item, prog ProgressFile) []Item {
+func isResumeComplete(got hoststore.StateRow) bool {
+	return got.Status == "complete" && strings.TrimSpace(got.Error) == "" &&
+		(strings.TrimSpace(got.TermID) != "" || len(got.Path) > 0)
+}
+
+func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item Item, art *Artifact) error {
+	row := MessageRow{ObjectHash: hash, Subject: item.Subject, Sender: item.Sender}
+	opCtx, cancel := context.WithTimeout(ctx, r.operateTimeout())
+	defer cancel()
+	res, opErr := r.runOperate(opCtx, item)
+	if opErr != nil {
+		if isUnavailable(opErr) {
+			_ = r.store.Fail(ctx, hash, token, formatRowError(opErr))
+			return opErr
+		}
+		row.Error = formatRowError(opErr)
+		art.Messages = append(art.Messages, row)
+		if failErr := r.store.Fail(ctx, hash, token, row.Error); failErr != nil {
+			return failErr
+		}
+		return nil
+	}
+	fillMessageRowFromOperate(&row, r.strategy, res)
+	r.applyAcceptedDraft(art, &row, res)
+	if !assignmentComplete(row) {
+		if row.Error == "" {
+			row.Error = "empty assignment"
+		}
+		art.Messages = append(art.Messages, row)
+		if failErr := r.store.Fail(ctx, hash, token, row.Error); failErr != nil {
+			return failErr
+		}
+		return nil
+	}
+	emb, embErr := r.canonicalEmbedding(ctx, row)
+	if embErr != nil {
+		row.EmbedPersist = formatRowError(embErr)
+	}
+	if err := r.store.Complete(ctx, hash, token, stateFromRow(row, r.vocab.ID, r.judgeModel, r.embedModel), emb); err != nil {
+		return err
+	}
+	art.Messages = append(art.Messages, row)
+	art.Classified++
+	return nil
+}
+
+func fillMessageRowFromOperate(row *MessageRow, fallbackStrategy string, res harness.Result) {
+	row.Strategy = string(res.Strategy)
+	if row.Strategy == "" {
+		row.Strategy = fallbackStrategy
+	}
+	row.Kind = res.Kind
+	row.About = res.About
+	row.Shape = res.Shape
+	row.Cosine = res.Cosine
+	row.CanonicalTermID = res.CanonicalID
+	row.Reinforced = res.Reinforced
+	row.JudgeScore = res.JudgeScore
+	row.Path = res.Path
+	if len(res.Assigned) > 0 {
+		row.TermID = res.Assigned[0].TermID
+		row.Label = res.Assigned[0].Label
+		row.Source = res.Assigned[0].Source
+		if row.Source == "" {
+			row.Source = sourceFromOperateResult(res)
+		}
+	}
+	if res.Draft != nil {
+		row.Draft = &DraftRecord{
+			Kind:        res.Draft.Kind,
+			ID:          res.Draft.ID,
+			Parent:      res.Draft.Parent,
+			Label:       res.Draft.Label,
+			Description: res.Draft.Description,
+			LeafID:      res.Draft.LeafID,
+			Alias:       res.Draft.Alias,
+		}
+	}
+}
+
+func (r *Runner) applyAcceptedDraft(art *Artifact, row *MessageRow, res harness.Result) {
+	if !res.DraftAccepted || !r.apply {
+		return
+	}
+	termsBefore := len(r.vocab.Terms)
+	vocab, applyErr := harness.Apply(r.vocab, res)
+	if applyErr != nil {
+		row.Error = formatRowError(applyErr)
+		return
+	}
+	if err := SaveCatalog(r.catalogPath, vocab); err != nil {
+		row.Error = formatRowError(err)
+		return
+	}
+	r.vocab = vocab
+	cat, buildErr := catalog.BuildCatalog(vocab)
+	if buildErr != nil {
+		row.Error = formatRowError(buildErr)
+		return
+	}
+	r.cat = cat
+	row.CatalogApplied = true
+	if res.Draft == nil {
+		return
+	}
+	switch res.Draft.Kind {
+	case harness.DraftKindAlias:
+		art.AliasesAdded++
+	case harness.DraftKindNewLeaf, harness.DraftKindBreadcrumb:
+		added := len(vocab.Terms) - termsBefore
+		if added < 1 {
+			added = 1
+		}
+		art.LeavesAdded += added
+	}
+}
+
+func assignmentComplete(row MessageRow) bool {
+	return strings.TrimSpace(row.TermID) != "" || len(row.Path) > 0
+}
+
+func (r *Runner) pendingClassifyItems(ctx context.Context, items []Item) []Item {
+	complete := map[string]struct{}{}
+	if hashes, err := r.store.ListCompleteHashes(ctx); err == nil {
+		for _, h := range hashes {
+			complete[h] = struct{}{}
+		}
+	}
 	var pending []Item
 	for _, item := range items {
 		hash := strings.TrimSpace(item.ObjectHash)
 		if hash == "" {
 			continue
 		}
-		if ent, ok := prog.Entries[hash]; ok && ent.Error == "" && progressComplete(ent) {
+		if _, ok := complete[hash]; ok {
 			continue
 		}
 		pending = append(pending, item)
@@ -307,8 +381,94 @@ func (r *Runner) pendingClassifyItems(items []Item, prog ProgressFile) []Item {
 	return pending
 }
 
+func (r *Runner) canonicalEmbedding(ctx context.Context, row MessageRow) (*hoststore.EmbeddingPut, error) {
+	const op = "mailreport.Runner.canonicalEmbedding"
+	if r == nil || r.seats.Embedder == nil || strings.TrimSpace(r.embedModel) == "" {
+		return nil, nil
+	}
+	canonical := strings.TrimSpace(row.Kind + "\n" + row.About + "\n" + row.Shape)
+	if canonical == "" {
+		canonical = strings.TrimSpace(strings.Join(row.Path, " > ") + "\n" + row.Label + "\n" + row.TermID)
+	}
+	if canonical == "" {
+		return nil, nil
+	}
+	embedCtx, span := startSeatSpan(ctx, op, r.embedModel)
+	vecs, err := r.seats.Embedder.Embed(embedCtx, []string{canonical})
+	if err != nil {
+		wrapped := sirerr.Wrap(err, sirerr.CodeAI, op, "canonical embed").With("embed_persist", row.ObjectHash)
+		endSeatSpan(span, wrapped)
+		return nil, wrapped
+	}
+	if len(vecs) == 0 || len(vecs[0]) == 0 {
+		empty := sirerr.New(sirerr.CodeFailed, op, "empty canonical embedding").With("embed_persist", row.ObjectHash)
+		endSeatSpan(span, empty)
+		return nil, empty
+	}
+	endSeatSpan(span, nil)
+	return &hoststore.EmbeddingPut{ModelID: r.embedModel, Vec: vecs[0]}, nil
+}
+
+func (r *Runner) messageRowFromState(item Item, got hoststore.StateRow) MessageRow {
+	tm := r.attentionTrueMin
+	if tm == 0 {
+		tm = defaultAttentionTrueMin
+	}
+	row := MessageRow{
+		ObjectHash:      item.ObjectHash,
+		Subject:         item.Subject,
+		Sender:          item.Sender,
+		TermID:          got.TermID,
+		Path:            got.Path,
+		Label:           got.Label,
+		Source:          got.Source,
+		Strategy:        got.Strategy,
+		Kind:            got.Kind,
+		About:           got.About,
+		Shape:           got.Shape,
+		Cosine:          got.Cosine,
+		CanonicalTermID: got.CanonicalTermID,
+		Reinforced:      got.Reinforced,
+		JudgeScore:      got.JudgeScore,
+		SenderTermID:    got.SenderTermID,
+		SenderLabel:     got.SenderLabel,
+		SenderMapsTo:    got.SenderMapsTo,
+	}
+	row.Attention = messageAttentionFromState(got, tm)
+	return row
+}
+
+func stateFromRow(row MessageRow, catalogID, classifyModel, embedModel string) hoststore.StateRow {
+	return hoststore.StateRow{
+		ObjectHash:      row.ObjectHash,
+		TermID:          row.TermID,
+		Path:            row.Path,
+		Label:           row.Label,
+		Source:          row.Source,
+		Strategy:        row.Strategy,
+		Kind:            row.Kind,
+		About:           row.About,
+		Shape:           row.Shape,
+		Cosine:          row.Cosine,
+		CanonicalTermID: row.CanonicalTermID,
+		Reinforced:      row.Reinforced,
+		JudgeScore:      row.JudgeScore,
+		DraftKind:       draftKind(row.Draft),
+		CatalogApplied:  row.CatalogApplied,
+		SenderTermID:    row.SenderTermID,
+		SenderLabel:     row.SenderLabel,
+		SenderMapsTo:    row.SenderMapsTo,
+		CatalogID:       catalogID,
+		ClassifyModel:   classifyModel,
+		EmbedModel:      embedModel,
+	}
+}
+
 func (r *Runner) runOperate(ctx context.Context, item Item) (harness.Result, error) {
 	const op = "mailreport.Runner.runOperate"
+	if ctx != nil {
+		ctx = withEssenceDumpID(ctx, item.ObjectHash)
+	}
 	text := formatItemText(item)
 	opSpec := harness.Op{
 		WorldContext: r.operateWorld,

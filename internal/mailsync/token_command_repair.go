@@ -47,6 +47,7 @@ func EnsureMailSyncTokenCommand(path, hostBin string) error {
 		Email:            email,
 		StoreRoot:        storeRoot,
 		TokenCommandTOML: wantTok,
+		FilterLine:       collectionFilterLineFromBody(body),
 	})
 	if err != nil {
 		return err

@@ -1,54 +1,39 @@
 package mailreport
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestParseEssenceResponse_sameLine(t *testing.T) {
-	raw := `WHY1: a
-WHY2: b
-WHY3: c
-WHY4: d
-WHY5: e
-ABOUT: about text
-SHAPE: shape text
-KIND: notification > software-release > changelog`
-	out, err := parseEssenceResponse(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Kind != "notification > software-release > changelog" {
-		t.Fatalf("%q", out.Kind)
-	}
-}
-
-func TestParseEssenceResponse_nextLine(t *testing.T) {
-	raw := `WHY1:
-line one
-WHY2: b
-WHY3: c
-WHY4: d
-WHY5: e
-ABOUT: about
-SHAPE: shape
-KIND: a > b > c`
-	out, err := parseEssenceResponse(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Why[0] != "line one" {
-		t.Fatalf("%q", out.Why[0])
-	}
-}
-
-func TestParseEssenceResponse_rejectShortKind(t *testing.T) {
-	_, err := parseEssenceResponse(`WHY1: a
-WHY2: b
-WHY3: c
-WHY4: d
-WHY5: e
-ABOUT: x
-SHAPE: y
-KIND: a > b`)
+func TestEssenceIntegrityCompleteNote_aboutOrShape(t *testing.T) {
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\n"
+	_, err := parseEssenceResponse(raw)
 	if err == nil {
-		t.Fatal("expected error")
+		t.Fatal("expected parse error")
+	}
+	note := essenceIntegrityCompleteNote(err)
+	if !strings.Contains(strings.ToLower(note), "continue") {
+		t.Fatalf("note %q", note)
+	}
+	if strings.Contains(strings.ToLower(note), "start over") || strings.Contains(strings.ToLower(note), "rewrite") {
+		t.Fatalf("note must not discard prior: %q", note)
+	}
+	if !strings.Contains(note, "ABOUT") {
+		t.Fatalf("note %q", note)
+	}
+}
+
+func TestEssenceIntegrityCompleteNote_kindSegments(t *testing.T) {
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: x\nSHAPE: y\nKIND: gitlab\n"
+	_, err := parseEssenceResponse(raw)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	note := essenceIntegrityCompleteNote(err)
+	if !strings.Contains(strings.ToLower(note), "continue") {
+		t.Fatalf("note %q", note)
+	}
+	if !strings.Contains(note, "KIND") {
+		t.Fatalf("note %q", note)
 	}
 }

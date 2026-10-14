@@ -62,8 +62,8 @@ scripts/classify_with_jev.py as the product path for classification
 
 **CONSTRAINT:** All host AI HTTP MUST use Polypus only: resolve `polypus.base_url`, then `POLYPUS_BASE_URL`, then default `http://127.0.0.1:1320`.
 
-- MUST: call OpenAI-compatible Polypus routes (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`, `/health`)
-- MUST: fail closed when `./scripts/check-polypus.sh` fails before AI work
+- MUST: call Polypus routes for discovery (`GET /v1/apis`, flavor `GET /v1/apis/<flavor>/models`), chat (`POST /v1/chat/completions`), embeddings (`POST /v1/embeddings`), SystemOne judge (`POST /v1/systemone`), and health (`GET /health`)
+- MUST: fail closed when `go tool task polypus-check` or `should-i-read polypus check` fails before AI work
 - MUST NOT: dial OpenRouter cloud, Ollama, Cloudflare, LM Studio, or TypeSafe/Jev from the host
 - MUST NOT: enable embedded llama.cpp, OpenRouter, or Ollama for this host's AI features
 - NEVER: store remote leaf-provider base URLs in host or nested-provider client config for this project

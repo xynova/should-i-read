@@ -28,7 +28,7 @@ exit 0
 		t.Fatal(err)
 	}
 	n := &Neverest{Runner: runner}
-	res, err := n.Sync(context.Background(), "gmail")
+	res, err := n.Sync(context.Background(), "gmail", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,5 +44,37 @@ exit 0
 	}
 	if !strings.Contains(argsLine, "sync") {
 		t.Fatalf("expected sync subcommand: %q", argsLine)
+	}
+}
+
+func TestNeverestSyncPassesExcludeCollections(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script helper")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "neverest")
+	body := `#!/bin/sh
+printf '%s\n' "$@" >&2
+echo '{"ok":true}'
+exit 0
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner, err := Create(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := &Neverest{Runner: runner}
+	res, err := n.Sync(context.Background(), "gmail", []string{"[Gmail]/Spam", "", "[Gmail]/Trash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsLine := strings.TrimSpace(res.Stderr)
+	if !strings.Contains(argsLine, "--exclude-collection") || !strings.Contains(argsLine, "[Gmail]/Spam") {
+		t.Fatalf("expected exclude flags in argv: %q", argsLine)
+	}
+	if !strings.Contains(argsLine, "[Gmail]/Trash") {
+		t.Fatalf("expected trash exclude in argv: %q", argsLine)
 	}
 }

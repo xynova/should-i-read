@@ -16,7 +16,9 @@ func TestCheckOK(t *testing.T) {
 		switch r.URL.Path {
 		case "/health":
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
-		case "/v1/models":
+		case "/v1/apis":
+			_, _ = w.Write([]byte(`{"apis":[{"id":"openai","models":"/v1/apis/openai/models"}]}`))
+		case "/v1/apis/openai/models":
 			_, _ = w.Write([]byte(`{"data":[{"id":"cf_local/test"}]}`))
 		default:
 			http.NotFound(w, r)
@@ -43,8 +45,64 @@ func TestCheckZeroModels(t *testing.T) {
 		switch r.URL.Path {
 		case "/health":
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
-		case "/v1/models":
+		case "/v1/apis":
+			_, _ = w.Write([]byte(`{"apis":[{"id":"openai","models":"/v1/apis/openai/models"}]}`))
+		case "/v1/apis/openai/models":
 			_, _ = w.Write([]byte(`{"data":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := polypus.Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	_, err = client.Check(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	code, ok := sirerr.AsCode(err)
+	if !ok || code != sirerr.CodeUnavailable {
+		t.Fatalf("code = %v ok=%v err=%v", code, ok, err)
+	}
+}
+
+func TestCheckAPIsUnreachable(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := polypus.Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	_, err = client.Check(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	code, ok := sirerr.AsCode(err)
+	if !ok || code != sirerr.CodeUnavailable {
+		t.Fatalf("code = %v ok=%v err=%v", code, ok, err)
+	}
+}
+
+func TestCheckAPIsEmptyCatalog(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		case "/v1/apis":
+			_, _ = w.Write([]byte(`{"apis":[]}`))
 		default:
 			http.NotFound(w, r)
 		}

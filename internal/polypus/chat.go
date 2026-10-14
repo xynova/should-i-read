@@ -12,10 +12,11 @@ import (
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
-// RoleSystem and RoleUser are OpenAI chat message roles.
+// RoleSystem, RoleUser, and RoleAssistant are OpenAI chat message roles.
 const (
-	RoleSystem = "system"
-	RoleUser   = "user"
+	RoleSystem    = "system"
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
 )
 
 // ChatMessage is one OpenAI chat message.

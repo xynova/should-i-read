@@ -16,13 +16,14 @@ Every host AI call MUST go through Polypus at the configured base URL: `polypus.
 | Taxonomy Judge (classify) | `POST /v1/systemone` | `polypus.judge_model` when set (smoked), else catalog `typesafe/jev` id, else off-catalog candidates (`cf_local/typesafe/jev`, `typesafe/jev`); each choice is verified with a SystemOne readiness probe |
 | Taxonomy Author (classify) | `POST /v1/chat/completions` | `polypus.classify_model` (e.g. Granite micro on `cf_local`); runs only when Judge skips and `taxonomy.author_on_skip` is true. Host prepares Author input: latest-message trim, deterministic denoise, extractive essence (no extra LLM hop). Judge stays on SystemOne (JEV) with full message text. |
 | Embeddings / attach classify | `POST /v1/embeddings` via strop `LLMFactory.CreateEmbedder` (dspy-go) | Same Polypus base URL; host does not call `polypus.Client.Embed` on classify |
-| Model discovery | `GET /v1/models` | Enabled list; inventory via `?view=inventory` when debugging |
+| API catalog | `GET /v1/apis` | Lists flavors (`openai`, `systemone`) and each flavor’s `models` path |
+| Model discovery | `GET /v1/apis/<flavor>/models` | Host `polypus check` merges flavor lists from `GET /v1/apis` |
 | Health before AI | `GET /health` | Upstream probe: `GET /health/backends` |
 
 ## Fail-closed behavior
 
 1. `mail report` and post-sync classify call Polypus check; `mail report` fails closed when Polypus is down. `mail sync` still completes the replica when classify is skipped.
-2. Probe Polypus with `./scripts/check-polypus.sh` (or `go tool task polypus-check`) before other AI work. Gateway health plus a non-empty model list does not prove classify readiness; run `should-i-read polypus check --classify` to smoke SystemOne judge and chat author (same probes as `mail report`).
+2. Probe Polypus with `go tool task polypus-check` or `should-i-read polypus check` before other AI work. Gateway health plus a non-empty model list does not prove classify readiness; run `should-i-read polypus check --classify` to smoke SystemOne judge and chat author (same probes as `mail report`).
 3. Do not configure OpenRouter cloud keys, Ollama hosts, or embedded llama.cpp for host product AI.
 4. Implement cluster / TLDR as host Go that calls Polypus at `POLYPUS_BASE_URL`.
 
@@ -35,7 +36,7 @@ Every host AI call MUST go through Polypus at the configured base URL: `polypus.
 ## Verification checklist
 
 - [ ] `curl -sf http://127.0.0.1:1320/health` succeeds
-- [ ] `curl -sS http://127.0.0.1:1320/v1/models` lists intended chat and embed ids (JEV may be absent when `models.sync` lists only synced chat/TTS/STT ids)
+- [ ] `curl -sS http://127.0.0.1:1320/v1/apis` returns flavor entries; `curl -sS …/v1/apis/openai/models` lists chat/embed ids; `curl -sS …/v1/apis/systemone/models` lists JEV when enabled
 - [ ] `should-i-read polypus check --classify` resolves judge via SystemOne and picks a chat author model
 
 ## Judge discovery vs OpenAI Decisions
@@ -46,6 +47,6 @@ Every host AI call MUST go through Polypus at the configured base URL: `polypus.
 | `POST /v1/systemone` | Judge (JEV) |
 | OpenAI Decisions preview | Not integrated; no stable public HTTP contract for this host |
 
-Do not infer judge availability from `GET /v1/models` alone when sync omits SystemOne backends.
+Judge ids come from the SystemOne flavor list (`GET /v1/apis/systemone/models`) or merged `polypus check` discovery. `polypus check --classify` still smokes `POST /v1/systemone` before classify.
 - [ ] Host code dials only Polypus (no `openrouter.ai`, `:11434`, Cloudflare, LM Studio)
 - [ ] Unwanted-mail path remains `report_only`

@@ -38,8 +38,8 @@ func CollectSnapshot(ctx context.Context, repoRoot string, cfg config.Config) (S
 	if snap.Ready {
 		snap.NextActions = []string{
 			"./bin/should-i-read config bump  # when Polypus URL is still literal localhost",
-			"make polypus-check",
-			"make readiness && make sync && make export",
+			"go tool task polypus-check",
+			"go tool task mail:readiness && go tool task mail:sync && go tool task mail:export",
 		}
 	} else if len(mail.NextSteps) > 0 {
 		snap.NextActions = mail.NextSteps

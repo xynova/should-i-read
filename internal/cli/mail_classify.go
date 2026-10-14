@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/behaviorengineering/strop/pkg/embed"
-	"github.com/behaviorengineering/strop/pkg/openaibatch"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 	"github.com/spf13/cobra"
 
 	"github.com/xynova/should-i-read/internal/clui"
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/mailreport"
 	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/pimdir"
@@ -26,6 +26,7 @@ import (
 const (
 	classifyProgressFileName    = "mail-classify-progress.json"
 	classifyModelResolveTimeout = 45 * time.Second
+	classifyJobTimeout          = 15 * time.Minute
 )
 
 type classifyOpts struct {
@@ -83,30 +84,47 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 	if err != nil {
 		return err
 	}
-	runner, err := prepareClassifyRunner(cmd.Context(), cfg, repoRoot, cOpts)
+	ctx, cancel := classifyJobContext(cmd.Context())
+	defer cancel()
+	runner, err := prepareClassifyRunner(ctx, cfg, repoRoot, cOpts)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = runner.Close() }()
 	items = mailreport.DedupeItemsByHash(items)
-	art, err := runner.Classify(cmd.Context(), mailreport.SourceReport, items)
+	art, err := runner.Classify(ctx, mailreport.SourceReport, items)
 	if err != nil {
 		return err
 	}
+	art, err = runner.ScoreAttention(ctx, art)
+	if err != nil {
+		return err
+	}
+	art, clusterErr := runner.Cluster(ctx, art)
 	path, err := writeReportArtifact(repoRoot, outPath, art)
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write report")
 	}
 	art.ReportPath = path
 	if wantJSON(cmd) {
-		return printJSON(cmd.OutOrStdout(), art)
+		if err := printJSON(cmd.OutOrStdout(), art); err != nil {
+			return err
+		}
+		if clusterErr != nil {
+			return sirerr.Wrap(clusterErr, sirerr.CodeFailed, op, "cluster")
+		}
+		return nil
 	}
 	if err := writeCLILine(cmd.OutOrStdout(), formatClassifyArtifact(art)); err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write classify summary")
 	}
+	if clusterErr != nil {
+		return sirerr.Wrap(clusterErr, sirerr.CodeFailed, op, "cluster")
+	}
 	return nil
 }
 
-func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, res *pimalaya.Result, noClassify bool, maxBody int) error {
+func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, res *pimalaya.Result, noClassify bool, maxBody int, excludeCollections []string) error {
 	const op = "cli.mail.classifyAfterSync"
 	if noClassify || res == nil || len(res.Raw) == 0 {
 		return nil
@@ -123,8 +141,10 @@ func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot st
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "open store")
 	}
-	items, unresolved := itemsFromFetchHunks(reader, pimalaya.FetchedHunks(res.Raw), maxBody)
-	runner, err := prepareClassifyRunner(cmd.Context(), cfg, repoRoot, classifyOpts{maxBody: maxBody})
+	items, unresolved := itemsFromFetchHunks(reader, pimalaya.FetchedHunks(res.Raw), maxBody, excludeCollections)
+	ctx, cancel := classifyJobContext(cmd.Context())
+	defer cancel()
+	runner, err := prepareClassifyRunner(ctx, cfg, repoRoot, classifyOpts{maxBody: maxBody})
 	if err != nil {
 		if isClassifyUnavailable(err) {
 			box := clui.FormatBox("Classify", clui.Muted("Classification skipped (Polypus unavailable)"))
@@ -135,12 +155,36 @@ func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot st
 		}
 		return err
 	}
+	defer func() { _ = runner.Close() }()
 	items = mailreport.DedupeItemsByHash(items)
-	art, err := runner.Classify(cmd.Context(), mailreport.SourceSyncFetch, items)
+	art, err := runner.Classify(ctx, mailreport.SourceSyncFetch, items)
 	if err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "classify after sync")
+		if isClassifyUnavailable(err) {
+			box := clui.FormatBox("Classify", clui.Muted("Classification skipped (Polypus unavailable)"))
+			if wErr := writeCLILine(cmd.OutOrStdout(), box); wErr != nil {
+				return sirerr.Wrap(wErr, sirerr.CodeFailed, op, "write classify skip")
+			}
+			return nil
+		}
+		box := clui.FormatBox("Classify", clui.Muted("Classification after sync failed: "+shortClassifyErr(err)))
+		if wErr := writeCLILine(cmd.OutOrStdout(), box); wErr != nil {
+			return sirerr.Wrap(wErr, sirerr.CodeFailed, op, "write classify failure")
+		}
+		return nil
 	}
 	art.Unresolved += unresolved
+	art, err = runner.ScoreAttention(ctx, art)
+	if err != nil {
+		if isClassifyUnavailable(err) {
+			box := clui.FormatBox("Classify", clui.Muted("Attention scoring failed (Polypus unavailable)"))
+			if wErr := writeCLILine(cmd.OutOrStdout(), box); wErr != nil {
+				return sirerr.Wrap(wErr, sirerr.CodeFailed, op, "write attention skip")
+			}
+		} else {
+			return err
+		}
+	}
+	art, clusterErr := runner.Cluster(ctx, art)
 	path, werr := writeReportArtifact(repoRoot, "", art)
 	if werr != nil {
 		return sirerr.Wrap(werr, sirerr.CodeFailed, op, "write report")
@@ -149,7 +193,11 @@ func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot st
 	if wantJSON(cmd) {
 		return nil
 	}
-	if err := writeCLILine(cmd.OutOrStdout(), formatClassifyArtifact(art)); err != nil {
+	summary := formatClassifyArtifact(art)
+	if clusterErr != nil {
+		summary += "\n" + clui.Muted("Cluster persist failed: "+shortClassifyErr(clusterErr))
+	}
+	if err := writeCLILine(cmd.OutOrStdout(), summary); err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write classify summary")
 	}
 	return nil
@@ -214,18 +262,21 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	}
 	var essenceBatch mailreport.ChatLineRunner
 	if essenceModel != "" {
-		oa := openaibatch.Client{BaseURL: cfg.PolypusBaseURL, HTTPClient: client.HTTPClient}
-		essenceBatch, err = mailreport.NewPreferBatchChatRunner(mailreport.NoopSubLLM(), oa, essenceModel)
+		essenceBatch, err = mailreport.NewParallelChatRunner(client, essenceModel, cfg.Taxonomy.EssenceBatchSize)
 		if err != nil {
-			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "essence batch runner")
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "essence parallel runner")
 		}
 	}
+	now := time.Now().UTC()
+	essenceDumpDir := filepath.Join(repoRoot, "tmp", "essence-parse")
 	seats, err := mailreport.CreateSeats(mailreport.SeatsConfig{
-		Client:       client,
-		JudgeModel:   judge,
-		AuthorModel:  author,
-		EssenceModel: essenceModel,
-		Embedder:     embedSeat,
+		Client:         client,
+		JudgeModel:     judge,
+		AuthorModel:    author,
+		EssenceModel:   essenceModel,
+		EssenceDumpDir: essenceDumpDir,
+		Now:            now,
+		Embedder:       embedSeat,
 	})
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create seats")
@@ -258,14 +309,47 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create pipeline")
 	}
-	progress := filepath.Join(repoRoot, "tmp", classifyProgressFileName)
+	store, err := hoststore.CreateStore(hoststore.StoreConfig{Path: cfg.StorePath, Now: now})
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open classify store")
+	}
+	if err := importClassifyProgressOnce(ctx, store, repoRoot); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	tldrModel := strings.TrimSpace(cfg.PolypusTldrModel)
+	if tldrModel == "" {
+		tldrModel = strings.TrimSpace(cfg.PolypusClassifyModel)
+	}
+	if tldrModel == "" {
+		tldrModel = author
+	}
+	var tldrBatch mailreport.ChatLineRunner
+	if essenceBatch != nil && tldrModel == essenceModel && essenceModel != "" {
+		tldrBatch = essenceBatch
+	} else if tldrModel != "" {
+		tldrBatch, err = mailreport.NewParallelChatRunner(client, tldrModel, cfg.Taxonomy.EssenceBatchSize)
+		if err != nil {
+			_ = store.Close()
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "tldr parallel runner")
+		}
+	}
+	attention, err := mailreport.CreateAttentionScorer(mailreport.AttentionScorerConfig{
+		Client:  client,
+		Model:   judge,
+		TrueMin: cfg.Cluster.AttentionTrueMin,
+	})
+	if err != nil {
+		_ = store.Close()
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create attention scorer")
+	}
 	runner, err := mailreport.CreateRunner(mailreport.RunnerConfig{
 		Harness:          h,
 		Seats:            seats,
 		Pipeline:         pipe,
 		CatalogPath:      catalogPath,
 		ApplyCatalog:     !cOpts.noApply,
-		ProgressPath:     progress,
+		Store:            store,
 		ClassifyMax:      cfg.Taxonomy.ClassifyMax,
 		PolypusURL:       cfg.PolypusBaseURL,
 		JudgeModel:       judge,
@@ -278,11 +362,37 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		EssenceBatch:     essenceBatch,
 		EssenceModel:     essenceModel,
 		EssenceBatchSize: cfg.Taxonomy.EssenceBatchSize,
+		TldrBatch:        tldrBatch,
+		TldrModel:        tldrModel,
+		ClusterMinCosine: cfg.Cluster.MinCosine,
+		QuarantineTerms:  cfg.Cluster.QuarantineTerms,
+		Attention:        attention,
+		AttentionTrueMin: cfg.Cluster.AttentionTrueMin,
+		EssenceDumpDir:   essenceDumpDir,
+		Now:              now,
 	}, vocab, cat)
 	if err != nil {
+		_ = store.Close()
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create runner")
 	}
 	return runner, nil
+}
+
+func importClassifyProgressOnce(ctx context.Context, store *hoststore.Store, repoRoot string) error {
+	const op = "cli.importClassifyProgressOnce"
+	progress := filepath.Join(repoRoot, "tmp", classifyProgressFileName)
+	pf, err := mailreport.LoadProgress(progress)
+	if err != nil {
+		return err
+	}
+	if len(pf.Entries) == 0 {
+		return nil
+	}
+	_, err = store.ImportProgress(ctx, mailreport.ProgressEntriesForImport(pf.Entries))
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "import progress")
+	}
+	return nil
 }
 
 func isClassifyUnavailable(err error) bool {
@@ -290,10 +400,24 @@ func isClassifyUnavailable(err error) bool {
 	return ok && code == sirerr.CodeUnavailable
 }
 
-func itemsFromFetchHunks(reader *pimdir.Reader, hunks []pimalaya.HunkRef, maxBody int) ([]mailreport.Item, int) {
+func shortClassifyErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.TrimSpace(err.Error())
+	if len(s) > 160 {
+		return s[:160] + "..."
+	}
+	return s
+}
+
+func itemsFromFetchHunks(reader *pimdir.Reader, hunks []pimalaya.HunkRef, maxBody int, excludeCollections []string) ([]mailreport.Item, int) {
 	var items []mailreport.Item
 	unresolved := 0
 	for _, h := range hunks {
+		if pimalaya.CollectionExcluded(h.Collection, excludeCollections) {
+			continue
+		}
 		sum, err := reader.FindByIMAPRef(h.Collection, h.ID)
 		if err != nil {
 			unresolved++
@@ -402,11 +526,45 @@ func writeReportArtifact(repoRoot, outPath string, art mailreport.Artifact) (str
 	return out, nil
 }
 
+const (
+	humanLabelYes = "yes"
+	humanLabelNo  = "no"
+)
+
+func humanBoolLabel(v bool) string {
+	if v {
+		return humanLabelYes
+	}
+	return humanLabelNo
+}
+
+func hasEssenceParseError(art mailreport.Artifact) bool {
+	for _, m := range art.Messages {
+		if strings.Contains(m.Error, "essence parse") {
+			return true
+		}
+	}
+	return false
+}
+
+func classifyJobContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		return context.WithTimeout(context.Background(), classifyJobTimeout)
+	}
+	if _, ok := parent.Deadline(); ok {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, classifyJobTimeout)
+}
+
 func formatClassifyArtifact(art mailreport.Artifact) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Classified %d messages\n", art.Classified)
 	if art.Omitted > 0 {
 		b.WriteString(clui.Muted(fmt.Sprintf("%d omitted (cap)\n", art.Omitted)))
+	}
+	if art.AttentionOmitted > 0 {
+		b.WriteString(clui.Muted(fmt.Sprintf("%d attention omitted (cap)\n", art.AttentionOmitted)))
 	}
 	if art.Unresolved > 0 {
 		b.WriteString(clui.Muted(fmt.Sprintf("%d unresolved hunks\n", art.Unresolved)))
@@ -415,6 +573,42 @@ func formatClassifyArtifact(art mailreport.Artifact) string {
 		fmt.Fprintf(&b, "judge %s · author %s\n", art.JudgeModel, art.AuthorModel)
 	}
 	fmt.Fprintf(&b, "aliases added %d · new leaves %d\n", art.AliasesAdded, art.LeavesAdded)
+	embedMiss := 0
+	for _, m := range art.Messages {
+		if strings.TrimSpace(m.EmbedPersist) != "" {
+			embedMiss++
+		}
+	}
+	if embedMiss > 0 {
+		b.WriteString(clui.Muted(fmt.Sprintf("%d classified without stored embedding\n", embedMiss)))
+	}
+	if art.EssenceDumpDir != "" && hasEssenceParseError(art) {
+		b.WriteString(clui.Muted(fmt.Sprintf("essence dumps %s\n", art.EssenceDumpDir)))
+	}
+	if len(art.Clusters) > 0 {
+		fmt.Fprintf(&b, "%d clusters\n", len(art.Clusters))
+		for _, c := range art.Clusters {
+			label := c.TermID
+			if label == "" && c.SenderDomain != "" {
+				label = c.SenderDomain
+			}
+			if label == "" {
+				label = c.ID
+			}
+			tldr := strings.TrimSpace(c.TLDR)
+			if tldr == "" && c.TLDRError != "" {
+				tldr = clui.Muted("(no tldr)")
+			}
+			if c.Attention != nil {
+				reply := humanBoolLabel(c.Attention.NeedsReply)
+				decision := humanBoolLabel(c.Attention.InvolvesDecision)
+				fmt.Fprintf(&b, "  %s (%d) %s urg=%.2f reply=%s decision=%s: %s\n",
+					label, c.Size, c.SuggestedAction, c.Attention.Urgency, reply, decision, tldr)
+			} else {
+				fmt.Fprintf(&b, "  %s (%d) %s: %s\n", label, c.Size, c.SuggestedAction, tldr)
+			}
+		}
+	}
 	if art.ReportPath != "" {
 		b.WriteString(art.ReportPath)
 	}

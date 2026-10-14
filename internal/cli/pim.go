@@ -146,14 +146,19 @@ func runPimConfigure(cmd *cobra.Command, repoRoot string, opts *rootOptions, fla
 	if err != nil {
 		return err
 	}
+	var excludes []string
+	if cfg, loadErr := opts.mustLoad(repoRoot); loadErr == nil {
+		excludes = cfg.Pimalaya.SyncExcludeCollections
+	}
 	res, err := svc.Configure(ctx, mailsync.Options{
-		Provider:  prov,
-		Account:   flags.account,
-		Email:     emailRaw,
-		StoreRoot: flags.storeRoot,
-		Force:     flags.force,
-		HostBin:   hostBin,
-		SkipInit:  flags.skipInit,
+		Provider:           prov,
+		Account:            flags.account,
+		Email:              emailRaw,
+		StoreRoot:          flags.storeRoot,
+		Force:              flags.force,
+		HostBin:            hostBin,
+		SkipInit:           flags.skipInit,
+		ExcludeCollections: excludes,
 	})
 	if err != nil {
 		var partial *mailsync.ConfigureError
@@ -279,7 +284,7 @@ func newPimSyncCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 		Deprecated: "use should-i-read mail sync",
 		Short:      "Sync mail into the local pimdir store",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMailSync(cmd, opts, repoRoot, account, false)
+			return runMailSync(cmd, opts, repoRoot, account, false, nil)
 		},
 	}
 	cmd.Flags().StringVar(&account, "account", "", "Mail account id from sync config")

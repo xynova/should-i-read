@@ -26,6 +26,31 @@ KIND:
 
 KIND must be 3 to 5 kebab-case segments joined by " > " (example: notification > software-release > changelog).`
 
+const essenceParseMaxAttempts = 3
+
+func essenceIntegrityValidate(raw string) error {
+	_, err := parseEssenceResponse(raw)
+	return err
+}
+
+// essenceIntegrityCompleteNote builds the user turn after a parse validation failure.
+func essenceIntegrityCompleteNote(err error) string {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	switch {
+	case strings.Contains(msg, "about or shape empty"):
+		return "Continue your previous reply. Keep your WHY lines. Add non-empty ABOUT, SHAPE, and KIND with 3 to 5 kebab-case segments joined by \" > \"."
+	case strings.Contains(msg, "kind needs 3+ segments"):
+		return "Continue your previous reply. Keep WHY, ABOUT, and SHAPE. Expand KIND to 3 to 5 kebab-case segments joined by \" > \" (example: notification > software-release > changelog)."
+	case strings.Contains(msg, "why") && strings.Contains(msg, "empty"):
+		return "Continue your previous reply. Add the missing WHY line, then emit any remaining keys (ABOUT, SHAPE, KIND with 3 to 5 segments)."
+	default:
+		return "Continue your previous reply. Emit WHY1 through WHY5, ABOUT, SHAPE, and KIND (3 to 5 kebab-case segments joined by \" > \"). Do not start over."
+	}
+}
+
 // WorldContextAttach is the fixed brief for Attach Operate.
 const WorldContextAttach = "Report only. Describe what the message is. Do not decide keep, discard, or unwanted."
 

@@ -32,7 +32,7 @@ flowchart TB
 1. **Canonical local store** = **pimdir** ([store/pimdir.md](store/pimdir.md)), not Maildir as the product DB. Maildir/m2dir = migration via [m2m](apps/m2m.md) only.
 2. **Ingest** = [neverest](apps/neverest.md) sync into pimdir (beta; `v0.x` breakage until v1).
 3. **Orchestration** = Go host invokes allow-listed CLIs ([integration.md](integration.md)); no Rust FFI in v1.
-4. **AI** = Polypus only (`POLYPUS_BASE_URL`, default `http://127.0.0.1:1320`); fail closed when `./scripts/check-polypus.sh` fails before AI work.
+4. **AI** = Polypus only (`POLYPUS_BASE_URL`, default `http://127.0.0.1:1320`); fail closed when `go tool task polypus-check` or `should-i-read polypus check` fails before AI work.
 5. **Experience** = host projections, reports, and future UI over store + decisions; not Himalaya TUI.
 6. **Unwanted mail** = report-only until [report-only-eval.md](../report-only-eval.md) passes; no auto trash/spam/mark-read in the first milestone.
 7. **Gmail** = prefer IMAP or Himalaya-documented paths; do not assume Neverest Gmail backend or early `io-gmail` are production-ready ([apps/neverest.md](apps/neverest.md), [libs/io-gmail.md](libs/io-gmail.md)).
@@ -53,6 +53,7 @@ flowchart TB
 |-------|------|
 | Tool runner | Allow-list map → argv builder → JSON decoder |
 | pimdir reader | `database/sql` + SQLite against STORAGE.md reader profile |
+| Host classify ledger | `internal/hoststore` SQLite (`modernc.org/sqlite`, golang-migrate); not pimdir.db |
 | Watch | Prefer **carillon** over retiring mirador |
 
 ## Related rules
