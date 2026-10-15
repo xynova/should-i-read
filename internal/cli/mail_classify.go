@@ -27,6 +27,7 @@ const (
 	classifyProgressFileName    = "mail-classify-progress.json"
 	classifyModelResolveTimeout = 45 * time.Second
 	classifyJobTimeout          = 15 * time.Minute
+	classifyWindowJobTimeout    = 60 * time.Minute
 )
 
 type classifyOpts struct {
@@ -37,19 +38,21 @@ type classifyOpts struct {
 
 func newMailReportCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var (
-		inPath  string
-		outPath string
-		limit   int
-		store   string
-		catalog string
-		noApply bool
-		maxBody int
+		inPath   string
+		outPath  string
+		limit    int
+		store    string
+		catalog  string
+		noApply  bool
+		maxBody  int
+		fromDate string
+		toDate   string
 	)
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Classify recent mail (report-only, Polypus + taxonomy)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMailReport(cmd, opts, repoRoot, inPath, outPath, limit, store, classifyOpts{
+			return runMailReport(cmd, opts, repoRoot, inPath, outPath, limit, cmd.Flags().Changed("limit"), fromDate, toDate, store, classifyOpts{
 				catalogPath: catalog,
 				noApply:     noApply,
 				maxBody:     maxBody,
@@ -58,7 +61,9 @@ func newMailReportCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&inPath, "in", "", "Input mail export JSON (default: list from pimdir)")
 	cmd.Flags().StringVar(&outPath, "out", "", "Report path (default tmp/unwanted-report-<ts>.json)")
-	cmd.Flags().IntVar(&limit, "limit", 25, "Max messages when listing from pimdir")
+	cmd.Flags().IntVar(&limit, "limit", 25, "Max messages when listing from pimdir (default 25; with --from/--to, no cap unless you set --limit)")
+	cmd.Flags().StringVar(&fromDate, "from", "", "Inclusive window start date (YYYY-MM-DD UTC); requires --to")
+	cmd.Flags().StringVar(&toDate, "to", "", "Exclusive window end date (YYYY-MM-DD UTC); requires --from")
 	cmd.Flags().StringVar(&store, "store", "", "Local mail store directory (overrides config)")
 	cmd.Flags().StringVar(&catalog, "catalog", "", "Taxonomy catalog YAML path")
 	cmd.Flags().BoolVar(&noApply, "no-apply", false, "Do not write catalog mutations to disk")
@@ -66,9 +71,13 @@ func newMailReportCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	return cmd
 }
 
-func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPath, outPath string, limit int, storeDir string, cOpts classifyOpts) error {
+func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPath, outPath string, limit int, limitChanged bool, fromDate, toDate, storeDir string, cOpts classifyOpts) error {
 	const op = "cli.mail.report"
 	cfg, err := opts.mustLoad(repoRoot)
+	if err != nil {
+		return err
+	}
+	window, err := validateMailReportWindow(inPath, fromDate, toDate)
 	if err != nil {
 		return err
 	}
@@ -80,12 +89,12 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 	if err != nil {
 		return err
 	}
-	items, err := loadReportItems(reader, inPath, limit, cOpts.maxBody, cfg.Taxonomy.Collections)
+	ctx, cancel := classifyJobContext(cmd.Context(), !window.Zero())
+	defer cancel()
+	items, err := loadReportItems(ctx, reader, inPath, window, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := classifyJobContext(cmd.Context())
-	defer cancel()
 	runner, err := prepareClassifyRunner(ctx, cfg, repoRoot, cOpts)
 	if err != nil {
 		return err
@@ -101,6 +110,10 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 		return err
 	}
 	art, clusterErr := runner.Cluster(ctx, art)
+	if !window.Zero() {
+		art.WindowFrom = window.DateFrom()
+		art.WindowTo = window.DateTo()
+	}
 	path, err := writeReportArtifact(repoRoot, outPath, art)
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write report")
@@ -142,7 +155,7 @@ func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot st
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "open store")
 	}
 	items, unresolved := itemsFromFetchHunks(reader, pimalaya.FetchedHunks(res.Raw), maxBody, excludeCollections)
-	ctx, cancel := classifyJobContext(cmd.Context())
+	ctx, cancel := classifyJobContext(cmd.Context(), false)
 	defer cancel()
 	runner, err := prepareClassifyRunner(ctx, cfg, repoRoot, classifyOpts{maxBody: maxBody})
 	if err != nil {
@@ -454,11 +467,41 @@ func itemFromSummary(reader *pimdir.Reader, sum pimdir.EmailSummary, maxBody int
 	return item
 }
 
-func loadReportItems(reader *pimdir.Reader, inPath string, limit int, maxBody int, collections []string) ([]mailreport.Item, error) {
+func validateMailReportWindow(inPath, fromDate, toDate string) (pimdir.DateWindow, error) {
+	const op = "cli.validateMailReportWindow"
+	fromDate = strings.TrimSpace(fromDate)
+	toDate = strings.TrimSpace(toDate)
+	if strings.TrimSpace(inPath) != "" && (fromDate != "" || toDate != "") {
+		return pimdir.DateWindow{}, sirerr.New(sirerr.CodeInvalid, op, "--in cannot be used with --from or --to")
+	}
+	if fromDate == "" && toDate == "" {
+		return pimdir.DateWindow{}, nil
+	}
+	return pimdir.CreateDateWindow(fromDate, toDate)
+}
+
+func reportListLimit(limit int, limitChanged bool, window pimdir.DateWindow) int {
+	if window.Zero() {
+		return limit
+	}
+	if limitChanged {
+		return limit
+	}
+	return 0
+}
+
+func loadReportItems(ctx context.Context, reader *pimdir.Reader, inPath string, window pimdir.DateWindow, limit int, limitChanged bool, maxBody int, collections []string) ([]mailreport.Item, error) {
 	if strings.TrimSpace(inPath) != "" {
 		return itemsFromExportFile(reader, inPath, maxBody)
 	}
-	rows, err := reader.ListRecentEmailsIn(collections, limit)
+	listLimit := reportListLimit(limit, limitChanged, window)
+	var rows []pimdir.EmailSummary
+	var err error
+	if !window.Zero() {
+		rows, err = reader.ListEmailsIn(ctx, collections, window, listLimit)
+	} else {
+		rows, err = reader.ListRecentEmailsIn(collections, listLimit)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -547,18 +590,25 @@ func hasEssenceParseError(art mailreport.Artifact) bool {
 	return false
 }
 
-func classifyJobContext(parent context.Context) (context.Context, context.CancelFunc) {
+func classifyJobContext(parent context.Context, windowed bool) (context.Context, context.CancelFunc) {
+	timeout := classifyJobTimeout
+	if windowed {
+		timeout = classifyWindowJobTimeout
+	}
 	if parent == nil {
-		return context.WithTimeout(context.Background(), classifyJobTimeout)
+		return context.WithTimeout(context.Background(), timeout)
 	}
 	if _, ok := parent.Deadline(); ok {
 		return context.WithCancel(parent)
 	}
-	return context.WithTimeout(parent, classifyJobTimeout)
+	return context.WithTimeout(parent, timeout)
 }
 
 func formatClassifyArtifact(art mailreport.Artifact) string {
 	var b strings.Builder
+	if art.WindowFrom != "" && art.WindowTo != "" {
+		fmt.Fprintf(&b, "Window [%s, %s) UTC\n", art.WindowFrom, art.WindowTo)
+	}
 	fmt.Fprintf(&b, "Classified %d messages\n", art.Classified)
 	if art.Omitted > 0 {
 		b.WriteString(clui.Muted(fmt.Sprintf("%d omitted (cap)\n", art.Omitted)))

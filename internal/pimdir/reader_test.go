@@ -1,11 +1,14 @@
 package pimdir
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -155,6 +158,119 @@ func TestReadBlobAndResolveShowRef(t *testing.T) {
 	_, hash, err = r.ResolveShowRef("<mid@example.com>")
 	if err != nil || hash != "abcd1234efgh5678" {
 		t.Fatalf("mid ref: %v %q", err, hash)
+	}
+}
+
+func TestListEmailsIn(t *testing.T) {
+	dir := t.TempDir()
+	initWindowRangeFixtureDB(t, dir)
+	r, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := CreateDateWindow("2026-09-01", "2026-09-08")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rows, err := r.ListEmailsIn(ctx, nil, window, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 30 in-window + sep1 lower bound; excludes aug31, sep8, empty key, deleted, other collection.
+	if len(rows) != 31 {
+		t.Fatalf("in-window count: %d want 31", len(rows))
+	}
+	subjects := map[string]bool{}
+	for _, row := range rows {
+		subjects[row.Subject] = true
+	}
+	if subjects["before-window"] || subjects["at-upper-bound"] || subjects["empty-sort-key"] ||
+		subjects["deleted-row"] || subjects["other-collection"] {
+		t.Fatalf("excluded rows present: %v", subjects)
+	}
+	if !subjects["at-lower-bound"] {
+		t.Fatal("missing lower bound row")
+	}
+	if rows[0].Subject != "in-window-29" {
+		t.Fatalf("newest first: %q", rows[0].Subject)
+	}
+	limited, err := r.ListEmailsIn(ctx, nil, window, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited) != 2 {
+		t.Fatalf("limit: %d", len(limited))
+	}
+	if limited[0].Subject != "in-window-29" || limited[1].Subject != "in-window-28" {
+		t.Fatalf("limited order: %q %q", limited[0].Subject, limited[1].Subject)
+	}
+	filtered, err := r.ListEmailsIn(ctx, []string{"INBOX"}, window, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range filtered {
+		if row.Collection != "INBOX" {
+			t.Fatalf("collection filter: %q", row.Collection)
+		}
+	}
+}
+
+func initWindowRangeFixtureDB(t *testing.T, dir string) {
+	initFixtureDB(t, dir)
+	dbPath := filepath.Join(dir, "pimdir.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	_, _ = db.Exec(`INSERT INTO collections (id, kind, name) VALUES ('imap/Sent', 'message/rfc822', 'Sent')`)
+	extra := []struct {
+		link, sortKey, subject, collection string
+		deleted                            int
+	}{
+		{"aug31", "2026-08-31T23:59:59Z", "before-window", "INBOX", 0},
+		{"sep1", "2026-09-01T00:00:00Z", "at-lower-bound", "INBOX", 0},
+		{"sep8", "2026-09-08T00:00:00Z", "at-upper-bound", "INBOX", 0},
+		{"empty", "   ", "empty-sort-key", "INBOX", 0},
+		{"del", "2026-09-02T00:00:00Z", "deleted-row", "INBOX", 1},
+		{"sent", "2026-09-09T00:00:00Z", "other-collection", "imap/Sent", 0},
+	}
+	for _, e := range extra {
+		hash := fmt.Sprintf("hash%s000000000000000000000000", e.link)
+		if len(hash) > 32 {
+			hash = hash[:32]
+		}
+		_, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
+VALUES (?, ?, 1, ?, ?, 2, ?)`, e.collection, e.link, hash, e.sortKey, e.deleted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = db.Exec(`INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date)
+VALUES (?, ?, ?, ?, 'a@example.com', ?)`, e.collection, e.link, "<"+e.link+">", e.subject, e.sortKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 30; i++ {
+		link := fmt.Sprintf("win%02d", i)
+		sk := fmt.Sprintf("2026-09-03T%02d:00:00Z", i)
+		subj := fmt.Sprintf("in-window-%d", i)
+		hash := fmt.Sprintf("w%02d0000000000000000000000000000", i)
+		if len(hash) > 32 {
+			hash = hash[:32]
+		}
+		_, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
+VALUES ('INBOX', ?, 1, ?, ?, 2, 0)`, link, hash, sk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = db.Exec(`INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date)
+VALUES ('INBOX', ?, ?, ?, 'a@example.com', ?)`, link, "<"+link+">", subj, sk)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

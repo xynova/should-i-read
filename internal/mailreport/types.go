@@ -103,6 +103,8 @@ type Artifact struct {
 	CatalogID        string       `json:"catalog_id"`
 	SendersCatalogID string       `json:"senders_catalog_id,omitempty"`
 	GeneratedAt      string       `json:"generated_at"`
+	WindowFrom       string       `json:"window_from,omitempty"`
+	WindowTo         string       `json:"window_to,omitempty"`
 	Source           string       `json:"source"`
 	Classified       int          `json:"classified"`
 	Omitted          int          `json:"omitted"`
