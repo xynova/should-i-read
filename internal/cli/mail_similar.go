@@ -132,7 +132,7 @@ func collectClassifyStoreStatus(ctx context.Context, cfg config.Config) mailsync
 	if err != nil {
 		return out
 	}
-	rows, err := reader.ListRecentEmailsIn(cfg.Taxonomy.Collections, 500)
+	rows, err := reader.ListRecentEmailsIn(opCtx, cfg.Taxonomy.Collections, 500)
 	if err != nil {
 		return out
 	}

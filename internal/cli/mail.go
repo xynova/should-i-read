@@ -143,7 +143,7 @@ func runMailSetup(cmd *cobra.Command, repoRoot string, flags mailSetupFlags, wiz
 
 func newMailStatusCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "status",
+		Use:   VerbStatus,
 		Short: "Show mailbox readiness checklist",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMailStatus(cmd, opts, repoRoot)

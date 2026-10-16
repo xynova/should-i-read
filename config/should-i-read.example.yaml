@@ -27,6 +27,9 @@ polypus:
   embed_model: "cf_local/@cf/baai/bge-m3"
   # Optional cluster TLDR chat model; empty uses classify_model
   tldr_model: ""
+  # Optional. After essence integrity exhaust, one extra chat on this Polypus id.
+  # Empty = no Compensate. Must be a Polypus catalog id, not a leaf vendor URL.
+  essence_escalate_model: ""
 
 cluster:
   # Min cosine for embedding attach into an in-artifact term cluster (default 0.80)

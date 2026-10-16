@@ -1,8 +1,9 @@
 package mailreport
 
 import (
-	"fmt"
+	"errors"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/behaviorengineering/taxonomy/pkg/catalog"
@@ -11,20 +12,73 @@ import (
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
-const essenceSystemPrompt = `Describe what the message is. Do not decide keep, discard, or unwanted.
+const (
+	essenceKeyWhy1  = "WHY1"
+	essenceKeyWhy2  = "WHY2"
+	essenceKeyWhy3  = "WHY3"
+	essenceKeyWhy4  = "WHY4"
+	essenceKeyWhy5  = "WHY5"
+	essenceKeyAbout = "ABOUT"
+	essenceKeyShape = "SHAPE"
+	essenceKeyKind  = "KIND"
+
+	essenceFieldMissing      = "missing"
+	essenceFieldPresent      = "present"
+	essenceFieldKindShort    = "kind_short"
+	essenceFieldKindShortYes = "1"
+
+	// EssenceErrWhy1Empty is the validate message when WHY1 is missing (stable for dumps and CLI gloss).
+	EssenceErrWhy1Empty = "why1 empty"
+	// EssenceErrWhyEmpty is the validate message when a WHY line after WHY1 is missing.
+	EssenceErrWhyEmpty = "why empty"
+	// EssenceErrAboutOrShape is the validate message when ABOUT or SHAPE is missing.
+	EssenceErrAboutOrShape = "about or shape empty"
+	// EssenceErrKindShort is the validate message when KIND has fewer than 3 segments.
+	EssenceErrKindShort = "kind needs 3+ segments"
+)
+
+var essenceWhyKeys = []string{
+	essenceKeyWhy1,
+	essenceKeyWhy2,
+	essenceKeyWhy3,
+	essenceKeyWhy4,
+	essenceKeyWhy5,
+}
+
+var essenceAllKeys = []string{
+	essenceKeyWhy1,
+	essenceKeyWhy2,
+	essenceKeyWhy3,
+	essenceKeyWhy4,
+	essenceKeyWhy5,
+	essenceKeyAbout,
+	essenceKeyShape,
+	essenceKeyKind,
+}
+
+var (
+	essenceSystemPrompt string
+	essenceKeyRE        *regexp.Regexp
+)
+
+func init() {
+	essenceSystemPrompt = buildEssenceSystemPrompt()
+	essenceKeyRE = regexp.MustCompile(`^(` + strings.Join(essenceAllKeys, "|") + `):\s*(.*)$`)
+}
+
+func buildEssenceSystemPrompt() string {
+	var keys strings.Builder
+	for _, k := range essenceAllKeys {
+		keys.WriteString(k)
+		keys.WriteString(":\n")
+	}
+	return `Describe what the message is. Do not decide keep, discard, or unwanted.
 
 Reply with these keys (one per line). Values may continue on the next line after "KEY:".
 
-WHY1:
-WHY2:
-WHY3:
-WHY4:
-WHY5:
-ABOUT:
-SHAPE:
-KIND:
-
+` + keys.String() + `
 KIND must be 3 to 5 kebab-case segments joined by " > " (example: notification > software-release > changelog).`
+}
 
 const essenceParseMaxAttempts = 3
 
@@ -35,26 +89,60 @@ func essenceIntegrityValidate(raw string) error {
 
 // essenceIntegrityCompleteNote builds the user turn after a parse validation failure.
 func essenceIntegrityCompleteNote(err error) string {
-	msg := ""
-	if err != nil {
-		msg = err.Error()
+	missing, present := essenceKeysFromErr(err)
+	if len(missing) > 0 {
+		var b strings.Builder
+		b.WriteString("Continue your previous reply. Missing: ")
+		b.WriteString(strings.Join(missing, ", "))
+		b.WriteByte('.')
+		if len(present) > 0 {
+			b.WriteString(" Keep ")
+			b.WriteString(strings.Join(present, ", "))
+			b.WriteByte('.')
+		}
+		b.WriteString(" Add the missing keys with non-empty values.")
+		return b.String()
 	}
-	switch {
-	case strings.Contains(msg, "about or shape empty"):
-		return "Continue your previous reply. Keep your WHY lines. Add non-empty ABOUT, SHAPE, and KIND with 3 to 5 kebab-case segments joined by \" > \"."
-	case strings.Contains(msg, "kind needs 3+ segments"):
+	if essenceKindShortFromErr(err) {
 		return "Continue your previous reply. Keep WHY, ABOUT, and SHAPE. Expand KIND to 3 to 5 kebab-case segments joined by \" > \" (example: notification > software-release > changelog)."
-	case strings.Contains(msg, "why") && strings.Contains(msg, "empty"):
-		return "Continue your previous reply. Add the missing WHY line, then emit any remaining keys (ABOUT, SHAPE, KIND with 3 to 5 segments)."
-	default:
-		return "Continue your previous reply. Emit WHY1 through WHY5, ABOUT, SHAPE, and KIND (3 to 5 kebab-case segments joined by \" > \"). Do not start over."
 	}
+	return "Continue your previous reply. Emit WHY1 through WHY5, ABOUT, SHAPE, and KIND (3 to 5 kebab-case segments joined by \" > \"). Do not start over."
+}
+
+func essenceKeysFromErr(err error) (missing, present []string) {
+	var typed *sirerr.Error
+	if !errors.As(err, &typed) || typed == nil || typed.Fields == nil {
+		return nil, nil
+	}
+	return splitEssenceKeyList(typed.Fields[essenceFieldMissing]), splitEssenceKeyList(typed.Fields[essenceFieldPresent])
+}
+
+func essenceKindShortFromErr(err error) bool {
+	var typed *sirerr.Error
+	if !errors.As(err, &typed) || typed == nil || typed.Fields == nil {
+		return false
+	}
+	return typed.Fields[essenceFieldKindShort] == essenceFieldKindShortYes
+}
+
+func splitEssenceKeyList(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // WorldContextAttach is the fixed brief for Attach Operate.
 const WorldContextAttach = "Report only. Describe what the message is. Do not decide keep, discard, or unwanted."
-
-var essenceKeyRE = regexp.MustCompile(`^(WHY[1-5]|ABOUT|SHAPE|KIND):\s*(.*)$`)
 
 func parseEssenceResponse(raw string) (harness.EssenceOut, error) {
 	var why [5]string
@@ -67,24 +155,7 @@ func parseEssenceResponse(raw string) (harness.EssenceOut, error) {
 			return
 		}
 		val := strings.TrimSpace(strings.Join(pendingVal, "\n"))
-		switch pendingKey {
-		case "WHY1":
-			why[0] = val
-		case "WHY2":
-			why[1] = val
-		case "WHY3":
-			why[2] = val
-		case "WHY4":
-			why[3] = val
-		case "WHY5":
-			why[4] = val
-		case "ABOUT":
-			about = val
-		case "SHAPE":
-			shape = val
-		case "KIND":
-			kind = val
-		}
+		essenceAssignParsedKey(&why, &about, &shape, &kind, pendingKey, val)
 		pendingKey = ""
 		pendingVal = nil
 	}
@@ -102,6 +173,7 @@ func parseEssenceResponse(raw string) (harness.EssenceOut, error) {
 		}
 	}
 	flush()
+	kind = normalizeKindString(kind)
 	out := harness.EssenceOut{Why: why, About: about, Shape: shape, Kind: kind}
 	if err := validateParsedEssence(out); err != nil {
 		return harness.EssenceOut{}, err
@@ -109,19 +181,122 @@ func parseEssenceResponse(raw string) (harness.EssenceOut, error) {
 	return out, nil
 }
 
+func essenceAssignParsedKey(why *[5]string, about, shape, kind *string, key, val string) {
+	switch key {
+	case essenceKeyWhy1:
+		why[0] = val
+	case essenceKeyWhy2:
+		why[1] = val
+	case essenceKeyWhy3:
+		why[2] = val
+	case essenceKeyWhy4:
+		why[3] = val
+	case essenceKeyWhy5:
+		why[4] = val
+	case essenceKeyAbout:
+		*about = val
+	case essenceKeyShape:
+		*shape = val
+	case essenceKeyKind:
+		*kind = val
+	}
+}
+
 func validateParsedEssence(e harness.EssenceOut) error {
 	const op = "mailreport.validateParsedEssence"
-	for i, w := range e.Why {
-		if strings.TrimSpace(w) == "" {
-			return sirerr.New(sirerr.CodeAI, op, fmt.Sprintf("why%d empty", i+1))
+	missing, present, kindShort := essenceKeyInventory(e)
+	if len(missing) > 0 {
+		msg := strings.Join(missing, ", ") + " empty"
+		if essenceHasWhyMissing(missing) {
+			if slices.Contains(missing, essenceKeyWhy1) {
+				msg = EssenceErrWhy1Empty
+			} else {
+				msg = EssenceErrWhyEmpty
+			}
+		} else if slices.Contains(missing, essenceKeyAbout) || slices.Contains(missing, essenceKeyShape) {
+			msg = EssenceErrAboutOrShape
 		}
+		typed := sirerr.New(sirerr.CodeAI, op, msg).With(essenceFieldMissing, strings.Join(missing, ", "))
+		if len(present) > 0 {
+			typed = typed.With(essenceFieldPresent, strings.Join(present, ", "))
+		}
+		return typed
 	}
-	if strings.TrimSpace(e.About) == "" || strings.TrimSpace(e.Shape) == "" {
-		return sirerr.New(sirerr.CodeAI, op, "about or shape empty")
-	}
-	segs := catalog.ParseKindSegments(e.Kind)
-	if len(segs) < 3 {
-		return sirerr.New(sirerr.CodeAI, op, "kind needs 3+ segments")
+	if kindShort {
+		return sirerr.New(sirerr.CodeAI, op, EssenceErrKindShort).With(essenceFieldKindShort, essenceFieldKindShortYes)
 	}
 	return nil
+}
+
+func essenceKeyInventory(e harness.EssenceOut) (missing, present []string, kindShort bool) {
+	for i, w := range e.Why {
+		key := essenceWhyKeys[i]
+		if strings.TrimSpace(w) == "" {
+			missing = append(missing, key)
+			continue
+		}
+		present = append(present, key)
+	}
+	if strings.TrimSpace(e.About) == "" {
+		missing = append(missing, essenceKeyAbout)
+	} else {
+		present = append(present, essenceKeyAbout)
+	}
+	if strings.TrimSpace(e.Shape) == "" {
+		missing = append(missing, essenceKeyShape)
+	} else {
+		present = append(present, essenceKeyShape)
+	}
+	kind := strings.TrimSpace(e.Kind)
+	if kind == "" {
+		missing = append(missing, essenceKeyKind)
+		return missing, present, false
+	}
+	present = append(present, essenceKeyKind)
+	return missing, present, len(catalog.ParseKindSegments(kind)) < 3
+}
+
+func essenceHasWhyMissing(missing []string) bool {
+	for _, key := range missing {
+		if slices.Contains(essenceWhyKeys, key) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeKindString(kind string) string {
+	segs := catalog.ParseKindSegments(kind)
+	if len(segs) == 0 {
+		return kind
+	}
+	var out []string
+	for _, seg := range segs {
+		out = append(out, slugKindSegment(seg))
+	}
+	return strings.Join(out, " > ")
+}
+
+func slugKindSegment(seg string) string {
+	seg = strings.TrimSpace(seg)
+	if seg == "" {
+		return seg
+	}
+	if isKebabID(seg) {
+		return seg
+	}
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range strings.ToLower(seg) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastHyphen = false
+			continue
+		}
+		if !lastHyphen && b.Len() > 0 {
+			b.WriteByte('-')
+			lastHyphen = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }

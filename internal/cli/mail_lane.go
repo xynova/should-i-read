@@ -138,13 +138,22 @@ type mailExportArtifact struct {
 
 func runMailExport(cmd *cobra.Command, repoRoot, storeDir string, limit int, outPath, polypusURL string) error {
 	const op = "cli.mail.export"
+	ctx := cmd.Context()
+	if ctx == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, hostStoreOpTimeout)
+		defer cancel()
+	}
 	reader, err := pimdir.OpenStore(storeDir)
 	if err != nil {
-		return err
+		return wrapCLIHop(err, op, "open store")
 	}
-	emails, err := reader.ListRecentEmails(limit)
+	emails, err := reader.ListRecentEmails(ctx, limit)
 	if err != nil {
-		return err
+		return wrapCLIHop(err, op, "list recent mail")
 	}
 	art := mailExportArtifact{
 		Mode:           "report_only",

@@ -290,6 +290,65 @@ func TestPolypusEssencerSuccessOnAttempt2(t *testing.T) {
 	}
 }
 
+func TestPolypusEssencerCompensateAfterMicroExhaust(t *testing.T) {
+	whyOnly := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\n"
+	full := whyOnly + "ABOUT: about\nSHAPE: shape\nKIND: notification > software-release > changelog\n"
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		n := calls.Add(1)
+		var body struct {
+			Model    string                `json:"model"`
+			Messages []polypus.ChatMessage `json:"messages"`
+		}
+		content := whyOnly
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil && n > essenceParseMaxAttempts {
+			if body.Model != "granite-8b" {
+				t.Errorf("escalate model %q", body.Model)
+			}
+			if len(body.Messages) < 4 || !strings.Contains(strings.ToLower(body.Messages[len(body.Messages)-1].Content), "missing") {
+				t.Errorf("compensate note missing: %+v", body.Messages)
+			}
+			content = full
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]string{"content": content}},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	client, err := polypus.Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := CreateSeats(SeatsConfig{
+		Client:               client,
+		JudgeModel:           "jev",
+		AuthorModel:          "chat",
+		EssenceModel:         "granite",
+		EssenceEscalateModel: "granite-8b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := seats.Essencer.Essence(ctx, harness.EssenceIn{WorldContext: WorldContextAttach, Text: "Subject: t\n\nbody"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Kind == "" {
+		t.Fatal("expected kind")
+	}
+	if calls.Load() != 4 {
+		t.Fatalf("chat calls=%d", calls.Load())
+	}
+}
+
 func TestPolypusEssencerDumpsLastParseFailure(t *testing.T) {
 	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nKIND: gitlab > pipeline\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -340,5 +399,62 @@ func TestPolypusEssencerDumpsLastParseFailure(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "about or shape empty") {
 		t.Fatalf("dump missing parse_error: %s", got)
+	}
+}
+
+func TestPolypusEssencerDumpsAfterEscalateStillInvalid(t *testing.T) {
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nKIND: gitlab > pipeline\n"
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		calls.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]string{"content": raw}},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	client, err := polypus.Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	seats, err := CreateSeats(SeatsConfig{
+		Client:               client,
+		JudgeModel:           "jev",
+		AuthorModel:          "chat",
+		EssenceModel:         "granite",
+		EssenceEscalateModel: "granite-8b",
+		EssenceDumpDir:       dir,
+		Now:                  time.Date(2026, 10, 13, 15, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx = withEssenceDumpID(ctx, "escalate-dump-id")
+	_, err = seats.Essencer.Essence(ctx, harness.EssenceIn{WorldContext: WorldContextAttach, Text: "Subject: t\n\nbody"})
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if calls.Load() != 4 {
+		t.Fatalf("chat calls=%d", calls.Load())
+	}
+	path := filepath.Join(dir, "escalate-dump-id.json")
+	got, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	body := string(got)
+	if !strings.Contains(body, `"model": "granite-8b"`) {
+		t.Fatalf("dump model: %s", body)
+	}
+	if !strings.Contains(body, `"attempt": 4`) {
+		t.Fatalf("dump attempt: %s", body)
 	}
 }

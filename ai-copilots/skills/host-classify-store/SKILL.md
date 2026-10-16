@@ -31,9 +31,9 @@ should-i-read mail report
 → hoststore classify_state + embeddings + attention nouls + clusters (fingerprint resume)
 ```
 
-After kind classify, `mail report` scores attention per complete message (Jev `/v1/systemone`), rolls up `clusters[].attention`, and sorts clusters by urgency in human output.
+After kind classify, `mail report` scores attention per complete message (Jev `/v1/systemone`), rolls up `clusters[].attention`, and sorts clusters by urgency in human output. Date-window reports set `window_from` / `window_to` on the artifact; per-message rows still key off `object_hash` in `classify_state`. Rerun the same `--from`/`--to` while `omitted` or `attention_omitted` is non-zero when `taxonomy.classify_max` caps a busy week.
 
-**CONSTRAINT:** Cluster TLDR cache MUST use `clusters` and `cluster_members` in the host db. Fingerprint is `v1` + group key + sorted member hashes. MUST NOT store cluster state only in `tmp/unwanted-report-*.json`.
+**CONSTRAINT:** Cluster TLDR cache MUST use `clusters` and `cluster_members` in the host db. Fingerprint is `v1` + group key + sorted member hashes. `PutCluster` overwrites the live row for each `cluster_id` when a later window changes members; weekly `tmp/unwanted-report-*.json` files are snapshots. MUST NOT store cluster state only in `tmp/unwanted-report-*.json`.
 
 - Enforcement: `PutCluster` / `GetClusterByFingerprint` in `internal/hoststore`
 - Violation: STOP, persist cluster rows in hoststore only

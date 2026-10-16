@@ -1,6 +1,7 @@
 package pimdir
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -46,15 +47,21 @@ func OpenStore(storeDir string) (*Reader, error) {
 }
 
 // ListRecentEmails returns live mail rows newest-first by sort_key/seq.
-func (r *Reader) ListRecentEmails(limit int) ([]EmailSummary, error) {
-	return r.ListRecentEmailsIn(nil, limit)
+func (r *Reader) ListRecentEmails(ctx context.Context, limit int) ([]EmailSummary, error) {
+	return r.ListRecentEmailsIn(ctx, nil, limit)
 }
 
 // ListRecentEmailsIn returns newest-first rows. When collections is non-empty, only those folders match.
-func (r *Reader) ListRecentEmailsIn(collections []string, limit int) ([]EmailSummary, error) {
+func (r *Reader) ListRecentEmailsIn(ctx context.Context, collections []string, limit int) ([]EmailSummary, error) {
 	const op = "pimdir.ListRecentEmailsIn"
 	if r == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
+	}
+	if ctx == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing context deadline")
 	}
 	if limit <= 0 {
 		limit = 25
@@ -65,16 +72,12 @@ func (r *Reader) ListRecentEmailsIn(collections []string, limit int) ([]EmailSum
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
 	}
 
 	collections = normalizeCollections(collections)
-	q := `
-SELECT i.collection, i.link_id, i.seq, m.subject, m.sender, m.sender_name, m.date, m.message_id, i.object_hash
-FROM items i
-JOIN mail_summary m ON m.collection = i.collection AND m.link_id = i.link_id
-WHERE i.deleted = 0`
+	q := summarySelect
 	args := []any{}
 	if len(collections) > 0 {
 		q += ` AND i.collection IN (` + sqlPlaceholders(len(collections)) + `)`
@@ -86,7 +89,7 @@ WHERE i.deleted = 0`
 ORDER BY i.sort_key DESC, i.seq DESC
 LIMIT ?`
 	args = append(args, limit)
-	rows, err := db.Query(q, args...)
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query mail summaries")
 	}
@@ -94,25 +97,9 @@ LIMIT ?`
 
 	out := make([]EmailSummary, 0, limit)
 	for rows.Next() {
-		var s EmailSummary
-		var objectHash, sender, senderName, date, messageID sql.NullString
-		if err := rows.Scan(&s.Collection, &s.LinkID, &s.Seq, &s.Subject, &sender, &senderName, &date, &messageID, &objectHash); err != nil {
+		s, err := scanEmailSummaryRow(rows)
+		if err != nil {
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan row")
-		}
-		if objectHash.Valid {
-			s.ObjectHash = objectHash.String
-		}
-		if sender.Valid {
-			s.Sender = sender.String
-		}
-		if senderName.Valid {
-			s.SenderName = senderName.String
-		}
-		if date.Valid {
-			s.Date = date.String
-		}
-		if messageID.Valid {
-			s.MessageID = messageID.String
 		}
 		out = append(out, s)
 	}
@@ -120,6 +107,92 @@ LIMIT ?`
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate rows")
 	}
 	return out, nil
+}
+
+// ListEmailsIn returns live rows with sort_key in [window.From, window.To), newest first.
+func (r *Reader) ListEmailsIn(ctx context.Context, collections []string, window DateWindow, limit int) ([]EmailSummary, error) {
+	const op = "pimdir.ListEmailsIn"
+	if r == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
+	}
+	if ctx == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing context deadline")
+	}
+	if window.Zero() || window.From.IsZero() || window.To.IsZero() {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "empty date window")
+	}
+	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
+	}
+	collections = normalizeCollections(collections)
+	q := summarySelect + `
+ AND TRIM(i.sort_key) != ''
+ AND i.sort_key >= ?
+ AND i.sort_key < ?`
+	args := []any{window.FromRFC3339(), window.ToRFC3339()}
+	if len(collections) > 0 {
+		q += ` AND i.collection IN (` + sqlPlaceholders(len(collections)) + `)`
+		for _, c := range collections {
+			args = append(args, c)
+		}
+	}
+	q += `
+ORDER BY i.sort_key DESC, i.seq DESC`
+	if limit > 0 {
+		q += `
+LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query mail summaries")
+	}
+	defer func() { _ = rows.Close() }()
+	var out []EmailSummary
+	for rows.Next() {
+		s, err := scanEmailSummaryRow(rows)
+		if err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan row")
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate rows")
+	}
+	return out, nil
+}
+
+func scanEmailSummaryRow(rows *sql.Rows) (EmailSummary, error) {
+	var s EmailSummary
+	var objectHash, sender, senderName, date, messageID sql.NullString
+	if err := rows.Scan(&s.Collection, &s.LinkID, &s.Seq, &s.Subject, &sender, &senderName, &date, &messageID, &objectHash); err != nil {
+		return EmailSummary{}, err
+	}
+	if objectHash.Valid {
+		s.ObjectHash = objectHash.String
+	}
+	if sender.Valid {
+		s.Sender = sender.String
+	}
+	if senderName.Valid {
+		s.SenderName = senderName.String
+	}
+	if date.Valid {
+		s.Date = date.String
+	}
+	if messageID.Valid {
+		s.MessageID = messageID.String
+	}
+	return s, nil
 }
 
 func normalizeCollections(collections []string) []string {

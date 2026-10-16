@@ -110,13 +110,13 @@ func chatRequestFromLine(ln openaibatch.ChatLine, fallbackModel string) polypus.
 	return polypus.ChatRequest{Model: model, Temperature: 0, Messages: msgs}
 }
 
-func prefetchOneEssence(ctx context.Context, runner ChatLineRunner, ln openaibatch.ChatLine, firstContent string) (harness.EssenceOut, error) {
+func prefetchOneEssence(ctx context.Context, runner ChatLineRunner, ln openaibatch.ChatLine, firstContent string, escalateModel string) (harness.EssenceOut, error) {
 	const op = "mailreport.prefetchOneEssence"
 	parsed, parseErr := parseEssenceResponse(firstContent)
 	if parseErr == nil {
 		return parsed, nil
 	}
-	shell, err := createEssenceIntegrityShellChatLines(runner, ln)
+	shell, err := createEssenceIntegrityShellChatLines(runner, ln, escalateModel)
 	if err != nil {
 		return harness.EssenceOut{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence integrity shell")
 	}
@@ -140,6 +140,7 @@ func prefetchEssence(
 	ctx context.Context,
 	runner ChatLineRunner,
 	model string,
+	escalateModel string,
 	world string,
 	items []Item,
 	batchSize int,
@@ -197,7 +198,7 @@ func prefetchEssence(
 				errs[id] = sirerr.New(sirerr.CodeAI, "mailreport.prefetchEssence", lr.ErrMessage)
 				continue
 			}
-			parsed, perr := prefetchOneEssence(ctx, runner, ln, lr.Content)
+			parsed, perr := prefetchOneEssence(ctx, runner, ln, lr.Content, escalateModel)
 			if perr == nil {
 				out[id] = parsed
 				continue
