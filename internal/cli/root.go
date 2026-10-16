@@ -31,18 +31,26 @@ type rootOptions struct {
 
 // skipTelemetryForCmd skips olly for commands that must stay fast and must not
 // fail when no OTLP collector is reachable (shutdown flush uses a 5s cap).
+// LLM paths (mail report, mail sync classify) keep process tracing.
 func skipTelemetryForCmd(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
 	}
+	leaf := cmd.Name()
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
 		case VerbConfigure:
 			if isTerminal(os.Stdin) {
 				return true
 			}
-		case "pim", "mail", "polypus":
+		case "pim", "polypus":
 			return true
+		case "mail":
+			switch leaf {
+			case VerbStatus, "readiness":
+				return true
+			}
+			return false
 		}
 	}
 	return false

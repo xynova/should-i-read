@@ -80,7 +80,7 @@ func newTokenProviderCmd(
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:   "status",
+		Use:   VerbStatus,
 		Short: "Redacted client and token storage status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := opts.mustLoad(repoRoot)

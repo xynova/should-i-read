@@ -22,67 +22,69 @@ const (
 
 // RunnerConfig configures classify runs.
 type RunnerConfig struct {
-	Harness          *harness.Harness
-	Seats            Seats
-	Pipeline         *Pipeline
-	CatalogPath      string
-	ApplyCatalog     bool
-	Store            *hoststore.Store
-	ClassifyMax      int
-	PolypusURL       string
-	JudgeModel       string
-	AuthorModel      string
-	AuthorOnSkip     bool
-	Strategy         string
-	EmbedModel       string
-	AttachMinCosine  float64
-	WalkReinforceMin float64
-	EssenceBatch     ChatLineRunner
-	EssenceModel     string
-	EssenceBatchSize int
-	TldrBatch        ChatLineRunner
-	TldrModel        string
-	ClusterMinCosine float64
-	QuarantineTerms  []string
-	Attention        AttentionClient
-	AttentionTrueMin float64
-	EssenceDumpDir   string
-	Now              time.Time
+	Harness              *harness.Harness
+	Seats                Seats
+	Pipeline             *Pipeline
+	CatalogPath          string
+	ApplyCatalog         bool
+	Store                *hoststore.Store
+	ClassifyMax          int
+	PolypusURL           string
+	JudgeModel           string
+	AuthorModel          string
+	AuthorOnSkip         bool
+	Strategy             string
+	EmbedModel           string
+	AttachMinCosine      float64
+	WalkReinforceMin     float64
+	EssenceBatch         ChatLineRunner
+	EssenceModel         string
+	EssenceEscalateModel string
+	EssenceBatchSize     int
+	TldrBatch            ChatLineRunner
+	TldrModel            string
+	ClusterMinCosine     float64
+	QuarantineTerms      []string
+	Attention            AttentionClient
+	AttentionTrueMin     float64
+	EssenceDumpDir       string
+	Now                  time.Time
 }
 
 // Runner classifies items with taxonomy Operate.
 type Runner struct {
-	h                *harness.Harness
-	seats            Seats
-	pipe             *Pipeline
-	catalogPath      string
-	apply            bool
-	store            *hoststore.Store
-	max              int
-	polypusURL       string
-	judgeModel       string
-	authorModel      string
-	authorOnSkip     bool
-	vocab            catalog.Vocabulary
-	cat              *catalog.Catalog
-	strategy         string
-	embedModel       string
-	attachMinCosine  float64
-	walkReinforceMin float64
-	operateWorld     string
-	essenceBatch     ChatLineRunner
-	essenceModel     string
-	essenceBatchSize int
-	essenceCache     map[string]harness.EssenceOut
-	tldrBatch        ChatLineRunner
-	tldrModel        string
-	clusterMinCosine float64
-	quarantineTerms  []string
-	attention        AttentionClient
-	attentionTrueMin float64
-	essenceDumpDir   string
-	aiHops           int
-	now              time.Time
+	h                    *harness.Harness
+	seats                Seats
+	pipe                 *Pipeline
+	catalogPath          string
+	apply                bool
+	store                *hoststore.Store
+	max                  int
+	polypusURL           string
+	judgeModel           string
+	authorModel          string
+	authorOnSkip         bool
+	vocab                catalog.Vocabulary
+	cat                  *catalog.Catalog
+	strategy             string
+	embedModel           string
+	attachMinCosine      float64
+	walkReinforceMin     float64
+	operateWorld         string
+	essenceBatch         ChatLineRunner
+	essenceModel         string
+	essenceEscalateModel string
+	essenceBatchSize     int
+	essenceCache         map[string]harness.EssenceOut
+	tldrBatch            ChatLineRunner
+	tldrModel            string
+	clusterMinCosine     float64
+	quarantineTerms      []string
+	attention            AttentionClient
+	attentionTrueMin     float64
+	essenceDumpDir       string
+	aiHops               int
+	now                  time.Time
 }
 
 // CreateRunner builds a Runner after catalog is loaded.
@@ -117,35 +119,36 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		now = time.Now().UTC()
 	}
 	return &Runner{
-		h:                cfg.Harness,
-		seats:            cfg.Seats,
-		pipe:             cfg.Pipeline,
-		catalogPath:      cfg.CatalogPath,
-		apply:            cfg.ApplyCatalog,
-		store:            cfg.Store,
-		max:              max,
-		polypusURL:       cfg.PolypusURL,
-		judgeModel:       strings.TrimSpace(cfg.JudgeModel),
-		authorModel:      strings.TrimSpace(cfg.AuthorModel),
-		embedModel:       strings.TrimSpace(cfg.EmbedModel),
-		authorOnSkip:     cfg.AuthorOnSkip,
-		vocab:            vocab,
-		cat:              cat,
-		strategy:         strategy,
-		attachMinCosine:  cfg.AttachMinCosine,
-		walkReinforceMin: cfg.WalkReinforceMin,
-		operateWorld:     world,
-		essenceBatch:     cfg.EssenceBatch,
-		essenceModel:     strings.TrimSpace(cfg.EssenceModel),
-		essenceBatchSize: cfg.EssenceBatchSize,
-		tldrBatch:        cfg.TldrBatch,
-		tldrModel:        strings.TrimSpace(cfg.TldrModel),
-		clusterMinCosine: cfg.ClusterMinCosine,
-		quarantineTerms:  append([]string{}, cfg.QuarantineTerms...),
-		attention:        cfg.Attention,
-		attentionTrueMin: cfg.AttentionTrueMin,
-		essenceDumpDir:   strings.TrimSpace(cfg.EssenceDumpDir),
-		now:              now,
+		h:                    cfg.Harness,
+		seats:                cfg.Seats,
+		pipe:                 cfg.Pipeline,
+		catalogPath:          cfg.CatalogPath,
+		apply:                cfg.ApplyCatalog,
+		store:                cfg.Store,
+		max:                  max,
+		polypusURL:           cfg.PolypusURL,
+		judgeModel:           strings.TrimSpace(cfg.JudgeModel),
+		authorModel:          strings.TrimSpace(cfg.AuthorModel),
+		embedModel:           strings.TrimSpace(cfg.EmbedModel),
+		authorOnSkip:         cfg.AuthorOnSkip,
+		vocab:                vocab,
+		cat:                  cat,
+		strategy:             strategy,
+		attachMinCosine:      cfg.AttachMinCosine,
+		walkReinforceMin:     cfg.WalkReinforceMin,
+		operateWorld:         world,
+		essenceBatch:         cfg.EssenceBatch,
+		essenceModel:         strings.TrimSpace(cfg.EssenceModel),
+		essenceEscalateModel: EffectiveEssenceEscalateModel(cfg.EssenceModel, cfg.EssenceEscalateModel),
+		essenceBatchSize:     cfg.EssenceBatchSize,
+		tldrBatch:            cfg.TldrBatch,
+		tldrModel:            strings.TrimSpace(cfg.TldrModel),
+		clusterMinCosine:     cfg.ClusterMinCosine,
+		quarantineTerms:      append([]string{}, cfg.QuarantineTerms...),
+		attention:            cfg.Attention,
+		attentionTrueMin:     cfg.AttentionTrueMin,
+		essenceDumpDir:       strings.TrimSpace(cfg.EssenceDumpDir),
+		now:                  now,
 	}, nil
 }
 
@@ -183,9 +186,10 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	art.AttachMinCosine = r.attachMinCosine
 	art.WalkReinforceMin = r.walkReinforceMin
 	art.EssenceDumpDir = r.essenceDumpDir
+	art.EssenceEscalateModel = r.essenceEscalateModel
 	pending := r.pendingClassifyItems(ctx, items)
 	if r.essenceBatch != nil && config.IsAttachStrategy(r.strategy) && len(pending) > 0 {
-		cache, prefetchErrs := prefetchEssence(ctx, r.essenceBatch, r.essenceModel, r.operateWorld, pending, r.essenceBatchSize)
+		cache, prefetchErrs := prefetchEssence(ctx, r.essenceBatch, r.essenceModel, r.essenceEscalateModel, r.operateWorld, pending, r.essenceBatchSize)
 		r.essenceCache = cache
 		_ = prefetchErrs // misses fall back to per-message Essencer during Operate.
 	}

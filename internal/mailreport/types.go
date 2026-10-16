@@ -93,32 +93,33 @@ type MessageRow struct {
 
 // Artifact is the report-only JSON output.
 type Artifact struct {
-	Mode             string       `json:"mode"`
-	PolypusBaseURL   string       `json:"polypus_base_url"`
-	JudgeModel       string       `json:"judge_model,omitempty"`
-	AuthorModel      string       `json:"author_model,omitempty"`
-	EmbedModel       string       `json:"embed_model,omitempty"`
-	AttachMinCosine  float64      `json:"attach_min_cosine,omitempty"`
-	WalkReinforceMin float64      `json:"walk_reinforce_min,omitempty"`
-	CatalogID        string       `json:"catalog_id"`
-	SendersCatalogID string       `json:"senders_catalog_id,omitempty"`
-	GeneratedAt      string       `json:"generated_at"`
-	WindowFrom       string       `json:"window_from,omitempty"`
-	WindowTo         string       `json:"window_to,omitempty"`
-	Source           string       `json:"source"`
-	Classified       int          `json:"classified"`
-	Omitted          int          `json:"omitted"`
-	Unresolved       int          `json:"unresolved"`
-	AliasesAdded     int          `json:"aliases_added"`
-	LeavesAdded      int          `json:"leaves_added"`
-	ReportPath       string       `json:"report_path,omitempty"`
-	TldrModel        string       `json:"tldr_model,omitempty"`
-	AttentionTrueMin float64      `json:"attention_true_min,omitempty"`
-	AttentionScored  int          `json:"attention_scored,omitempty"`
-	AttentionOmitted int          `json:"attention_omitted,omitempty"`
-	EssenceDumpDir   string       `json:"essence_dump_dir,omitempty"`
-	Messages         []MessageRow `json:"messages"`
-	Clusters         []ClusterRow `json:"clusters,omitempty"`
+	Mode                 string       `json:"mode"`
+	PolypusBaseURL       string       `json:"polypus_base_url"`
+	JudgeModel           string       `json:"judge_model,omitempty"`
+	AuthorModel          string       `json:"author_model,omitempty"`
+	EmbedModel           string       `json:"embed_model,omitempty"`
+	AttachMinCosine      float64      `json:"attach_min_cosine,omitempty"`
+	WalkReinforceMin     float64      `json:"walk_reinforce_min,omitempty"`
+	CatalogID            string       `json:"catalog_id"`
+	SendersCatalogID     string       `json:"senders_catalog_id,omitempty"`
+	GeneratedAt          string       `json:"generated_at"`
+	WindowFrom           string       `json:"window_from,omitempty"`
+	WindowTo             string       `json:"window_to,omitempty"`
+	Source               string       `json:"source"`
+	Classified           int          `json:"classified"`
+	Omitted              int          `json:"omitted"`
+	Unresolved           int          `json:"unresolved"`
+	AliasesAdded         int          `json:"aliases_added"`
+	LeavesAdded          int          `json:"leaves_added"`
+	ReportPath           string       `json:"report_path,omitempty"`
+	TldrModel            string       `json:"tldr_model,omitempty"`
+	EssenceEscalateModel string       `json:"essence_escalate_model,omitempty"`
+	AttentionTrueMin     float64      `json:"attention_true_min,omitempty"`
+	AttentionScored      int          `json:"attention_scored,omitempty"`
+	AttentionOmitted     int          `json:"attention_omitted,omitempty"`
+	EssenceDumpDir       string       `json:"essence_dump_dir,omitempty"`
+	Messages             []MessageRow `json:"messages"`
+	Clusters             []ClusterRow `json:"clusters,omitempty"`
 }
 
 // ProgressEntry is stored per object_hash for resume.

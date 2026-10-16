@@ -1,6 +1,7 @@
 package pimdir
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -63,6 +64,9 @@ func TestCreateDateWindowInvalid(t *testing.T) {
 		code, ok := sirerr.AsCode(err)
 		if !ok || code != sirerr.CodeInvalid {
 			t.Fatalf("code for %q %q: %v", c.from, c.to, err)
+		}
+		if strings.Contains(err.Error(), "--") {
+			t.Fatalf("pimdir error must not name CLI flags: %v", err)
 		}
 	}
 }

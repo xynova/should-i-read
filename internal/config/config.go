@@ -49,11 +49,12 @@ type StoreFile struct {
 
 // PolypusFile is the polypus YAML section.
 type PolypusFile struct {
-	BaseURL       string `yaml:"base_url"`
-	ClassifyModel string `yaml:"classify_model"`
-	JudgeModel    string `yaml:"judge_model"`
-	EmbedModel    string `yaml:"embed_model"`
-	TldrModel     string `yaml:"tldr_model"`
+	BaseURL              string `yaml:"base_url"`
+	ClassifyModel        string `yaml:"classify_model"`
+	JudgeModel           string `yaml:"judge_model"`
+	EmbedModel           string `yaml:"embed_model"`
+	TldrModel            string `yaml:"tldr_model"`
+	EssenceEscalateModel string `yaml:"essence_escalate_model"`
 }
 
 // PimalayaFile is the Neverest / pimdir YAML section.
@@ -74,20 +75,21 @@ type OAuthFile struct {
 
 // Config is the resolved runtime config used by the CLI.
 type Config struct {
-	Path                 string
-	RepoRoot             string
-	PolypusBaseURL       string
-	PolypusClassifyModel string
-	PolypusJudgeModel    string
-	PolypusEmbedModel    string
-	PolypusTldrModel     string
-	GmailClientID        string
-	GmailClientSecret    string
-	OutlookClientID      string
-	Pimalaya             PimalayaConfig
-	Taxonomy             TaxonomyConfig
-	StorePath            string
-	Cluster              ClusterConfig
+	Path                        string
+	RepoRoot                    string
+	PolypusBaseURL              string
+	PolypusClassifyModel        string
+	PolypusJudgeModel           string
+	PolypusEmbedModel           string
+	PolypusTldrModel            string
+	PolypusEssenceEscalateModel string
+	GmailClientID               string
+	GmailClientSecret           string
+	OutlookClientID             string
+	Pimalaya                    PimalayaConfig
+	Taxonomy                    TaxonomyConfig
+	StorePath                   string
+	Cluster                     ClusterConfig
 }
 
 // PimalayaConfig is resolved Neverest / pimdir settings.
@@ -122,10 +124,11 @@ func (c Config) Redacted() map[string]any {
 	return map[string]any{
 		"path": c.Path,
 		"polypus": map[string]string{
-			"base_url":       c.PolypusBaseURL,
-			"classify_model": setUnset(c.PolypusClassifyModel),
-			"judge_model":    setUnset(c.PolypusJudgeModel),
-			"tldr_model":     setUnset(c.PolypusTldrModel),
+			"base_url":               c.PolypusBaseURL,
+			"classify_model":         setUnset(c.PolypusClassifyModel),
+			"judge_model":            setUnset(c.PolypusJudgeModel),
+			"tldr_model":             setUnset(c.PolypusTldrModel),
+			"essence_escalate_model": setUnset(c.PolypusEssenceEscalateModel),
 		},
 		"cluster": map[string]string{
 			"min_cosine":       strconv.FormatFloat(c.Cluster.MinCosine, 'f', -1, 64),
@@ -328,6 +331,7 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	judgeModel := strings.TrimSpace(file.Polypus.JudgeModel)
 	embedModel := strings.TrimSpace(file.Polypus.EmbedModel)
 	tldrModel := strings.TrimSpace(file.Polypus.TldrModel)
+	essenceEscalateModel := strings.TrimSpace(file.Polypus.EssenceEscalateModel)
 	taxonomyCfg, err := resolveTaxonomy(file.Taxonomy)
 	if err != nil {
 		return Config{}, err
@@ -349,16 +353,17 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	}
 
 	return Config{
-		Path:                 path,
-		RepoRoot:             repoRoot,
-		PolypusBaseURL:       strings.TrimRight(baseURL, "/"),
-		PolypusClassifyModel: classifyModel,
-		PolypusJudgeModel:    judgeModel,
-		PolypusEmbedModel:    embedModel,
-		PolypusTldrModel:     tldrModel,
-		GmailClientID:        gmailID,
-		GmailClientSecret:    gmailSecret,
-		OutlookClientID:      outlookID,
+		Path:                        path,
+		RepoRoot:                    repoRoot,
+		PolypusBaseURL:              strings.TrimRight(baseURL, "/"),
+		PolypusClassifyModel:        classifyModel,
+		PolypusJudgeModel:           judgeModel,
+		PolypusEmbedModel:           embedModel,
+		PolypusTldrModel:            tldrModel,
+		PolypusEssenceEscalateModel: essenceEscalateModel,
+		GmailClientID:               gmailID,
+		GmailClientSecret:           gmailSecret,
+		OutlookClientID:             outlookID,
 		Pimalaya: PimalayaConfig{
 			NeverestBin:            neverestBin,
 			NeverestConfig:         neverestCfg,

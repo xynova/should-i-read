@@ -93,7 +93,7 @@ func TestRunner_EssencePrefetchRunChatLines(t *testing.T) {
 		{ObjectHash: "h2", Body: "two"},
 		{ObjectHash: "h3", Body: "three"},
 	}
-	got, errs := prefetchEssence(context.Background(), stub, "m", WorldContextAttach, items, 8)
+	got, errs := prefetchEssence(context.Background(), stub, "m", "", WorldContextAttach, items, 8)
 	if len(errs) != 0 {
 		t.Fatalf("errs=%v", errs)
 	}
@@ -145,7 +145,7 @@ func TestPrefetchOneEssence_resumeAssistantTurn(t *testing.T) {
 	stub := &resumeChatLinesStub{}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	parsed, err := prefetchOneEssence(ctx, stub, ln, whyOnly)
+	parsed, err := prefetchOneEssence(ctx, stub, ln, whyOnly, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,4 +155,61 @@ func TestPrefetchOneEssence_resumeAssistantTurn(t *testing.T) {
 	if stub.calls.Load() != 1 {
 		t.Fatalf("resume chat calls=%d", stub.calls.Load())
 	}
+}
+
+type escalatePrefetchStub struct {
+	calls  atomic.Int32
+	models []string
+}
+
+func (s *escalatePrefetchStub) RunChatLines(_ context.Context, lines []openaibatch.ChatLine) (map[string]openaibatch.LineResult, error) {
+	s.calls.Add(1)
+	if len(lines) != 1 {
+		return nil, errors.New("expected one line")
+	}
+	s.models = append(s.models, lines[0].Model)
+	whyOnly := "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\n"
+	full := whyOnly + "ABOUT: a\nSHAPE: s\nKIND: notification > software-release > changelog\n"
+	content := whyOnly
+	if lines[0].Model == "escalate-big" {
+		content = full
+	}
+	return map[string]openaibatch.LineResult{lines[0].CustomID: {Content: content}}, nil
+}
+
+func TestPrefetchOneEssence_compensateUsesEscalateModel(t *testing.T) {
+	whyOnly := "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\n"
+	ln := openaibatch.ChatLine{
+		CustomID: "h1",
+		Model:    "micro",
+		Messages: []map[string]string{
+			{chatRoleKey: polypus.RoleSystem, chatContentKey: essenceSystemPrompt},
+			{chatRoleKey: polypus.RoleUser, chatContentKey: "prompt"},
+		},
+	}
+	stub := &escalatePrefetchStub{}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	parsed, err := prefetchOneEssence(ctx, stub, ln, whyOnly, "escalate-big")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Kind == "" {
+		t.Fatal("expected kind")
+	}
+	if stub.calls.Load() != essenceParseMaxAttempts {
+		t.Fatalf("chat calls=%d", stub.calls.Load())
+	}
+	if !slicesContains(stub.models, "escalate-big") {
+		t.Fatalf("models=%v", stub.models)
+	}
+}
+
+func slicesContains(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }

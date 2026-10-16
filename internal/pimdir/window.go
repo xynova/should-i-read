@@ -46,7 +46,7 @@ func CreateDateWindow(from, to string) (DateWindow, error) {
 	from = strings.TrimSpace(from)
 	to = strings.TrimSpace(to)
 	if from == "" || to == "" {
-		return DateWindow{}, sirerr.New(sirerr.CodeInvalid, op, "both --from and --to are required")
+		return DateWindow{}, sirerr.New(sirerr.CodeInvalid, op, "both from and to dates are required")
 	}
 	if strings.Contains(from, "T") || strings.Contains(from, "/") ||
 		strings.Contains(to, "T") || strings.Contains(to, "/") {
@@ -54,14 +54,14 @@ func CreateDateWindow(from, to string) (DateWindow, error) {
 	}
 	fromT, err := time.ParseInLocation(dateLayout, from, time.UTC)
 	if err != nil {
-		return DateWindow{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "parse --from")
+		return DateWindow{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "parse from date")
 	}
 	toT, err := time.ParseInLocation(dateLayout, to, time.UTC)
 	if err != nil {
-		return DateWindow{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "parse --to")
+		return DateWindow{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "parse to date")
 	}
 	if !fromT.Before(toT) {
-		return DateWindow{}, sirerr.New(sirerr.CodeInvalid, op, "--from must be before --to")
+		return DateWindow{}, sirerr.New(sirerr.CodeInvalid, op, "from date must be before to date")
 	}
 	return DateWindow{From: fromT, To: toT}, nil
 }

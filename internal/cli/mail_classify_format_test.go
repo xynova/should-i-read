@@ -24,7 +24,7 @@ func TestFormatClassifyArtifactClusters(t *testing.T) {
 	if !strings.Contains(out, "cluster") {
 		t.Fatalf("missing cluster: %s", out)
 	}
-	if !strings.Contains(out, "changelog (2) review:") {
+	if !strings.Contains(out, "changelog (2) review") {
 		t.Fatalf("missing cluster line: %s", out)
 	}
 	if !strings.Contains(out, "Two Fabric release notes.") {
@@ -82,7 +82,30 @@ func TestFormatClassifyArtifactEssenceDump(t *testing.T) {
 		},
 	}
 	out := formatClassifyArtifact(art)
-	if !strings.Contains(out, "essence dumps tmp/essence-parse") {
+	if !strings.Contains(out, "essence dumps 1 · tmp/essence-parse") {
 		t.Fatalf("missing dump line: %s", out)
+	}
+}
+
+func TestFormatClassifyArtifactFailures(t *testing.T) {
+	art := mailreport.Artifact{
+		Classified: 8,
+		Messages: []mailreport.MessageRow{
+			{Subject: "Maldonado v Clearroute", Error: `kind segment "Legal notice" not kebab-case`},
+			{Subject: "Your commercially valuable ideas deserve protection", Error: "[essence] why1 empty"},
+		},
+	}
+	out := formatClassifyArtifact(art)
+	if !strings.Contains(out, "Classified 8 · failed 2") {
+		t.Fatalf("missing counts: %s", out)
+	}
+	if !strings.Contains(out, "Failed 2") {
+		t.Fatalf("missing failed header: %s", out)
+	}
+	if !strings.Contains(out, "kind not kebab-case") {
+		t.Fatalf("missing kind gloss: %s", out)
+	}
+	if !strings.Contains(out, "essence why1 empty") {
+		t.Fatalf("missing why gloss: %s", out)
 	}
 }

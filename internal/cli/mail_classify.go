@@ -79,7 +79,7 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 	}
 	window, err := validateMailReportWindow(inPath, fromDate, toDate)
 	if err != nil {
-		return err
+		return wrapCLIHop(err, op, "validate window")
 	}
 	dir := storeDir
 	if dir == "" {
@@ -87,13 +87,16 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 	}
 	reader, err := pimdir.OpenStore(dir)
 	if err != nil {
+		return wrapCLIHop(err, op, "open store")
+	}
+	ctx, cancel, err := classifyJobContext(cmd.Context(), !window.Zero())
+	if err != nil {
 		return err
 	}
-	ctx, cancel := classifyJobContext(cmd.Context(), !window.Zero())
 	defer cancel()
 	items, err := loadReportItems(ctx, reader, inPath, window, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
 	if err != nil {
-		return err
+		return wrapCLIHop(err, op, "load items")
 	}
 	runner, err := prepareClassifyRunner(ctx, cfg, repoRoot, cOpts)
 	if err != nil {
@@ -116,7 +119,7 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 	}
 	path, err := writeReportArtifact(repoRoot, outPath, art)
 	if err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write report")
+		return wrapCLIHop(err, op, "write report")
 	}
 	art.ReportPath = path
 	if wantJSON(cmd) {
@@ -155,7 +158,10 @@ func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot st
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "open store")
 	}
 	items, unresolved := itemsFromFetchHunks(reader, pimalaya.FetchedHunks(res.Raw), maxBody, excludeCollections)
-	ctx, cancel := classifyJobContext(cmd.Context(), false)
+	ctx, cancel, err := classifyJobContext(cmd.Context(), false)
+	if err != nil {
+		return err
+	}
 	defer cancel()
 	runner, err := prepareClassifyRunner(ctx, cfg, repoRoot, classifyOpts{maxBody: maxBody})
 	if err != nil {
@@ -273,6 +279,17 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		}
 		embedSeat = mailreport.NewStropEmbedSeat(stropEmb, embedModel)
 	}
+	essenceEscalate := mailreport.EffectiveEssenceEscalateModel(essenceModel, cfg.PolypusEssenceEscalateModel)
+	if essenceEscalate != "" {
+		if probeErr := client.ProbeChat(resolveCtx, essenceEscalate); probeErr != nil {
+			code := sirerr.CodeUnavailable
+			if c, ok := sirerr.AsCode(probeErr); ok {
+				code = c
+			}
+			return nil, sirerr.Wrap(probeErr, code, op, "configured essence escalate model failed chat probe").
+				With("model", essenceEscalate)
+		}
+	}
 	var essenceBatch mailreport.ChatLineRunner
 	if essenceModel != "" {
 		essenceBatch, err = mailreport.NewParallelChatRunner(client, essenceModel, cfg.Taxonomy.EssenceBatchSize)
@@ -283,13 +300,14 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	now := time.Now().UTC()
 	essenceDumpDir := filepath.Join(repoRoot, "tmp", "essence-parse")
 	seats, err := mailreport.CreateSeats(mailreport.SeatsConfig{
-		Client:         client,
-		JudgeModel:     judge,
-		AuthorModel:    author,
-		EssenceModel:   essenceModel,
-		EssenceDumpDir: essenceDumpDir,
-		Now:            now,
-		Embedder:       embedSeat,
+		Client:               client,
+		JudgeModel:           judge,
+		AuthorModel:          author,
+		EssenceModel:         essenceModel,
+		EssenceEscalateModel: cfg.PolypusEssenceEscalateModel,
+		EssenceDumpDir:       essenceDumpDir,
+		Now:                  now,
+		Embedder:             embedSeat,
 	})
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create seats")
@@ -326,9 +344,14 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open classify store")
 	}
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			_ = store.Close()
+		}
+	}()
 	if err := importClassifyProgressOnce(ctx, store, repoRoot); err != nil {
-		_ = store.Close()
-		return nil, err
+		return nil, wrapCLIHop(err, op, "import progress")
 	}
 	tldrModel := strings.TrimSpace(cfg.PolypusTldrModel)
 	if tldrModel == "" {
@@ -343,7 +366,6 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	} else if tldrModel != "" {
 		tldrBatch, err = mailreport.NewParallelChatRunner(client, tldrModel, cfg.Taxonomy.EssenceBatchSize)
 		if err != nil {
-			_ = store.Close()
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "tldr parallel runner")
 		}
 	}
@@ -353,41 +375,41 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		TrueMin: cfg.Cluster.AttentionTrueMin,
 	})
 	if err != nil {
-		_ = store.Close()
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create attention scorer")
 	}
 	runner, err := mailreport.CreateRunner(mailreport.RunnerConfig{
-		Harness:          h,
-		Seats:            seats,
-		Pipeline:         pipe,
-		CatalogPath:      catalogPath,
-		ApplyCatalog:     !cOpts.noApply,
-		Store:            store,
-		ClassifyMax:      cfg.Taxonomy.ClassifyMax,
-		PolypusURL:       cfg.PolypusBaseURL,
-		JudgeModel:       judge,
-		AuthorModel:      author,
-		EmbedModel:       embedModel,
-		Strategy:         cfg.Taxonomy.Strategy,
-		AttachMinCosine:  cfg.Taxonomy.AttachMinCosine,
-		WalkReinforceMin: cfg.Taxonomy.WalkReinforceMin,
-		AuthorOnSkip:     cfg.Taxonomy.AuthorOnSkip,
-		EssenceBatch:     essenceBatch,
-		EssenceModel:     essenceModel,
-		EssenceBatchSize: cfg.Taxonomy.EssenceBatchSize,
-		TldrBatch:        tldrBatch,
-		TldrModel:        tldrModel,
-		ClusterMinCosine: cfg.Cluster.MinCosine,
-		QuarantineTerms:  cfg.Cluster.QuarantineTerms,
-		Attention:        attention,
-		AttentionTrueMin: cfg.Cluster.AttentionTrueMin,
-		EssenceDumpDir:   essenceDumpDir,
-		Now:              now,
+		Harness:              h,
+		Seats:                seats,
+		Pipeline:             pipe,
+		CatalogPath:          catalogPath,
+		ApplyCatalog:         !cOpts.noApply,
+		Store:                store,
+		ClassifyMax:          cfg.Taxonomy.ClassifyMax,
+		PolypusURL:           cfg.PolypusBaseURL,
+		JudgeModel:           judge,
+		AuthorModel:          author,
+		EmbedModel:           embedModel,
+		Strategy:             cfg.Taxonomy.Strategy,
+		AttachMinCosine:      cfg.Taxonomy.AttachMinCosine,
+		WalkReinforceMin:     cfg.Taxonomy.WalkReinforceMin,
+		AuthorOnSkip:         cfg.Taxonomy.AuthorOnSkip,
+		EssenceBatch:         essenceBatch,
+		EssenceModel:         essenceModel,
+		EssenceEscalateModel: cfg.PolypusEssenceEscalateModel,
+		EssenceBatchSize:     cfg.Taxonomy.EssenceBatchSize,
+		TldrBatch:            tldrBatch,
+		TldrModel:            tldrModel,
+		ClusterMinCosine:     cfg.Cluster.MinCosine,
+		QuarantineTerms:      cfg.Cluster.QuarantineTerms,
+		Attention:            attention,
+		AttentionTrueMin:     cfg.Cluster.AttentionTrueMin,
+		EssenceDumpDir:       essenceDumpDir,
+		Now:                  now,
 	}, vocab, cat)
 	if err != nil {
-		_ = store.Close()
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create runner")
 	}
+	handedOff = true
 	return runner, nil
 }
 
@@ -477,7 +499,11 @@ func validateMailReportWindow(inPath, fromDate, toDate string) (pimdir.DateWindo
 	if fromDate == "" && toDate == "" {
 		return pimdir.DateWindow{}, nil
 	}
-	return pimdir.CreateDateWindow(fromDate, toDate)
+	window, err := pimdir.CreateDateWindow(fromDate, toDate)
+	if err != nil {
+		return pimdir.DateWindow{}, wrapCLIHop(err, op, "parse --from/--to window")
+	}
+	return window, nil
 }
 
 func reportListLimit(limit int, limitChanged bool, window pimdir.DateWindow) int {
@@ -500,10 +526,10 @@ func loadReportItems(ctx context.Context, reader *pimdir.Reader, inPath string, 
 	if !window.Zero() {
 		rows, err = reader.ListEmailsIn(ctx, collections, window, listLimit)
 	} else {
-		rows, err = reader.ListRecentEmailsIn(collections, listLimit)
+		rows, err = reader.ListRecentEmailsIn(ctx, collections, listLimit)
 	}
 	if err != nil {
-		return nil, err
+		return nil, wrapCLIHop(err, "cli.loadReportItems", "list mail")
 	}
 	var items []mailreport.Item
 	for _, sum := range rows {
@@ -553,11 +579,15 @@ func writeReportArtifact(repoRoot, outPath string, art mailreport.Artifact) (str
 	const op = "cli.writeReportArtifact"
 	out := strings.TrimSpace(outPath)
 	if out == "" {
+		stamp, err := reportFileStamp(art.GeneratedAt)
+		if err != nil {
+			return "", wrapCLIHop(err, op, "report stamp")
+		}
 		tmpDir := filepath.Join(repoRoot, "tmp")
 		if err := os.MkdirAll(tmpDir, 0o750); err != nil {
 			return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "mkdir tmp")
 		}
-		out = filepath.Join(tmpDir, fmt.Sprintf("unwanted-report-%s.json", time.Now().UTC().Format("20060102T150405Z")))
+		out = filepath.Join(tmpDir, fmt.Sprintf("unwanted-report-%s.json", stamp))
 	}
 	raw, err := json.MarshalIndent(art, "", "  ")
 	if err != nil {
@@ -582,26 +612,123 @@ func humanBoolLabel(v bool) string {
 }
 
 func hasEssenceParseError(art mailreport.Artifact) bool {
-	for _, m := range art.Messages {
-		if strings.Contains(m.Error, "essence parse") {
-			return true
-		}
-	}
-	return false
+	return essenceParseErrorCount(art) > 0
 }
 
-func classifyJobContext(parent context.Context, windowed bool) (context.Context, context.CancelFunc) {
+func essenceParseErrorCount(art mailreport.Artifact) int {
+	n := 0
+	for _, m := range art.Messages {
+		if strings.Contains(m.Error, "essence parse") {
+			n++
+		}
+	}
+	return n
+}
+
+func classifyFailedMessages(art mailreport.Artifact) []mailreport.MessageRow {
+	var failed []mailreport.MessageRow
+	for _, m := range art.Messages {
+		if strings.TrimSpace(m.Error) != "" {
+			failed = append(failed, m)
+		}
+	}
+	return failed
+}
+
+func glossClassifyMsgErr(errMsg string) string {
+	s := strings.TrimSpace(errMsg)
+	if s == "" {
+		return ""
+	}
+	lower := strings.ToLower(s)
+	switch {
+	case strings.Contains(lower, "not kebab-case"):
+		return "kind not kebab-case"
+	case strings.Contains(lower, mailreport.EssenceErrWhy1Empty):
+		return "essence why1 empty"
+	case strings.Contains(lower, mailreport.EssenceErrWhyEmpty):
+		return "essence why empty"
+	case strings.Contains(lower, mailreport.EssenceErrAboutOrShape):
+		return "essence about/shape empty"
+	}
+	return truncateRunes(s, 60)
+}
+
+func truncateClassifySubject(subject string, max int) string {
+	return truncateRunes(subject, max)
+}
+
+func truncateRunes(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if s == "" || max <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	if max <= 3 {
+		return string(runes[:max])
+	}
+	return string(runes[:max-3]) + "..."
+}
+
+func formatClassifyTLDR(tldr string) string {
+	const indent = "    "
+	if strings.TrimSpace(tldr) == "" {
+		return ""
+	}
+	wrapped := clui.WrapToWidth(tldr, clui.BoxContentWidth()-len(indent))
+	var b strings.Builder
+	for i, line := range strings.Split(wrapped, "\n") {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(indent)
+		b.WriteString(line)
+	}
+	return b.String()
+}
+
+func classifyJobContext(parent context.Context, windowed bool) (context.Context, context.CancelFunc, error) {
+	const op = "cli.classifyJobContext"
+	if parent == nil {
+		return nil, func() {}, sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
 	timeout := classifyJobTimeout
 	if windowed {
 		timeout = classifyWindowJobTimeout
 	}
-	if parent == nil {
-		return context.WithTimeout(context.Background(), timeout)
-	}
 	if _, ok := parent.Deadline(); ok {
-		return context.WithCancel(parent)
+		ctx, cancel := context.WithCancel(parent)
+		return ctx, cancel, nil
 	}
-	return context.WithTimeout(parent, timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	return ctx, cancel, nil
+}
+
+func wrapCLIHop(err error, op, msg string) error {
+	if err == nil {
+		return nil
+	}
+	code := sirerr.CodeFailed
+	if c, ok := sirerr.AsCode(err); ok && c == sirerr.CodeInvalid {
+		code = sirerr.CodeInvalid
+	}
+	return sirerr.Wrap(err, code, op, msg)
+}
+
+func reportFileStamp(generatedAt string) (string, error) {
+	const op = "cli.reportFileStamp"
+	raw := strings.TrimSpace(generatedAt)
+	if raw == "" {
+		return "", sirerr.New(sirerr.CodeInvalid, op, "generated_at is empty")
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return "", sirerr.Wrap(err, sirerr.CodeInvalid, op, "parse generated_at")
+	}
+	return t.UTC().Format("20060102T150405Z"), nil
 }
 
 func formatClassifyArtifact(art mailreport.Artifact) string {
@@ -609,7 +736,12 @@ func formatClassifyArtifact(art mailreport.Artifact) string {
 	if art.WindowFrom != "" && art.WindowTo != "" {
 		fmt.Fprintf(&b, "Window [%s, %s) UTC\n", art.WindowFrom, art.WindowTo)
 	}
-	fmt.Fprintf(&b, "Classified %d messages\n", art.Classified)
+	failed := classifyFailedMessages(art)
+	fmt.Fprintf(&b, "Classified %d", art.Classified)
+	if len(failed) > 0 {
+		fmt.Fprintf(&b, " · failed %d", len(failed))
+	}
+	b.WriteByte('\n')
 	if art.Omitted > 0 {
 		b.WriteString(clui.Muted(fmt.Sprintf("%d omitted (cap)\n", art.Omitted)))
 	}
@@ -633,7 +765,18 @@ func formatClassifyArtifact(art mailreport.Artifact) string {
 		b.WriteString(clui.Muted(fmt.Sprintf("%d classified without stored embedding\n", embedMiss)))
 	}
 	if art.EssenceDumpDir != "" && hasEssenceParseError(art) {
-		b.WriteString(clui.Muted(fmt.Sprintf("essence dumps %s\n", art.EssenceDumpDir)))
+		n := essenceParseErrorCount(art)
+		b.WriteString(clui.Muted(fmt.Sprintf("essence dumps %d · %s\n", n, art.EssenceDumpDir)))
+	}
+	if len(failed) > 0 {
+		fmt.Fprintf(&b, "\nFailed %d\n", len(failed))
+		for _, m := range failed {
+			label := truncateClassifySubject(m.Subject, 56)
+			if label == "" {
+				label = m.ObjectHash
+			}
+			fmt.Fprintf(&b, "  %s  %s\n", label, glossClassifyMsgErr(m.Error))
+		}
 	}
 	if len(art.Clusters) > 0 {
 		fmt.Fprintf(&b, "%d clusters\n", len(art.Clusters))
@@ -652,10 +795,14 @@ func formatClassifyArtifact(art mailreport.Artifact) string {
 			if c.Attention != nil {
 				reply := humanBoolLabel(c.Attention.NeedsReply)
 				decision := humanBoolLabel(c.Attention.InvolvesDecision)
-				fmt.Fprintf(&b, "  %s (%d) %s urg=%.2f reply=%s decision=%s: %s\n",
-					label, c.Size, c.SuggestedAction, c.Attention.Urgency, reply, decision, tldr)
+				fmt.Fprintf(&b, "  %s (%d) %s  urg=%.2f reply=%s decision=%s\n",
+					label, c.Size, c.SuggestedAction, c.Attention.Urgency, reply, decision)
 			} else {
-				fmt.Fprintf(&b, "  %s (%d) %s: %s\n", label, c.Size, c.SuggestedAction, tldr)
+				fmt.Fprintf(&b, "  %s (%d) %s\n", label, c.Size, c.SuggestedAction)
+			}
+			if tldrLine := formatClassifyTLDR(tldr); tldrLine != "" {
+				b.WriteString(tldrLine)
+				b.WriteByte('\n')
 			}
 		}
 	}

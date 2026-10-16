@@ -54,10 +54,11 @@ type authorJSON struct {
 }
 
 type polypusEssencer struct {
-	client *polypus.Client
-	model  string
-	dump   *essenceDumper
-	shell  *integrity.Shell
+	client        *polypus.Client
+	model         string
+	escalateModel string
+	dump          *essenceDumper
+	shell         *integrity.Shell
 }
 
 func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (harness.EssenceOut, error) {
@@ -104,7 +105,13 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 	retErr = sirerr.Wrap(lastErr, sirerr.CodeAI, op, "essence parse after retries")
 	if e.dump != nil && strings.TrimSpace(raw) != "" {
 		id := essenceDumpIDFromCtx(ctx)
-		path, dumpErr := e.dump.writeLast(id, e.model, messageText, raw, essenceParseMaxAttempts, lastErr)
+		dumpModel := e.model
+		attempt := essenceParseMaxAttempts
+		if strings.TrimSpace(e.escalateModel) != "" {
+			dumpModel = e.escalateModel
+			attempt = essenceParseMaxAttempts + 1
+		}
+		path, dumpErr := e.dump.writeLast(id, dumpModel, messageText, raw, attempt, lastErr)
 		retErr = attachEssenceDump(retErr, path, dumpErr)
 	}
 	return harness.EssenceOut{}, retErr
@@ -112,14 +119,15 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 
 // SeatsConfig wires Polypus models for taxonomy seats.
 type SeatsConfig struct {
-	Client         *polypus.Client
-	JudgeModel     string
-	AuthorModel    string
-	EssenceModel   string
-	EssenceDumpDir string
-	Now            time.Time
-	Embedder       harness.Embedder
-	JEVClient      *jev.Client
+	Client               *polypus.Client
+	JudgeModel           string
+	AuthorModel          string
+	EssenceModel         string
+	EssenceEscalateModel string
+	EssenceDumpDir       string
+	Now                  time.Time
+	Embedder             harness.Embedder
+	JEVClient            *jev.Client
 }
 
 // CreateSeats wires Polypus SystemOne Judge and chat Author (optional Essencer/Embedder).
@@ -146,15 +154,17 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 		Author: &polypusAuthor{client: cfg.Client, model: authorModel},
 	}
 	if essenceModel != "" {
-		shell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel)
+		escalateModel := EffectiveEssenceEscalateModel(essenceModel, cfg.EssenceEscalateModel)
+		shell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel)
 		if err != nil {
 			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence integrity shell")
 		}
 		out.Essencer = &polypusEssencer{
-			client: cfg.Client,
-			model:  essenceModel,
-			dump:   CreateEssenceDumper(EssenceDumpConfig{Dir: cfg.EssenceDumpDir, Now: cfg.Now}),
-			shell:  shell,
+			client:        cfg.Client,
+			model:         essenceModel,
+			escalateModel: escalateModel,
+			dump:          CreateEssenceDumper(EssenceDumpConfig{Dir: cfg.EssenceDumpDir, Now: cfg.Now}),
+			shell:         shell,
 		}
 	}
 	out.Embedder = cfg.Embedder

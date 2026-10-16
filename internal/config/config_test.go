@@ -105,6 +105,32 @@ oauth:
 	}
 }
 
+func TestLoadEssenceEscalateModel(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	body := `
+polypus:
+  base_url: "http://127.0.0.1:1320"
+  essence_escalate_model: "cf_local/@cf/ibm-granite/granite-4.2-8b"
+`
+	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load("/repo", cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "cf_local/@cf/ibm-granite/granite-4.2-8b"
+	if cfg.PolypusEssenceEscalateModel != want {
+		t.Fatalf("loaded: %q", cfg.PolypusEssenceEscalateModel)
+	}
+	red := cfg.Redacted()
+	pol, ok := red["polypus"].(map[string]string)
+	if !ok || pol["essence_escalate_model"] != "(set)" {
+		t.Fatalf("redacted polypus: %v", red["polypus"])
+	}
+}
+
 func TestLoadExpandsAndDefaults(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "config.yaml")

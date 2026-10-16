@@ -18,6 +18,18 @@ func TestSkipTelemetryForCmd_mailReadiness(t *testing.T) {
 	}
 }
 
+func TestSkipTelemetryForCmd_mailReport(t *testing.T) {
+	root := &cobra.Command{Use: "should-i-read"}
+	mail := &cobra.Command{Use: "mail"}
+	report := &cobra.Command{Use: "report"}
+	mail.AddCommand(report)
+	root.AddCommand(mail)
+
+	if skipTelemetryForCmd(report) {
+		t.Fatal("expected mail report to keep telemetry")
+	}
+}
+
 func TestSkipTelemetryForCmd_polypus(t *testing.T) {
 	root := &cobra.Command{Use: "should-i-read"}
 	polypus := &cobra.Command{Use: "polypus"}

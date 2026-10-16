@@ -40,7 +40,7 @@ func TestEssenceDumperWriteLast(t *testing.T) {
 	if got.WrittenAt != "2026-10-13T12:00:00Z" {
 		t.Fatalf("written_at %q", got.WrittenAt)
 	}
-	if !strings.Contains(got.ParseError, "about or shape empty") {
+	if !strings.Contains(got.ParseError, EssenceErrAboutOrShape) {
 		t.Fatalf("parse_error %q", got.ParseError)
 	}
 }

@@ -11,7 +11,16 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/xynova/should-i-read/internal/sirerr"
 )
+
+func testDeadlineCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
 
 func TestListRecentEmailsFixture(t *testing.T) {
 	dir := t.TempDir()
@@ -21,7 +30,7 @@ func TestListRecentEmailsFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := r.ListRecentEmails(10)
+	rows, err := r.ListRecentEmails(testDeadlineCtx(t), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,6 +39,23 @@ func TestListRecentEmailsFixture(t *testing.T) {
 	}
 	if rows[0].Subject != "Hello pimdir" {
 		t.Fatalf("subject: %q", rows[0].Subject)
+	}
+}
+
+func TestListRecentEmailsMissingDeadline(t *testing.T) {
+	dir := t.TempDir()
+	initFixtureDB(t, dir)
+	r, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.ListRecentEmails(context.Background(), 10)
+	if err == nil {
+		t.Fatal("expected missing deadline")
+	}
+	code, ok := sirerr.AsCode(err)
+	if !ok || code != sirerr.CodeInvalid {
+		t.Fatalf("code: %v", err)
 	}
 }
 
