@@ -17,6 +17,7 @@ import (
 	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/mailreport"
+	"github.com/xynova/should-i-read/internal/mailtags"
 	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/polypus"
@@ -299,6 +300,31 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	}
 	now := time.Now().UTC()
 	essenceDumpDir := filepath.Join(repoRoot, "tmp", "essence-parse")
+	var tagCatalog *mailtags.Catalog
+	essencePrompt := mailreport.DefaultEssenceSystemPrompt()
+	if essenceModel != "" {
+		registerPath, err := config.DefaultTagRegisterPath()
+		if err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "tag register path")
+		}
+		depPath, err := config.DefaultTagDeprecationsPath()
+		if err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "tag deprecations path")
+		}
+		seedTags := config.SeedTagListPath(repoRoot)
+		if err := mailtags.EnsureFiles(registerPath, depPath, seedTags); err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "ensure tag files")
+		}
+		tagCatalog, err = mailtags.CreateCatalog(mailtags.Config{
+			RegisterPath:     registerPath,
+			DeprecationsPath: depPath,
+			SeedPath:         seedTags,
+		})
+		if err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "load tag catalog")
+		}
+		essencePrompt = mailreport.BuildEssenceSystemPrompt(tagCatalog.ActiveIDs())
+	}
 	seats, err := mailreport.CreateSeats(mailreport.SeatsConfig{
 		Client:               client,
 		JudgeModel:           judge,
@@ -306,6 +332,8 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		EssenceModel:         essenceModel,
 		EssenceEscalateModel: cfg.PolypusEssenceEscalateModel,
 		EssenceDumpDir:       essenceDumpDir,
+		EssenceSystemPrompt:  essencePrompt,
+		TagCatalog:           tagCatalog,
 		Now:                  now,
 		Embedder:             embedSeat,
 	})
@@ -404,6 +432,8 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		Attention:            attention,
 		AttentionTrueMin:     cfg.Cluster.AttentionTrueMin,
 		EssenceDumpDir:       essenceDumpDir,
+		EssenceSystemPrompt:  essencePrompt,
+		TagCatalog:           tagCatalog,
 		Now:                  now,
 	}, vocab, cat)
 	if err != nil {
@@ -650,6 +680,8 @@ func glossClassifyMsgErr(errMsg string) string {
 		return "essence why empty"
 	case strings.Contains(lower, mailreport.EssenceErrAboutOrShape):
 		return "essence about/shape empty"
+	case strings.Contains(lower, mailtags.EssenceErrTagInvalid):
+		return "essence tag invalid"
 	}
 	return truncateRunes(s, 60)
 }

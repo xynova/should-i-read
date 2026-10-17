@@ -1,0 +1,13 @@
+# Starter mail tags (one kebab-case id per line). Copied to operator config on first run.
+legal-notice
+calendar-invite
+receipt
+marketing-pitch
+newsletter
+transactional
+personal
+account-alert
+fyi
+promotional
+time-critical
+sensitive

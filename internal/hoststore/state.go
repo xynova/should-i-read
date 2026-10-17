@@ -189,6 +189,31 @@ func (s *Store) Get(ctx context.Context, objectHash string) (StateRow, error) {
 	return row, nil
 }
 
+// ListCompleteShapes returns shape fields for complete classify rows.
+func (s *Store) ListCompleteShapes(ctx context.Context) ([]string, error) {
+	const op = "hoststore.Store.ListCompleteShapes"
+	if err := s.requireStore(ctx, op); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT shape FROM classify_state WHERE status='complete'`)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query shapes")
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var shape string
+		if err := rows.Scan(&shape); err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan shape")
+		}
+		shape = strings.TrimSpace(shape)
+		if shape != "" {
+			out = append(out, shape)
+		}
+	}
+	return out, rows.Err()
+}
+
 // ListCompleteHashes returns object_hashes with complete assignments.
 func (s *Store) ListCompleteHashes(ctx context.Context) ([]string, error) {
 	const op = "hoststore.Store.ListCompleteHashes"

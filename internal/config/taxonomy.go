@@ -52,6 +52,31 @@ func SeedKindCatalogPath(repoRoot string) string {
 	return filepath.Join(repoRoot, "config", "vocabularies", "inbox-kind.yaml")
 }
 
+// SeedTagListPath returns the repo mail tags seed list path.
+func SeedTagListPath(repoRoot string) string {
+	return filepath.Join(repoRoot, "config", "vocabularies", "mail-tags-seed.txt")
+}
+
+// DefaultTagRegisterPath returns the operator-generated mail tag register path.
+func DefaultTagRegisterPath() (string, error) {
+	const op = "config.DefaultTagRegisterPath"
+	dir, err := UserConfigDir()
+	if err != nil {
+		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "user config dir")
+	}
+	return filepath.Join(dir, "vocabularies", "mail-tag-register.txt"), nil
+}
+
+// DefaultTagDeprecationsPath returns the operator mail tag deprecations TOML path.
+func DefaultTagDeprecationsPath() (string, error) {
+	const op = "config.DefaultTagDeprecationsPath"
+	dir, err := UserConfigDir()
+	if err != nil {
+		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "user config dir")
+	}
+	return filepath.Join(dir, "vocabularies", "mail-tag-deprecations.toml"), nil
+}
+
 // DefaultCatalogPath returns the operator-writable catalog path.
 func DefaultCatalogPath() (string, error) {
 	const op = "config.DefaultCatalogPath"

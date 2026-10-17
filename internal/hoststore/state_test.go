@@ -63,6 +63,24 @@ func TestStaleCompleteToken(t *testing.T) {
 	}
 }
 
+func TestListCompleteShapes(t *testing.T) {
+	st, ctx := testStore(t)
+	tok, _, err := st.Claim(ctx, "shape1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Complete(ctx, "shape1", tok, StateRow{TermID: "t", Shape: "marketing-pitch promotional"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	shapes, err := st.ListCompleteShapes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shapes) != 1 || shapes[0] != "marketing-pitch promotional" {
+		t.Fatalf("shapes %v", shapes)
+	}
+}
+
 func TestImportProgressOnce(t *testing.T) {
 	st, ctx := testStore(t)
 	n, err := st.ImportProgress(ctx, map[string]ProgressEntry{

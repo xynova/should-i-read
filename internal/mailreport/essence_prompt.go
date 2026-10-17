@@ -9,6 +9,7 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
+	"github.com/xynova/should-i-read/internal/mailtags"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -19,6 +20,8 @@ const (
 	essenceKeyWhy4  = "WHY4"
 	essenceKeyWhy5  = "WHY5"
 	essenceKeyAbout = "ABOUT"
+	essenceKeyTags  = "TAGS"
+	essenceKeyForm  = "FORM"
 	essenceKeyShape = "SHAPE"
 	essenceKeyKind  = "KIND"
 
@@ -31,7 +34,7 @@ const (
 	EssenceErrWhy1Empty = "why1 empty"
 	// EssenceErrWhyEmpty is the validate message when a WHY line after WHY1 is missing.
 	EssenceErrWhyEmpty = "why empty"
-	// EssenceErrAboutOrShape is the validate message when ABOUT or SHAPE is missing.
+	// EssenceErrAboutOrShape is the validate message when ABOUT or TAGS is missing.
 	EssenceErrAboutOrShape = "about or shape empty"
 	// EssenceErrKindShort is the validate message when KIND has fewer than 3 segments.
 	EssenceErrKindShort = "kind needs 3+ segments"
@@ -52,39 +55,76 @@ var essenceAllKeys = []string{
 	essenceKeyWhy4,
 	essenceKeyWhy5,
 	essenceKeyAbout,
+	essenceKeyTags,
+	essenceKeyKind,
+}
+
+var essenceParseKeys = []string{
+	essenceKeyWhy1,
+	essenceKeyWhy2,
+	essenceKeyWhy3,
+	essenceKeyWhy4,
+	essenceKeyWhy5,
+	essenceKeyAbout,
+	essenceKeyTags,
+	essenceKeyForm,
 	essenceKeyShape,
 	essenceKeyKind,
 }
 
 var (
-	essenceSystemPrompt string
-	essenceKeyRE        *regexp.Regexp
+	defaultEssenceSystemPrompt string
+	essenceKeyRE               *regexp.Regexp
+	essenceTagCatalog          *mailtags.Catalog
 )
 
 func init() {
-	essenceSystemPrompt = buildEssenceSystemPrompt()
-	essenceKeyRE = regexp.MustCompile(`^(` + strings.Join(essenceAllKeys, "|") + `):\s*(.*)$`)
+	defaultEssenceSystemPrompt = BuildEssenceSystemPrompt(nil)
+	essenceKeyRE = regexp.MustCompile(`^(` + strings.Join(essenceParseKeys, "|") + `):\s*(.*)$`)
 }
 
-func buildEssenceSystemPrompt() string {
+// DefaultEssenceSystemPrompt returns the static prompt without active tag ids (tests).
+func DefaultEssenceSystemPrompt() string {
+	return defaultEssenceSystemPrompt
+}
+
+// BuildEssenceSystemPrompt builds the essence system message, listing active tag ids when provided.
+func BuildEssenceSystemPrompt(activeTags []string) string {
 	var keys strings.Builder
 	for _, k := range essenceAllKeys {
 		keys.WriteString(k)
 		keys.WriteString(":\n")
+	}
+	var tagHint strings.Builder
+	tagHint.WriteString("TAGS: one or more kebab-case tag ids (comma or space separated). ")
+	tagHint.WriteString("Prefer these tags when they fit. You may add a new kebab-case tag if none fit. ")
+	tagHint.WriteString("Do not describe layout or geometry. Do not copy KIND.\n")
+	if len(activeTags) > 0 {
+		tagHint.WriteString("Active tags: ")
+		tagHint.WriteString(strings.Join(activeTags, ", "))
+		tagHint.WriteByte('\n')
 	}
 	return `Describe what the message is. Do not decide keep, discard, or unwanted.
 
 Reply with these keys (one per line). Values may continue on the next line after "KEY:".
 
 ` + keys.String() + `
+` + tagHint.String() + `
 KIND must be 3 to 5 kebab-case segments joined by " > " (example: notification > software-release > changelog).`
+}
+
+// SetEssenceTagCatalog sets the catalog used for tag validation during classify runs.
+func SetEssenceTagCatalog(cat *mailtags.Catalog) {
+	essenceTagCatalog = cat
 }
 
 const essenceParseMaxAttempts = 3
 
-func essenceIntegrityValidate(raw string) error {
-	_, err := parseEssenceResponse(raw)
-	return err
+func essenceIntegrityValidateFor(cat *mailtags.Catalog) func(string) error {
+	return func(raw string) error {
+		_, err := parseEssenceResponseWithCatalog(raw, cat)
+		return err
+	}
 }
 
 // essenceIntegrityCompleteNote builds the user turn after a parse validation failure.
@@ -104,9 +144,20 @@ func essenceIntegrityCompleteNote(err error) string {
 		return b.String()
 	}
 	if essenceKindShortFromErr(err) {
-		return "Continue your previous reply. Keep WHY, ABOUT, and SHAPE. Expand KIND to 3 to 5 kebab-case segments joined by \" > \" (example: notification > software-release > changelog)."
+		return "Continue your previous reply. Keep WHY, ABOUT, and TAGS. Expand KIND to 3 to 5 kebab-case segments joined by \" > \" (example: notification > software-release > changelog)."
 	}
-	return "Continue your previous reply. Emit WHY1 through WHY5, ABOUT, SHAPE, and KIND (3 to 5 kebab-case segments joined by \" > \"). Do not start over."
+	if essenceTagInvalidFromErr(err) {
+		return "Continue your previous reply. Fix TAGS: use kebab-case tag ids only (no geometry words, no KIND paths). Prefer listed Active tags or mint a new kebab tag."
+	}
+	return "Continue your previous reply. Emit WHY1 through WHY5, ABOUT, TAGS, and KIND (3 to 5 kebab-case segments joined by \" > \"). Do not start over."
+}
+
+func essenceTagInvalidFromErr(err error) bool {
+	var typed *sirerr.Error
+	if !errors.As(err, &typed) || typed == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(typed.Message), mailtags.EssenceErrTagInvalid)
 }
 
 func essenceKeysFromErr(err error) (missing, present []string) {
@@ -145,8 +196,12 @@ func splitEssenceKeyList(s string) []string {
 const WorldContextAttach = "Report only. Describe what the message is. Do not decide keep, discard, or unwanted."
 
 func parseEssenceResponse(raw string) (harness.EssenceOut, error) {
+	return parseEssenceResponseWithCatalog(raw, essenceTagCatalog)
+}
+
+func parseEssenceResponseWithCatalog(raw string, cat *mailtags.Catalog) (harness.EssenceOut, error) {
 	var why [5]string
-	about, shape, kind := "", "", ""
+	about, tagsRaw, kind := "", "", ""
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	var pendingKey string
 	var pendingVal []string
@@ -155,7 +210,7 @@ func parseEssenceResponse(raw string) (harness.EssenceOut, error) {
 			return
 		}
 		val := strings.TrimSpace(strings.Join(pendingVal, "\n"))
-		essenceAssignParsedKey(&why, &about, &shape, &kind, pendingKey, val)
+		essenceAssignParsedKey(&why, &about, &tagsRaw, &kind, pendingKey, val)
 		pendingKey = ""
 		pendingVal = nil
 	}
@@ -174,6 +229,10 @@ func parseEssenceResponse(raw string) (harness.EssenceOut, error) {
 	}
 	flush()
 	kind = normalizeKindString(kind)
+	shape, err := normalizeEssenceTags(cat, tagsRaw)
+	if err != nil {
+		return harness.EssenceOut{}, err
+	}
 	out := harness.EssenceOut{Why: why, About: about, Shape: shape, Kind: kind}
 	if err := validateParsedEssence(out); err != nil {
 		return harness.EssenceOut{}, err
@@ -181,7 +240,29 @@ func parseEssenceResponse(raw string) (harness.EssenceOut, error) {
 	return out, nil
 }
 
-func essenceAssignParsedKey(why *[5]string, about, shape, kind *string, key, val string) {
+func normalizeEssenceTags(cat *mailtags.Catalog, raw string) (string, error) {
+	const op = "mailreport.normalizeEssenceTags"
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	if cat != nil {
+		return cat.NormalizeField(raw)
+	}
+	tokens := mailtags.SplitTags(raw)
+	for _, tok := range tokens {
+		if err := mailtags.ValidateToken(tok); err != nil {
+			return "", err
+		}
+	}
+	joined := mailtags.JoinTags(tokens)
+	if joined == "" {
+		return "", sirerr.New(sirerr.CodeAI, op, mailtags.EssenceErrTagInvalid)
+	}
+	return joined, nil
+}
+
+func essenceAssignParsedKey(why *[5]string, about, tagsRaw, kind *string, key, val string) {
 	switch key {
 	case essenceKeyWhy1:
 		why[0] = val
@@ -195,8 +276,8 @@ func essenceAssignParsedKey(why *[5]string, about, shape, kind *string, key, val
 		why[4] = val
 	case essenceKeyAbout:
 		*about = val
-	case essenceKeyShape:
-		*shape = val
+	case essenceKeyTags, essenceKeyForm, essenceKeyShape:
+		*tagsRaw = val
 	case essenceKeyKind:
 		*kind = val
 	}
@@ -213,7 +294,7 @@ func validateParsedEssence(e harness.EssenceOut) error {
 			} else {
 				msg = EssenceErrWhyEmpty
 			}
-		} else if slices.Contains(missing, essenceKeyAbout) || slices.Contains(missing, essenceKeyShape) {
+		} else if slices.Contains(missing, essenceKeyAbout) || slices.Contains(missing, essenceKeyTags) {
 			msg = EssenceErrAboutOrShape
 		}
 		typed := sirerr.New(sirerr.CodeAI, op, msg).With(essenceFieldMissing, strings.Join(missing, ", "))
@@ -243,9 +324,9 @@ func essenceKeyInventory(e harness.EssenceOut) (missing, present []string, kindS
 		present = append(present, essenceKeyAbout)
 	}
 	if strings.TrimSpace(e.Shape) == "" {
-		missing = append(missing, essenceKeyShape)
+		missing = append(missing, essenceKeyTags)
 	} else {
-		present = append(present, essenceKeyShape)
+		present = append(present, essenceKeyTags)
 	}
 	kind := strings.TrimSpace(e.Kind)
 	if kind == "" {

@@ -138,6 +138,15 @@ tasks:
     cmds:
       - "{{.BIN}} mail report {{.CLI_ARGS}}"
 
+  mail:tags:
+    desc: Regenerate mail tag register from classify ledger
+    summary: |
+      Builds the CLI if needed, then runs mail tags.
+      Pass --json after -- for machine-readable counts.
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail tags {{.CLI_ARGS}}"
+
   polypus-check:
     desc: Fail-closed Polypus probe
     summary: |
