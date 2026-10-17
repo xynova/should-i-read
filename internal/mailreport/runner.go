@@ -79,7 +79,7 @@ type Runner struct {
 	essenceModel         string
 	essenceEscalateModel string
 	essenceBatchSize     int
-	essenceCache         map[string]harness.EssenceOut
+	prefetchByHash       map[string]*harness.EssenceOut
 	tldrBatch            ChatLineRunner
 	tldrModel            string
 	clusterMinCosine     float64
@@ -125,8 +125,6 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	sysPrompt := strings.TrimSpace(cfg.EssenceSystemPrompt)
-	WireEssenceCheckpoint(cfg.Seats, cfg.Store, strings.TrimSpace(cfg.EssenceModel), cfg.EssenceEscalateModel, sysPrompt)
 	return &Runner{
 		h:                    cfg.Harness,
 		seats:                cfg.Seats,
@@ -199,14 +197,34 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	art.WalkReinforceMin = r.walkReinforceMin
 	art.EssenceDumpDir = r.essenceDumpDir
 	art.EssenceEscalateModel = r.essenceEscalateModel
+	r.appendResumeCompleteRows(ctx, items, &art)
 	pending := r.pendingClassifyItems(ctx, items)
-	if r.essenceBatch != nil && config.IsAttachStrategy(r.strategy) && len(pending) > 0 {
-		cache, prefetchErrs, prefetchErr := prefetchEssence(ctx, r.store, r.essenceBatch, r.essenceModel, r.essenceEscalateModel, r.operateWorld, r.essenceSystemPrompt, pending, r.essenceBatchSize)
-		if prefetchErr != nil {
-			return art, prefetchErr
+	if len(pending) > r.max {
+		pending = pending[:r.max]
+	}
+	r.prefetchByHash = map[string]*harness.EssenceOut{}
+	if r.h != nil && config.IsAttachStrategy(r.strategy) && len(pending) > 0 {
+		ops := make([]harness.Op, 0, len(pending))
+		for _, item := range pending {
+			hash := strings.TrimSpace(item.ObjectHash)
+			if hash == "" {
+				continue
+			}
+			ops = append(ops, harness.Op{
+				EssenceKey:   hash,
+				WorldContext: r.operateWorld,
+				Text:         formatItemText(item),
+				Catalog:      r.cat,
+			})
 		}
-		r.essenceCache = cache
-		_ = prefetchErrs // misses fall back to per-message Essencer during Operate.
+		if err := r.h.PrefetchEssence(ctx, ops); err != nil {
+			return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "prefetch essence")
+		}
+		for _, op := range ops {
+			if op.Essence != nil && strings.TrimSpace(op.EssenceKey) != "" {
+				r.prefetchByHash[op.EssenceKey] = op.Essence
+			}
+		}
 	}
 	r.aiHops = 0
 	for _, item := range items {
@@ -216,6 +234,14 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 		if err := r.classifyItem(ctx, item, &r.aiHops, &art); err != nil {
 			return art, err
 		}
+	}
+	return art, nil
+}
+
+// RunTagPass regenerates the tag register and runs tag curation after classify waves.
+func (r *Runner) RunTagPass(ctx context.Context, art *Artifact) {
+	if r == nil || art == nil {
+		return
 	}
 	if r.tagCatalog != nil {
 		regPath, regErr := RegenerateTagRegister(ctx, r.store, r.tagCatalog)
@@ -246,7 +272,21 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	} else if r.tagCatalog != nil {
 		patchMessageTagShapes(&art.Messages, r.tagCatalog)
 	}
-	return art, nil
+}
+
+func (r *Runner) appendResumeCompleteRows(ctx context.Context, items []Item, art *Artifact) {
+	for _, item := range items {
+		hash := strings.TrimSpace(item.ObjectHash)
+		if hash == "" {
+			continue
+		}
+		got, getErr := r.store.Get(ctx, hash)
+		if getErr != nil || !isResumeComplete(got) {
+			continue
+		}
+		art.Messages = append(art.Messages, r.messageRowFromState(item, got))
+		art.Classified++
+	}
 }
 
 func patchMessageTagShapes(messages *[]MessageRow, cat *tags.Catalog) {
@@ -272,8 +312,10 @@ func (r *Runner) classifyItem(ctx context.Context, item Item, aiHops *int, art *
 	}
 	got, getErr := r.store.Get(ctx, hash)
 	if getErr == nil && isResumeComplete(got) {
-		art.Messages = append(art.Messages, r.messageRowFromState(item, got))
-		art.Classified++
+		if !artifactHasHash(art, hash) {
+			art.Messages = append(art.Messages, r.messageRowFromState(item, got))
+			art.Classified++
+		}
 		return nil
 	}
 	if getErr != nil {
@@ -294,12 +336,26 @@ func (r *Runner) classifyItem(ctx context.Context, item Item, aiHops *int, art *
 		if getErr != nil {
 			return getErr
 		}
-		art.Messages = append(art.Messages, r.messageRowFromState(item, got))
-		art.Classified++
+		if !artifactHasHash(art, hash) {
+			art.Messages = append(art.Messages, r.messageRowFromState(item, got))
+			art.Classified++
+		}
 		return nil
 	}
 	*aiHops++
 	return r.operateAndPersist(ctx, hash, token, item, art)
+}
+
+func artifactHasHash(art *Artifact, hash string) bool {
+	if art == nil {
+		return false
+	}
+	for _, m := range art.Messages {
+		if strings.TrimSpace(m.ObjectHash) == hash {
+			return true
+		}
+	}
+	return false
 }
 
 func isResumeComplete(got hoststore.StateRow) bool {
@@ -536,16 +592,15 @@ func (r *Runner) runOperate(ctx context.Context, item Item) (harness.Result, err
 		ctx = withEssenceDumpID(ctx, item.ObjectHash)
 	}
 	text := formatItemText(item)
+	hash := strings.TrimSpace(item.ObjectHash)
 	opSpec := harness.Op{
 		WorldContext: r.operateWorld,
 		Text:         text,
 		Catalog:      r.cat,
+		EssenceKey:   hash,
 	}
-	if r.essenceCache != nil {
-		hash := strings.TrimSpace(item.ObjectHash)
-		if ess, ok := r.essenceCache[hash]; ok {
-			opSpec.Essence = &ess
-		}
+	if ess := r.prefetchByHash[hash]; ess != nil {
+		opSpec.Essence = ess
 	}
 	var res harness.Result
 	var opErr error

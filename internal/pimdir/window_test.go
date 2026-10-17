@@ -71,6 +71,60 @@ func TestCreateDateWindowInvalid(t *testing.T) {
 	}
 }
 
+func TestSplitDateWindow_monthStride7(t *testing.T) {
+	t.Parallel()
+	w, err := CreateDateWindow("2026-09-01", "2026-10-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices, err := SplitDateWindow(w, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct{ from, to string }{
+		{"2026-09-01", "2026-09-08"},
+		{"2026-09-08", "2026-09-15"},
+		{"2026-09-15", "2026-09-22"},
+		{"2026-09-22", "2026-09-29"},
+		{"2026-09-29", "2026-10-01"},
+	}
+	if len(slices) != len(want) {
+		t.Fatalf("slices=%d want %d", len(slices), len(want))
+	}
+	for i, exp := range want {
+		if slices[i].DateFrom() != exp.from || slices[i].DateTo() != exp.to {
+			t.Fatalf("slice %d: %+v want %s %s", i, slices[i], exp.from, exp.to)
+		}
+	}
+}
+
+func TestSplitDateWindow_oneSlice(t *testing.T) {
+	t.Parallel()
+	w, err := CreateDateWindow("2026-09-01", "2026-09-08")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices, err := SplitDateWindow(w, 7)
+	if err != nil || len(slices) != 1 {
+		t.Fatalf("slices=%v err=%v", slices, err)
+	}
+	if slices[0].DateFrom() != w.DateFrom() || slices[0].DateTo() != w.DateTo() {
+		t.Fatal("expected single slice equal to parent")
+	}
+}
+
+func TestSplitDateWindow_invalid(t *testing.T) {
+	t.Parallel()
+	w, _ := CreateDateWindow("2026-09-01", "2026-09-08")
+	if _, err := SplitDateWindow(w, 0); err == nil {
+		t.Fatal("expected error for days=0")
+	}
+	var z DateWindow
+	if _, err := SplitDateWindow(z, 7); err == nil {
+		t.Fatal("expected error for zero window")
+	}
+}
+
 func TestDateWindowZero(t *testing.T) {
 	t.Parallel()
 	var w DateWindow

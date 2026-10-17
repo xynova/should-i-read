@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/behaviorengineering/strop/pkg/openaibatch"
-	"github.com/behaviorengineering/taxonomy/pkg/harness"
-
 	"github.com/xynova/should-i-read/internal/polypus"
 )
 
@@ -84,35 +82,6 @@ func (s *stubChatLines) RunChatLines(_ context.Context, lines []openaibatch.Chat
 		out[ln.CustomID] = openaibatch.LineResult{Content: "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nTAGS: fyi\nKIND: notification > software-release > changelog"}
 	}
 	return out, nil
-}
-
-func TestRunner_EssencePrefetchRunChatLines(t *testing.T) {
-	stub := &stubChatLines{}
-	items := []Item{
-		{ObjectHash: "h1", Body: "one"},
-		{ObjectHash: "h2", Body: "two"},
-		{ObjectHash: "h3", Body: "three"},
-	}
-	got, errs, err := prefetchEssence(context.Background(), nil, stub, "m", "", WorldContextAttach, DefaultEssenceSystemPrompt(), items, 8)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(errs) != 0 {
-		t.Fatalf("errs=%v", errs)
-	}
-	if stub.calls.Load() != 1 {
-		t.Fatalf("calls=%d", stub.calls.Load())
-	}
-	if len(stub.last) != 3 {
-		t.Fatalf("lines=%d", len(stub.last))
-	}
-	if len(got) != 3 {
-		t.Fatalf("parsed=%d", len(got))
-	}
-	if got["h1"].Kind == "" {
-		t.Fatal("expected parsed kind")
-	}
-	_ = harness.EssenceOut{}
 }
 
 type resumeChatLinesStub struct {

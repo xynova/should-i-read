@@ -39,21 +39,22 @@ type classifyOpts struct {
 
 func newMailReportCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var (
-		inPath   string
-		outPath  string
-		limit    int
-		store    string
-		catalog  string
-		noApply  bool
-		maxBody  int
-		fromDate string
-		toDate   string
+		inPath    string
+		outPath   string
+		limit     int
+		store     string
+		catalog   string
+		noApply   bool
+		maxBody   int
+		fromDate  string
+		toDate    string
+		sliceDays int
 	)
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Classify recent mail (report-only, Polypus + taxonomy)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMailReport(cmd, opts, repoRoot, inPath, outPath, limit, cmd.Flags().Changed("limit"), fromDate, toDate, store, classifyOpts{
+			return runMailReport(cmd, opts, repoRoot, inPath, outPath, limit, cmd.Flags().Changed("limit"), fromDate, toDate, sliceDays, store, classifyOpts{
 				catalogPath: catalog,
 				noApply:     noApply,
 				maxBody:     maxBody,
@@ -65,6 +66,7 @@ func newMailReportCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 25, "Max messages when listing from pimdir (default 25; with --from/--to, no cap unless you set --limit)")
 	cmd.Flags().StringVar(&fromDate, "from", "", "Inclusive window start date (YYYY-MM-DD UTC); requires --to")
 	cmd.Flags().StringVar(&toDate, "to", "", "Exclusive window end date (YYYY-MM-DD UTC); requires --from")
+	cmd.Flags().IntVar(&sliceDays, "slice-days", 7, "Classify window slice length in days when --from/--to are set")
 	cmd.Flags().StringVar(&store, "store", "", "Local mail store directory (overrides config)")
 	cmd.Flags().StringVar(&catalog, "catalog", "", "Taxonomy catalog YAML path")
 	cmd.Flags().BoolVar(&noApply, "no-apply", false, "Do not write catalog mutations to disk")
@@ -72,7 +74,7 @@ func newMailReportCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	return cmd
 }
 
-func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPath, outPath string, limit int, limitChanged bool, fromDate, toDate, storeDir string, cOpts classifyOpts) error {
+func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPath, outPath string, limit int, limitChanged bool, fromDate, toDate string, sliceDays int, storeDir string, cOpts classifyOpts) error {
 	const op = "cli.mail.report"
 	cfg, err := opts.mustLoad(repoRoot)
 	if err != nil {
@@ -82,6 +84,9 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 	if err != nil {
 		return wrapCLIHop(err, op, "validate window")
 	}
+	if sliceDays < 1 {
+		return sirerr.New(sirerr.CodeInvalid, op, "slice-days must be at least 1")
+	}
 	dir := storeDir
 	if dir == "" {
 		dir = cfg.Pimalaya.PimdirPath
@@ -90,33 +95,106 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 	if err != nil {
 		return wrapCLIHop(err, op, "open store")
 	}
-	ctx, cancel, err := classifyJobContext(cmd.Context(), !window.Zero())
-	if err != nil {
-		return err
-	}
-	defer cancel()
-	items, err := loadReportItems(ctx, reader, inPath, window, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
-	if err != nil {
-		return wrapCLIHop(err, op, "load items")
-	}
-	runner, err := prepareClassifyRunner(ctx, cfg, repoRoot, cOpts)
+	runner, err := prepareClassifyRunner(cmd.Context(), cfg, repoRoot, cOpts)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = runner.Close() }()
-	items = mailreport.DedupeItemsByHash(items)
-	art, err := runner.Classify(ctx, mailreport.SourceReport, items)
-	if err != nil {
-		return err
-	}
-	art, err = runner.ScoreAttention(ctx, art)
-	if err != nil {
-		return err
-	}
-	art, clusterErr := runner.Cluster(ctx, art)
+	var art mailreport.Artifact
+	var sliceClusters [][]mailreport.ClusterRow
+	var clusterErr error
 	if !window.Zero() {
+		slices, err := pimdir.SplitDateWindow(window, sliceDays)
+		if err != nil {
+			return wrapCLIHop(err, op, "split window")
+		}
 		art.WindowFrom = window.DateFrom()
 		art.WindowTo = window.DateTo()
+		for _, sw := range slices {
+			sliceCtx, cancel, err := classifyJobContext(cmd.Context(), true)
+			if err != nil {
+				return err
+			}
+			items, err := loadReportItems(sliceCtx, reader, inPath, sw, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
+			if err != nil {
+				cancel()
+				return wrapCLIHop(err, op, "load items")
+			}
+			items = mailreport.DedupeItemsByHash(items)
+			sliceArt, err := runner.Classify(sliceCtx, mailreport.SourceReport, items)
+			cancel()
+			if err != nil {
+				return err
+			}
+			mailreport.MergeClassifyArtifacts(&art, sliceArt)
+			if sliceCtx.Err() != nil && art.IncompleteError == "" {
+				art.IncompleteError = sliceCtx.Err().Error()
+			}
+		}
+		tagCtx, tagCancel := context.WithTimeout(cmd.Context(), hostStoreOpTimeout)
+		defer tagCancel()
+		runner.RunTagPass(tagCtx, &art)
+		for _, sw := range slices {
+			items, err := loadReportItems(cmd.Context(), reader, inPath, sw, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
+			if err != nil {
+				return wrapCLIHop(err, op, "reload slice items")
+			}
+			hashSet := map[string]struct{}{}
+			for _, it := range items {
+				if h := strings.TrimSpace(it.ObjectHash); h != "" {
+					hashSet[h] = struct{}{}
+				}
+			}
+			sliceArt := mailreport.FilterArtifactByHashes(art, hashSet)
+			attCtx, attCancel := context.WithTimeout(cmd.Context(), classifyJobTimeout)
+			sliceArt, err = runner.ScoreAttention(attCtx, sliceArt)
+			attCancel()
+			if err != nil {
+				return err
+			}
+			mailreport.MergeMessageRows(&art, sliceArt)
+			clusterCtx, clusterCancel := context.WithTimeout(cmd.Context(), classifyJobTimeout)
+			sliceArt, err = runner.Cluster(clusterCtx, sliceArt)
+			clusterCancel()
+			if err != nil {
+				clusterErr = err
+			}
+			sliceClusters = append(sliceClusters, sliceArt.Clusters)
+		}
+		mergeCtx, mergeCancel := context.WithTimeout(cmd.Context(), classifyJobTimeout)
+		defer mergeCancel()
+		rows, clusters, err := runner.MergeClusters(mergeCtx, art.Messages, sliceClusters)
+		if err != nil {
+			clusterErr = err
+		} else {
+			art.Messages = rows
+			art.Clusters = clusters
+		}
+	} else {
+		ctx, cancel, err := classifyJobContext(cmd.Context(), false)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		items, err := loadReportItems(ctx, reader, inPath, window, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
+		if err != nil {
+			return wrapCLIHop(err, op, "load items")
+		}
+		items = mailreport.DedupeItemsByHash(items)
+		art, err = runner.Classify(ctx, mailreport.SourceReport, items)
+		if err != nil {
+			return err
+		}
+		tagCtx, tagCancel := context.WithTimeout(cmd.Context(), hostStoreOpTimeout)
+		defer tagCancel()
+		runner.RunTagPass(tagCtx, &art)
+		attCtx, attCancel := context.WithTimeout(cmd.Context(), classifyJobTimeout)
+		defer attCancel()
+		art, err = runner.ScoreAttention(attCtx, art)
+		if err != nil {
+			return err
+		}
+		art, clusterErr = runner.Cluster(attCtx, art)
 	}
 	path, err := writeReportArtifact(repoRoot, outPath, art)
 	if err != nil {
@@ -321,6 +399,26 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		}
 		essencePrompt = mailreport.BuildEssenceSystemPrompt(tagCatalog.ActiveIDs())
 	}
+	store, err := hoststore.CreateStore(hoststore.StoreConfig{Path: cfg.StorePath, Now: now})
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open classify store")
+	}
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			_ = store.Close()
+		}
+	}()
+	if err := importClassifyProgressOnce(ctx, store, repoRoot); err != nil {
+		return nil, wrapCLIHop(err, op, "import progress")
+	}
+	var essenceCache harness.EssenceCache
+	if config.IsAttachStrategy(cfg.Taxonomy.Strategy) {
+		essenceCache, err = mailreport.CreateEssenceCache(store, essencePrompt, essenceModel, essenceEscalate)
+		if err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "essence cache")
+		}
+	}
 	seats, err := mailreport.CreateSeats(mailreport.SeatsConfig{
 		Client:               client,
 		JudgeModel:           judge,
@@ -352,6 +450,8 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		hCfg.AttachMinCosine = cfg.Taxonomy.AttachMinCosine
 		hCfg.WalkReinforceMin = cfg.Taxonomy.WalkReinforceMin
 		hCfg.Cosine = embed.CosineSimilarity
+		hCfg.EssenceCache = essenceCache
+		hCfg.EssenceParallel = cfg.Taxonomy.EssenceBatchSize
 	}
 	h, err := harness.CreateHarness(hCfg)
 	if err != nil {
@@ -363,19 +463,6 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	})
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create pipeline")
-	}
-	store, err := hoststore.CreateStore(hoststore.StoreConfig{Path: cfg.StorePath, Now: now})
-	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open classify store")
-	}
-	handedOff := false
-	defer func() {
-		if !handedOff {
-			_ = store.Close()
-		}
-	}()
-	if err := importClassifyProgressOnce(ctx, store, repoRoot); err != nil {
-		return nil, wrapCLIHop(err, op, "import progress")
 	}
 	tldrModel := strings.TrimSpace(cfg.PolypusTldrModel)
 	if tldrModel == "" {
@@ -740,10 +827,6 @@ func classifyJobContext(parent context.Context, windowed bool) (context.Context,
 	timeout := classifyJobTimeout
 	if windowed {
 		timeout = classifyWindowJobTimeout
-	}
-	if _, ok := parent.Deadline(); ok {
-		ctx, cancel := context.WithCancel(parent)
-		return ctx, cancel, nil
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	return ctx, cancel, nil

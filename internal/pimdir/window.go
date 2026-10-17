@@ -65,3 +65,29 @@ func CreateDateWindow(from, to string) (DateWindow, error) {
 	}
 	return DateWindow{From: fromT, To: toT}, nil
 }
+
+// SplitDateWindow splits a half-open window into consecutive [from, to) slices of at most days length.
+func SplitDateWindow(w DateWindow, days int) ([]DateWindow, error) {
+	const op = "pimdir.SplitDateWindow"
+	if w.Zero() {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "empty date window")
+	}
+	if days < 1 {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "days must be at least 1")
+	}
+	if !w.From.Before(w.To) {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "from must be before to")
+	}
+	var out []DateWindow
+	cur := w.From.UTC()
+	end := w.To.UTC()
+	for cur.Before(end) {
+		next := cur.AddDate(0, 0, days)
+		if next.After(end) {
+			next = end
+		}
+		out = append(out, DateWindow{From: cur, To: next})
+		cur = next
+	}
+	return out, nil
+}

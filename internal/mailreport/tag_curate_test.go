@@ -239,10 +239,11 @@ func TestRunner_Classify_tagCurateErrorDoesNotFail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	art, err := runner.Classify(context.Background(), SourceReport, nil)
+	art, err := runner.Classify(ctx, SourceReport, nil)
 	if err != nil {
 		t.Fatalf("Classify should not fail on curate: %v", err)
 	}
+	runner.RunTagPass(ctx, &art)
 	if art.TagCurateError == "" {
 		t.Fatal("expected tag curate error on artifact")
 	}

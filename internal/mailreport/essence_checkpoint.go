@@ -1,7 +1,6 @@
 package mailreport
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,12 +10,6 @@ import (
 
 	"github.com/xynova/should-i-read/internal/hoststore"
 )
-
-// EssenceCheckpointStore persists essence skim checkpoints (C28).
-type EssenceCheckpointStore interface {
-	GetEssence(ctx context.Context, objectHash string, fp hoststore.EssenceFingerprint) (hoststore.EssenceRow, bool, error)
-	PutEssence(ctx context.Context, objectHash string, fp hoststore.EssenceFingerprint, row hoststore.EssenceRow) error
-}
 
 // EssencePromptHash fingerprints the essence system prompt contract.
 func EssencePromptHash(systemPrompt string) string {
@@ -70,17 +63,4 @@ func essenceRowFromOut(out harness.EssenceOut) hoststore.EssenceRow {
 		Shape: out.Shape,
 		Why:   essenceWhyToStore(out.Why),
 	}
-}
-
-// WireEssenceCheckpoint attaches the host ledger to the Polypus essencer seat.
-func WireEssenceCheckpoint(seats Seats, ledger EssenceCheckpointStore, model, escalateModel, systemPrompt string) {
-	if ledger == nil {
-		return
-	}
-	e, ok := seats.Essencer.(*polypusEssencer)
-	if !ok || e == nil {
-		return
-	}
-	e.ledger = ledger
-	e.essenceFP = essenceFingerprint(model, escalateModel, systemPrompt)
 }
