@@ -13,11 +13,11 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 	"github.com/spf13/cobra"
 
+	"github.com/behaviorengineering/taxonomy/pkg/tags"
 	"github.com/xynova/should-i-read/internal/clui"
 	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/mailreport"
-	"github.com/xynova/should-i-read/internal/mailtags"
 	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/polypus"
@@ -300,7 +300,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	}
 	now := time.Now().UTC()
 	essenceDumpDir := filepath.Join(repoRoot, "tmp", "essence-parse")
-	var tagCatalog *mailtags.Catalog
+	var tagCatalog *tags.Catalog
 	essencePrompt := mailreport.DefaultEssenceSystemPrompt()
 	if essenceModel != "" {
 		registerPath, err := config.DefaultTagRegisterPath()
@@ -312,14 +312,10 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "tag deprecations path")
 		}
 		seedTags := config.SeedTagListPath(repoRoot)
-		if err := mailtags.EnsureFiles(registerPath, depPath, seedTags); err != nil {
+		if err := tags.EnsureFiles(registerPath, depPath, seedTags); err != nil {
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "ensure tag files")
 		}
-		tagCatalog, err = mailtags.CreateCatalog(mailtags.Config{
-			RegisterPath:     registerPath,
-			DeprecationsPath: depPath,
-			SeedPath:         seedTags,
-		})
+		tagCatalog, err = tags.CreateCatalog(mailreport.MailTagCatalogConfig(registerPath, depPath, seedTags))
 		if err != nil {
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "load tag catalog")
 		}
@@ -405,6 +401,19 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create attention scorer")
 	}
+	var tagCurator *mailreport.TagCurator
+	if tagCatalog != nil {
+		tagCurator, err = mailreport.CreateTagCurator(mailreport.TagCuratorConfig{
+			Store:      store,
+			Catalog:    tagCatalog,
+			Client:     client,
+			JudgeModel: judge,
+			MinScore:   cfg.Taxonomy.MinJudgeScore,
+		})
+		if err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create tag curator")
+		}
+	}
 	runner, err := mailreport.CreateRunner(mailreport.RunnerConfig{
 		Harness:              h,
 		Seats:                seats,
@@ -434,6 +443,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		EssenceDumpDir:       essenceDumpDir,
 		EssenceSystemPrompt:  essencePrompt,
 		TagCatalog:           tagCatalog,
+		TagCurator:           tagCurator,
 		Now:                  now,
 	}, vocab, cat)
 	if err != nil {
@@ -680,7 +690,7 @@ func glossClassifyMsgErr(errMsg string) string {
 		return "essence why empty"
 	case strings.Contains(lower, mailreport.EssenceErrAboutOrShape):
 		return "essence about/shape empty"
-	case strings.Contains(lower, mailtags.EssenceErrTagInvalid):
+	case strings.Contains(lower, tags.ErrTokenInvalid):
 		return "essence tag invalid"
 	}
 	return truncateRunes(s, 60)

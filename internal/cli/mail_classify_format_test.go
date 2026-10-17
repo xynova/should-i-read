@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/behaviorengineering/taxonomy/pkg/tags"
 	"github.com/xynova/should-i-read/internal/mailreport"
-	"github.com/xynova/should-i-read/internal/mailtags"
 )
 
 func TestFormatClassifyArtifactClusters(t *testing.T) {
@@ -112,7 +112,7 @@ func TestFormatClassifyArtifactFailures(t *testing.T) {
 }
 
 func TestGlossClassifyMsgErr_tagInvalid(t *testing.T) {
-	got := glossClassifyMsgErr("essence parse: " + mailtags.EssenceErrTagInvalid)
+	got := glossClassifyMsgErr("essence parse: " + tags.ErrTokenInvalid)
 	if got != "essence tag invalid" {
 		t.Fatalf("got %q", got)
 	}

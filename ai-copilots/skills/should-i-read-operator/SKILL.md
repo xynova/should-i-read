@@ -35,7 +35,7 @@ Token bare invoke (`token gmail`) still prints only the access token for Neveres
 | Sync engine check (IMAP, credentials) | `mail readiness` | `go tool task mail:readiness` (`doctor` alias) |
 | Pull mail into local store | `mail sync` (`--no-classify`, `--exclude-collection` optional) | `go tool task mail:sync` |
 | Classify mail (report-only, clusters + TLDR) | `mail report` | `go tool task mail:report` |
-| Regenerate mail tag register (essence TAGS ledger) | `mail tags` | `go tool task mail:tags` |
+| Regenerate mail tag register (stopword unify + Jev leftover curation when Polypus is up) | `mail tags` | `go tool task mail:tags` |
 | Export summary JSON | `mail export` | `go tool task mail:export` |
 | Read one message body | `mail show <ref>` | (CLI only) |
 

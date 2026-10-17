@@ -3,13 +3,14 @@ package mailreport
 import (
 	"context"
 
+	"github.com/behaviorengineering/taxonomy/pkg/tags"
+
 	"github.com/xynova/should-i-read/internal/hoststore"
-	"github.com/xynova/should-i-read/internal/mailtags"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 // RegenerateTagRegister scans complete classify rows and writes the operator register file.
-func RegenerateTagRegister(ctx context.Context, store *hoststore.Store, cat *mailtags.Catalog) (string, error) {
+func RegenerateTagRegister(ctx context.Context, store *hoststore.Store, cat *tags.Catalog) (string, error) {
 	const op = "mailreport.RegenerateTagRegister"
 	if store == nil {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "nil store")
@@ -17,16 +18,9 @@ func RegenerateTagRegister(ctx context.Context, store *hoststore.Store, cat *mai
 	if cat == nil {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "nil tag catalog")
 	}
-	path := cat.RegisterPath()
-	if path == "" {
-		return "", sirerr.New(sirerr.CodeInvalid, op, "empty register path")
-	}
-	shapes, err := store.ListCompleteShapes(ctx)
+	path, err := tags.RegenerateRegister(ctx, shapeLedger{store: store}, cat)
 	if err != nil {
-		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "list shapes")
-	}
-	if err := mailtags.WriteRegister(path, shapes, cat.SeedIDs(), cat.Deprecations()); err != nil {
-		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "write register")
+		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "regenerate register")
 	}
 	return path, nil
 }
