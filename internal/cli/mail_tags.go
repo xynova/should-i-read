@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/mailreport"
 	"github.com/xynova/should-i-read/internal/mailtags"
-	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 func newMailTagsCmd(opts *rootOptions, repoRoot string) *cobra.Command {
@@ -31,10 +31,12 @@ func runMailTags(cmd *cobra.Command, opts *rootOptions, repoRoot string) error {
 	if err != nil {
 		return err
 	}
-	ctx := cmd.Context()
-	if ctx == nil {
-		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	parent := cmd.Context()
+	if parent == nil {
+		parent = context.Background()
 	}
+	ctx, cancel := context.WithTimeout(parent, hostStoreOpTimeout)
+	defer cancel()
 	registerPath, err := config.DefaultTagRegisterPath()
 	if err != nil {
 		return wrapCLIHop(err, op, "register path")
