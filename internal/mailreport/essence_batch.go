@@ -138,6 +138,7 @@ func prefetchOneEssence(ctx context.Context, runner ChatLineRunner, ln openaibat
 
 func prefetchEssence(
 	ctx context.Context,
+	ledger EssenceCheckpointStore,
 	runner ChatLineRunner,
 	model string,
 	escalateModel string,
@@ -145,21 +146,25 @@ func prefetchEssence(
 	systemPrompt string,
 	items []Item,
 	batchSize int,
-) (map[string]harness.EssenceOut, map[string]error) {
+) (map[string]harness.EssenceOut, map[string]error, error) {
 	out := map[string]harness.EssenceOut{}
 	errs := map[string]error{}
 	if runner == nil || batchSize <= 0 || len(items) == 0 {
-		return out, errs
+		return out, errs, nil
 	}
 	model = strings.TrimSpace(model)
 	if model == "" {
-		return out, errs
+		return out, errs, nil
 	}
 	sys := strings.TrimSpace(systemPrompt)
 	if sys == "" {
 		sys = DefaultEssenceSystemPrompt()
 	}
+	fp := essenceFingerprint(model, escalateModel, sys)
 	for start := 0; start < len(items); start += batchSize {
+		if ctx.Err() != nil {
+			break
+		}
 		end := start + batchSize
 		if end > len(items) {
 			end = len(items)
@@ -170,6 +175,16 @@ func prefetchEssence(
 			hash := strings.TrimSpace(it.ObjectHash)
 			if hash == "" {
 				continue
+			}
+			if ledger != nil {
+				cached, hit, getErr := ledger.GetEssence(ctx, hash, fp)
+				if getErr != nil {
+					return out, errs, getErr
+				}
+				if hit {
+					out[hash] = essenceOutFromRow(cached)
+					continue
+				}
 			}
 			messageText := AuthorMessageBody(formatItemText(it))
 			prompt := strings.TrimSpace(world) + "\n\nMessage:\n" + messageText
@@ -204,12 +219,17 @@ func prefetchEssence(
 				continue
 			}
 			parsed, perr := prefetchOneEssence(ctx, runner, ln, lr.Content, escalateModel)
-			if perr == nil {
-				out[id] = parsed
+			if perr != nil {
+				errs[id] = perr
 				continue
 			}
-			errs[id] = perr
+			out[id] = parsed
+			if ledger != nil {
+				if putErr := ledger.PutEssence(ctx, id, fp, essenceRowFromOut(parsed)); putErr != nil {
+					return out, errs, putErr
+				}
+			}
 		}
 	}
-	return out, errs
+	return out, errs, nil
 }
