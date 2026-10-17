@@ -10,9 +10,9 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
+	"github.com/behaviorengineering/taxonomy/pkg/tags"
 	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/hoststore"
-	"github.com/xynova/should-i-read/internal/mailtags"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -50,7 +50,8 @@ type RunnerConfig struct {
 	AttentionTrueMin     float64
 	EssenceDumpDir       string
 	EssenceSystemPrompt  string
-	TagCatalog           *mailtags.Catalog
+	TagCatalog           *tags.Catalog
+	TagCurator           *TagCurator
 	Now                  time.Time
 }
 
@@ -87,7 +88,8 @@ type Runner struct {
 	attentionTrueMin     float64
 	essenceDumpDir       string
 	essenceSystemPrompt  string
-	tagCatalog           *mailtags.Catalog
+	tagCatalog           *tags.Catalog
+	tagCurator           *TagCurator
 	aiHops               int
 	now                  time.Time
 }
@@ -155,6 +157,7 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		essenceDumpDir:       strings.TrimSpace(cfg.EssenceDumpDir),
 		essenceSystemPrompt:  strings.TrimSpace(cfg.EssenceSystemPrompt),
 		tagCatalog:           cfg.TagCatalog,
+		tagCurator:           cfg.TagCurator,
 		now:                  now,
 	}, nil
 }
@@ -217,7 +220,43 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 			art.TagRegisterPath = regPath
 		}
 	}
+	if r.tagCurator != nil {
+		curateRes, curErr := r.tagCurator.Run(ctx)
+		if curErr != nil {
+			art.TagCurateError = curErr.Error()
+		} else {
+			art.TagCurateDropped = curateRes.Dropped
+			art.TagCurateMerged = curateRes.Merged
+			if curateRes.RegisterPath != "" {
+				art.TagRegisterPath = curateRes.RegisterPath
+			}
+			if curateRes.JudgeSkipped {
+				art.TagCurateJevSkipped = true
+			}
+		}
+		if cat := r.tagCurator.Catalog(); cat != nil {
+			r.tagCatalog = cat
+		}
+		patchMessageTagShapes(&art.Messages, r.tagCatalog)
+	} else if r.tagCatalog != nil {
+		patchMessageTagShapes(&art.Messages, r.tagCatalog)
+	}
 	return art, nil
+}
+
+func patchMessageTagShapes(messages *[]MessageRow, cat *tags.Catalog) {
+	if messages == nil || cat == nil {
+		return
+	}
+	for i := range *messages {
+		filtered := tags.FilterStoredShape((*messages)[i].Shape, cat)
+		(*messages)[i].Shape = filtered
+		if filtered == "" {
+			(*messages)[i].Tags = nil
+		} else {
+			(*messages)[i].Tags = strings.Fields(filtered)
+		}
+	}
 }
 
 func (r *Runner) classifyItem(ctx context.Context, item Item, aiHops *int, art *Artifact) error {

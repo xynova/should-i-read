@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xynova/should-i-read/internal/mailtags"
+	"github.com/behaviorengineering/taxonomy/pkg/tags"
 )
 
-func testTagCatalog(t *testing.T) *mailtags.Catalog {
+func testTagCatalog(t *testing.T) *tags.Catalog {
 	seed := filepath.Join("..", "..", "config", "vocabularies", "mail-tags-seed.txt")
-	cat, err := mailtags.CreateCatalog(mailtags.Config{SeedPath: seed})
+	cat, err := tags.CreateCatalog(MailTagCatalogConfig("", "", seed))
 	if err != nil {
 		t.Fatalf("catalog: %v", err)
 	}

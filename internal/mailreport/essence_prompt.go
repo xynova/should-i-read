@@ -9,7 +9,7 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
-	"github.com/xynova/should-i-read/internal/mailtags"
+	"github.com/behaviorengineering/taxonomy/pkg/tags"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -75,7 +75,7 @@ var essenceParseKeys = []string{
 var (
 	defaultEssenceSystemPrompt string
 	essenceKeyRE               *regexp.Regexp
-	essenceTagCatalog          *mailtags.Catalog
+	essenceTagCatalog          *tags.Catalog
 )
 
 func init() {
@@ -114,13 +114,13 @@ KIND must be 3 to 5 kebab-case segments joined by " > " (example: notification >
 }
 
 // SetEssenceTagCatalog sets the catalog used for tag validation during classify runs.
-func SetEssenceTagCatalog(cat *mailtags.Catalog) {
+func SetEssenceTagCatalog(cat *tags.Catalog) {
 	essenceTagCatalog = cat
 }
 
 const essenceParseMaxAttempts = 3
 
-func essenceIntegrityValidateFor(cat *mailtags.Catalog) func(string) error {
+func essenceIntegrityValidateFor(cat *tags.Catalog) func(string) error {
 	return func(raw string) error {
 		_, err := parseEssenceResponseWithCatalog(raw, cat)
 		return err
@@ -157,7 +157,7 @@ func essenceTagInvalidFromErr(err error) bool {
 	if !errors.As(err, &typed) || typed == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(typed.Message), mailtags.EssenceErrTagInvalid)
+	return strings.Contains(strings.ToLower(typed.Message), tags.ErrTokenInvalid)
 }
 
 func essenceKeysFromErr(err error) (missing, present []string) {
@@ -199,7 +199,7 @@ func parseEssenceResponse(raw string) (harness.EssenceOut, error) {
 	return parseEssenceResponseWithCatalog(raw, essenceTagCatalog)
 }
 
-func parseEssenceResponseWithCatalog(raw string, cat *mailtags.Catalog) (harness.EssenceOut, error) {
+func parseEssenceResponseWithCatalog(raw string, cat *tags.Catalog) (harness.EssenceOut, error) {
 	var why [5]string
 	about, tagsRaw, kind := "", "", ""
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
@@ -240,7 +240,7 @@ func parseEssenceResponseWithCatalog(raw string, cat *mailtags.Catalog) (harness
 	return out, nil
 }
 
-func normalizeEssenceTags(cat *mailtags.Catalog, raw string) (string, error) {
+func normalizeEssenceTags(cat *tags.Catalog, raw string) (string, error) {
 	const op = "mailreport.normalizeEssenceTags"
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -249,15 +249,16 @@ func normalizeEssenceTags(cat *mailtags.Catalog, raw string) (string, error) {
 	if cat != nil {
 		return cat.NormalizeField(raw)
 	}
-	tokens := mailtags.SplitTags(raw)
+	deny := mailTagDenySet()
+	tokens := tags.SplitTags(raw)
 	for _, tok := range tokens {
-		if err := mailtags.ValidateToken(tok); err != nil {
+		if err := tags.ValidateToken(tok, deny); err != nil {
 			return "", err
 		}
 	}
-	joined := mailtags.JoinTags(tokens)
+	joined := tags.JoinTags(tokens)
 	if joined == "" {
-		return "", sirerr.New(sirerr.CodeAI, op, mailtags.EssenceErrTagInvalid)
+		return "", sirerr.New(sirerr.CodeAI, op, tags.ErrTokenInvalid)
 	}
 	return joined, nil
 }

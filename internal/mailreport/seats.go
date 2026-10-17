@@ -13,7 +13,7 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
-	"github.com/xynova/should-i-read/internal/mailtags"
+	"github.com/behaviorengineering/taxonomy/pkg/tags"
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -132,7 +132,7 @@ type SeatsConfig struct {
 	EssenceEscalateModel string
 	EssenceDumpDir       string
 	EssenceSystemPrompt  string
-	TagCatalog           *mailtags.Catalog
+	TagCatalog           *tags.Catalog
 	Now                  time.Time
 	Embedder             harness.Embedder
 	JEVClient            *jev.Client

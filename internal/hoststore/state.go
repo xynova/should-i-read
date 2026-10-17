@@ -189,6 +189,60 @@ func (s *Store) Get(ctx context.Context, objectHash string) (StateRow, error) {
 	return row, nil
 }
 
+// ShapeRow is one complete classify row shape field.
+type ShapeRow struct {
+	ObjectHash string
+	Shape      string
+}
+
+// ListCompleteShapeRows returns object_hash and shape for complete classify rows.
+func (s *Store) ListCompleteShapeRows(ctx context.Context) ([]ShapeRow, error) {
+	const op = "hoststore.Store.ListCompleteShapeRows"
+	if err := s.requireStore(ctx, op); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT object_hash, shape FROM classify_state WHERE status='complete'`)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query shape rows")
+	}
+	defer func() { _ = rows.Close() }()
+	var out []ShapeRow
+	for rows.Next() {
+		var hash, shape string
+		if err := rows.Scan(&hash, &shape); err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan shape row")
+		}
+		out = append(out, ShapeRow{ObjectHash: strings.TrimSpace(hash), Shape: strings.TrimSpace(shape)})
+	}
+	return out, rows.Err()
+}
+
+// RewriteShape updates shape on a complete classify row.
+func (s *Store) RewriteShape(ctx context.Context, objectHash, shape string) error {
+	const op = "hoststore.Store.RewriteShape"
+	if err := s.requireStore(ctx, op); err != nil {
+		return err
+	}
+	hash := strings.TrimSpace(objectHash)
+	if hash == "" {
+		return sirerr.New(sirerr.CodeInvalid, op, "empty object_hash")
+	}
+	stamp := s.stamp()
+	res, err := s.db.ExecContext(ctx, `
+UPDATE classify_state SET shape=?, updated_at=?
+WHERE object_hash=? AND status='complete'`,
+		strings.TrimSpace(shape), stamp, hash,
+	)
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "rewrite shape")
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sirerr.New(sirerr.CodeInvalid, op, "row not complete or missing").With("object_hash", hash)
+	}
+	return nil
+}
+
 // ListCompleteShapes returns shape fields for complete classify rows.
 func (s *Store) ListCompleteShapes(ctx context.Context) ([]string, error) {
 	const op = "hoststore.Store.ListCompleteShapes"

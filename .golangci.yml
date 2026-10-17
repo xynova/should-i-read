@@ -55,10 +55,6 @@ linters:
         linters:
           - gosec
         text: G703|G304
-      - path: internal/mailtags/
-        linters:
-          - gosec
-        text: G304
       - path: internal/mailreport/progress\.go
         linters:
           - gosec

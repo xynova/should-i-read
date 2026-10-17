@@ -81,6 +81,63 @@ func TestListCompleteShapes(t *testing.T) {
 	}
 }
 
+func TestListCompleteShapeRows_includesEmptyShape(t *testing.T) {
+	st, ctx := testStore(t)
+	tok, _, err := st.Claim(ctx, "empty-shape")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Complete(ctx, "empty-shape", tok, StateRow{TermID: "t", Shape: ""}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.ListCompleteShapeRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ObjectHash != "empty-shape" {
+		t.Fatalf("rows %+v", rows)
+	}
+	shapes, err := st.ListCompleteShapes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shapes) != 0 {
+		t.Fatalf("ListCompleteShapes should omit empty: %v", shapes)
+	}
+}
+
+func TestRewriteShape(t *testing.T) {
+	st, ctx := testStore(t)
+	tok, _, err := st.Claim(ctx, "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Complete(ctx, "h1", tok, StateRow{TermID: "t", Shape: "a with fyi"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RewriteShape(ctx, "h1", "fyi"); err != nil {
+		t.Fatal(err)
+	}
+	shapes, err := st.ListCompleteShapes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shapes) != 1 || shapes[0] != "fyi" {
+		t.Fatalf("shapes %v", shapes)
+	}
+	if err := st.RewriteShape(ctx, "missing", "x"); err == nil {
+		t.Fatal("expected missing hash error")
+	}
+	tok2, _, err := st.Claim(ctx, "running")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RewriteShape(ctx, "running", "x"); err == nil {
+		t.Fatal("expected running row unchanged")
+	}
+	_ = st.Fail(ctx, "running", tok2, "err")
+}
+
 func TestImportProgressOnce(t *testing.T) {
 	st, ctx := testStore(t)
 	n, err := st.ImportProgress(ctx, map[string]ProgressEntry{
