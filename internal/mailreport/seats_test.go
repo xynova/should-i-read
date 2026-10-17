@@ -233,7 +233,7 @@ func TestCreateSeats_emptyJudge(t *testing.T) {
 
 func TestPolypusEssencerSuccessOnAttempt2(t *testing.T) {
 	whyOnly := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\n"
-	full := whyOnly + "ABOUT: about\nSHAPE: shape\nKIND: notification > software-release > changelog\n"
+	full := whyOnly + "ABOUT: about\nTAGS: fyi\nKIND: notification > software-release > changelog\n"
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -292,7 +292,7 @@ func TestPolypusEssencerSuccessOnAttempt2(t *testing.T) {
 
 func TestPolypusEssencerCompensateAfterMicroExhaust(t *testing.T) {
 	whyOnly := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\n"
-	full := whyOnly + "ABOUT: about\nSHAPE: shape\nKIND: notification > software-release > changelog\n"
+	full := whyOnly + "ABOUT: about\nTAGS: fyi\nKIND: notification > software-release > changelog\n"
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {

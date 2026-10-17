@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/xynova/should-i-read/internal/mailreport"
+	"github.com/xynova/should-i-read/internal/mailtags"
 )
 
 func TestFormatClassifyArtifactClusters(t *testing.T) {
@@ -107,5 +108,12 @@ func TestFormatClassifyArtifactFailures(t *testing.T) {
 	}
 	if !strings.Contains(out, "essence why1 empty") {
 		t.Fatalf("missing why gloss: %s", out)
+	}
+}
+
+func TestGlossClassifyMsgErr_tagInvalid(t *testing.T) {
+	got := glossClassifyMsgErr("essence parse: " + mailtags.EssenceErrTagInvalid)
+	if got != "essence tag invalid" {
+		t.Fatalf("got %q", got)
 	}
 }

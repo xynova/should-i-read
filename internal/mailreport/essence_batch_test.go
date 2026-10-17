@@ -32,7 +32,7 @@ func (s *stubEssenceChat) Chat(context.Context, polypus.ChatRequest) (string, er
 	if s.delay > 0 {
 		time.Sleep(s.delay)
 	}
-	return "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nSHAPE: s\nKIND: notification > software-release > changelog", nil
+	return "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nTAGS: fyi\nKIND: notification > software-release > changelog", nil
 }
 
 func TestNewParallelChatRunner(t *testing.T) {
@@ -81,7 +81,7 @@ func (s *stubChatLines) RunChatLines(_ context.Context, lines []openaibatch.Chat
 	s.last = lines
 	out := map[string]openaibatch.LineResult{}
 	for _, ln := range lines {
-		out[ln.CustomID] = openaibatch.LineResult{Content: "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nSHAPE: s\nKIND: notification > software-release > changelog"}
+		out[ln.CustomID] = openaibatch.LineResult{Content: "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nTAGS: fyi\nKIND: notification > software-release > changelog"}
 	}
 	return out, nil
 }
@@ -93,7 +93,7 @@ func TestRunner_EssencePrefetchRunChatLines(t *testing.T) {
 		{ObjectHash: "h2", Body: "two"},
 		{ObjectHash: "h3", Body: "three"},
 	}
-	got, errs := prefetchEssence(context.Background(), stub, "m", "", WorldContextAttach, items, 8)
+	got, errs := prefetchEssence(context.Background(), stub, "m", "", WorldContextAttach, DefaultEssenceSystemPrompt(), items, 8)
 	if len(errs) != 0 {
 		t.Fatalf("errs=%v", errs)
 	}
@@ -118,7 +118,7 @@ type resumeChatLinesStub struct {
 
 func (s *resumeChatLinesStub) RunChatLines(_ context.Context, lines []openaibatch.ChatLine) (map[string]openaibatch.LineResult, error) {
 	s.calls.Add(1)
-	full := "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nSHAPE: s\nKIND: notification > software-release > changelog\n"
+	full := "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nTAGS: fyi\nKIND: notification > software-release > changelog\n"
 	if len(lines) == 1 && len(lines[0].Messages) > 2 {
 		msgs := lines[0].Messages
 		if msgs[len(msgs)-2][chatRoleKey] != polypus.RoleAssistant {
@@ -138,7 +138,7 @@ func TestPrefetchOneEssence_resumeAssistantTurn(t *testing.T) {
 		CustomID: "h1",
 		Model:    "m",
 		Messages: []map[string]string{
-			{chatRoleKey: polypus.RoleSystem, chatContentKey: essenceSystemPrompt},
+			{chatRoleKey: polypus.RoleSystem, chatContentKey: DefaultEssenceSystemPrompt()},
 			{chatRoleKey: polypus.RoleUser, chatContentKey: "prompt"},
 		},
 	}
@@ -169,7 +169,7 @@ func (s *escalatePrefetchStub) RunChatLines(_ context.Context, lines []openaibat
 	}
 	s.models = append(s.models, lines[0].Model)
 	whyOnly := "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\n"
-	full := whyOnly + "ABOUT: a\nSHAPE: s\nKIND: notification > software-release > changelog\n"
+	full := whyOnly + "ABOUT: a\nTAGS: fyi\nKIND: notification > software-release > changelog\n"
 	content := whyOnly
 	if lines[0].Model == "escalate-big" {
 		content = full
@@ -183,7 +183,7 @@ func TestPrefetchOneEssence_compensateUsesEscalateModel(t *testing.T) {
 		CustomID: "h1",
 		Model:    "micro",
 		Messages: []map[string]string{
-			{chatRoleKey: polypus.RoleSystem, chatContentKey: essenceSystemPrompt},
+			{chatRoleKey: polypus.RoleSystem, chatContentKey: DefaultEssenceSystemPrompt()},
 			{chatRoleKey: polypus.RoleUser, chatContentKey: "prompt"},
 		},
 	}

@@ -75,6 +75,7 @@ type MessageRow struct {
 	Kind            string       `json:"kind,omitempty"`
 	About           string       `json:"about,omitempty"`
 	Shape           string       `json:"shape,omitempty"`
+	Tags            []string     `json:"tags,omitempty"`
 	Cosine          float64      `json:"cosine,omitempty"`
 	CanonicalTermID string       `json:"canonical_term_id,omitempty"`
 	Reinforced      bool         `json:"reinforced,omitempty"`
@@ -118,6 +119,8 @@ type Artifact struct {
 	AttentionScored      int          `json:"attention_scored,omitempty"`
 	AttentionOmitted     int          `json:"attention_omitted,omitempty"`
 	EssenceDumpDir       string       `json:"essence_dump_dir,omitempty"`
+	TagRegisterPath      string       `json:"tag_register_path,omitempty"`
+	TagRegisterError     string       `json:"tag_register_error,omitempty"`
 	Messages             []MessageRow `json:"messages"`
 	Clusters             []ClusterRow `json:"clusters,omitempty"`
 }

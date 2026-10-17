@@ -116,7 +116,7 @@ func prefetchOneEssence(ctx context.Context, runner ChatLineRunner, ln openaibat
 	if parseErr == nil {
 		return parsed, nil
 	}
-	shell, err := createEssenceIntegrityShellChatLines(runner, ln, escalateModel)
+	shell, err := createEssenceIntegrityShellChatLines(runner, ln, escalateModel, essenceTagCatalog)
 	if err != nil {
 		return harness.EssenceOut{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence integrity shell")
 	}
@@ -142,6 +142,7 @@ func prefetchEssence(
 	model string,
 	escalateModel string,
 	world string,
+	systemPrompt string,
 	items []Item,
 	batchSize int,
 ) (map[string]harness.EssenceOut, map[string]error) {
@@ -153,6 +154,10 @@ func prefetchEssence(
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return out, errs
+	}
+	sys := strings.TrimSpace(systemPrompt)
+	if sys == "" {
+		sys = DefaultEssenceSystemPrompt()
 	}
 	for start := 0; start < len(items); start += batchSize {
 		end := start + batchSize
@@ -172,7 +177,7 @@ func prefetchEssence(
 				CustomID: hash,
 				Model:    model,
 				Messages: []map[string]string{
-					{chatRoleKey: polypus.RoleSystem, chatContentKey: essenceSystemPrompt},
+					{chatRoleKey: polypus.RoleSystem, chatContentKey: sys},
 					{chatRoleKey: polypus.RoleUser, chatContentKey: prompt},
 				},
 			})

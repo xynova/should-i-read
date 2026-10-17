@@ -12,6 +12,7 @@ import (
 
 	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/mailtags"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -48,6 +49,8 @@ type RunnerConfig struct {
 	Attention            AttentionClient
 	AttentionTrueMin     float64
 	EssenceDumpDir       string
+	EssenceSystemPrompt  string
+	TagCatalog           *mailtags.Catalog
 	Now                  time.Time
 }
 
@@ -83,6 +86,8 @@ type Runner struct {
 	attention            AttentionClient
 	attentionTrueMin     float64
 	essenceDumpDir       string
+	essenceSystemPrompt  string
+	tagCatalog           *mailtags.Catalog
 	aiHops               int
 	now                  time.Time
 }
@@ -148,6 +153,8 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		attention:            cfg.Attention,
 		attentionTrueMin:     cfg.AttentionTrueMin,
 		essenceDumpDir:       strings.TrimSpace(cfg.EssenceDumpDir),
+		essenceSystemPrompt:  strings.TrimSpace(cfg.EssenceSystemPrompt),
+		tagCatalog:           cfg.TagCatalog,
 		now:                  now,
 	}, nil
 }
@@ -189,7 +196,7 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	art.EssenceEscalateModel = r.essenceEscalateModel
 	pending := r.pendingClassifyItems(ctx, items)
 	if r.essenceBatch != nil && config.IsAttachStrategy(r.strategy) && len(pending) > 0 {
-		cache, prefetchErrs := prefetchEssence(ctx, r.essenceBatch, r.essenceModel, r.essenceEscalateModel, r.operateWorld, pending, r.essenceBatchSize)
+		cache, prefetchErrs := prefetchEssence(ctx, r.essenceBatch, r.essenceModel, r.essenceEscalateModel, r.operateWorld, r.essenceSystemPrompt, pending, r.essenceBatchSize)
 		r.essenceCache = cache
 		_ = prefetchErrs // misses fall back to per-message Essencer during Operate.
 	}
@@ -200,6 +207,14 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 		}
 		if err := r.classifyItem(ctx, item, &r.aiHops, &art); err != nil {
 			return art, err
+		}
+	}
+	if r.tagCatalog != nil {
+		regPath, regErr := RegenerateTagRegister(ctx, r.store, r.tagCatalog)
+		if regErr != nil {
+			art.TagRegisterError = regErr.Error()
+		} else {
+			art.TagRegisterPath = regPath
 		}
 	}
 	return art, nil
@@ -439,6 +454,9 @@ func (r *Runner) messageRowFromState(item Item, got hoststore.StateRow) MessageR
 		SenderMapsTo:    got.SenderMapsTo,
 	}
 	row.Attention = messageAttentionFromState(got, tm)
+	if shape := strings.TrimSpace(got.Shape); shape != "" {
+		row.Tags = strings.Fields(shape)
+	}
 	return row
 }
 

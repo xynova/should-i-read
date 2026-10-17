@@ -7,6 +7,7 @@ import (
 	"github.com/behaviorengineering/strop/pkg/integrity"
 	"github.com/behaviorengineering/strop/pkg/openaibatch"
 
+	"github.com/xynova/should-i-read/internal/mailtags"
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -21,7 +22,7 @@ func EffectiveEssenceEscalateModel(essenceModel, escalateModel string) string {
 	return escalateModel
 }
 
-func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, escalateModel string) (*integrity.Shell, error) {
+func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, escalateModel string, tagCatalog *mailtags.Catalog) (*integrity.Shell, error) {
 	const op = "mailreport.createEssenceIntegrityShellPolypus"
 	if client == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil client")
@@ -39,7 +40,7 @@ func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, es
 				Messages:    integrityMessagesToPolypus(messages),
 			})
 		},
-		Validate:     essenceIntegrityValidate,
+		Validate:     essenceIntegrityValidateFor(tagCatalog),
 		CompleteNote: essenceIntegrityCompleteNote,
 		MaxAttempts:  essenceParseMaxAttempts,
 	}
@@ -49,7 +50,7 @@ func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, es
 	return integrity.CreateShell(cfg)
 }
 
-func createEssenceIntegrityShellChatLines(runner ChatLineRunner, ln openaibatch.ChatLine, escalateModel string) (*integrity.Shell, error) {
+func createEssenceIntegrityShellChatLines(runner ChatLineRunner, ln openaibatch.ChatLine, escalateModel string, tagCatalog *mailtags.Catalog) (*integrity.Shell, error) {
 	const op = "mailreport.createEssenceIntegrityShellChatLines"
 	if runner == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil runner")
@@ -75,7 +76,7 @@ func createEssenceIntegrityShellChatLines(runner ChatLineRunner, ln openaibatch.
 			}
 			return lr.Content, nil
 		},
-		Validate:     essenceIntegrityValidate,
+		Validate:     essenceIntegrityValidateFor(tagCatalog),
 		CompleteNote: essenceIntegrityCompleteNote,
 		MaxAttempts:  essenceParseMaxAttempts,
 	}

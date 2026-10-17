@@ -13,6 +13,7 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/catalog"
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
+	"github.com/xynova/should-i-read/internal/mailtags"
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -57,6 +58,7 @@ type polypusEssencer struct {
 	client        *polypus.Client
 	model         string
 	escalateModel string
+	systemPrompt  string
 	dump          *essenceDumper
 	shell         *integrity.Shell
 }
@@ -76,7 +78,11 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 	}
 	messageText := AuthorMessageBody(in.Text)
 	prompt := strings.TrimSpace(in.WorldContext) + "\n\nMessage:\n" + messageText
-	raw, runErr := e.shell.Run(ctx, essenceSystemPrompt, prompt)
+	sys := strings.TrimSpace(e.systemPrompt)
+	if sys == "" {
+		sys = DefaultEssenceSystemPrompt()
+	}
+	raw, runErr := e.shell.Run(ctx, sys, prompt)
 	if runErr == nil {
 		parsed, parseErr := parseEssenceResponse(raw)
 		if parseErr != nil {
@@ -125,6 +131,8 @@ type SeatsConfig struct {
 	EssenceModel         string
 	EssenceEscalateModel string
 	EssenceDumpDir       string
+	EssenceSystemPrompt  string
+	TagCatalog           *mailtags.Catalog
 	Now                  time.Time
 	Embedder             harness.Embedder
 	JEVClient            *jev.Client
@@ -155,14 +163,20 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 	}
 	if essenceModel != "" {
 		escalateModel := EffectiveEssenceEscalateModel(essenceModel, cfg.EssenceEscalateModel)
-		shell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel)
+		SetEssenceTagCatalog(cfg.TagCatalog)
+		shell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, cfg.TagCatalog)
 		if err != nil {
 			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence integrity shell")
+		}
+		sysPrompt := strings.TrimSpace(cfg.EssenceSystemPrompt)
+		if sysPrompt == "" {
+			sysPrompt = DefaultEssenceSystemPrompt()
 		}
 		out.Essencer = &polypusEssencer{
 			client:        cfg.Client,
 			model:         essenceModel,
 			escalateModel: escalateModel,
+			systemPrompt:  sysPrompt,
 			dump:          CreateEssenceDumper(EssenceDumpConfig{Dir: cfg.EssenceDumpDir, Now: cfg.Now}),
 			shell:         shell,
 		}
