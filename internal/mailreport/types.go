@@ -125,6 +125,7 @@ type Artifact struct {
 	TagCurateDropped     []string          `json:"tag_curate_dropped,omitempty"`
 	TagCurateMerged      map[string]string `json:"tag_curate_merged,omitempty"`
 	TagCurateJevSkipped  bool              `json:"tag_curate_jev_skipped,omitempty"`
+	IncompleteError      string            `json:"incomplete_error,omitempty"`
 	Messages             []MessageRow      `json:"messages"`
 	Clusters             []ClusterRow      `json:"clusters,omitempty"`
 }

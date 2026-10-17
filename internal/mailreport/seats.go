@@ -14,7 +14,6 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
 	"github.com/behaviorengineering/taxonomy/pkg/tags"
-	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -62,8 +61,6 @@ type polypusEssencer struct {
 	systemPrompt  string
 	dump          *essenceDumper
 	shell         *integrity.Shell
-	ledger        EssenceCheckpointStore
-	essenceFP     hoststore.EssenceFingerprint
 }
 
 func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (harness.EssenceOut, error) {
@@ -93,15 +90,6 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 			return harness.EssenceOut{}, retErr
 		}
 		out = parsed
-		if e.ledger != nil {
-			id := essenceDumpIDFromCtx(ctx)
-			if id != "" {
-				if putErr := e.ledger.PutEssence(ctx, id, e.essenceFP, essenceRowFromOut(out)); putErr != nil {
-					retErr = putErr
-					return harness.EssenceOut{}, retErr
-				}
-			}
-		}
 		return out, nil
 	}
 	if errors.Is(runErr, integrity.ErrInvalid) {

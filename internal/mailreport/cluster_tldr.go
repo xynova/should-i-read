@@ -70,8 +70,6 @@ func (r *Runner) Cluster(ctx context.Context, art Artifact) (Artifact, error) {
 			quarantine[t] = struct{}{}
 		}
 	}
-	var chatLines []openaibatch.ChatLine
-	chatClusterIdx := map[string]int{}
 	for i := range clusters {
 		c := &clusters[i]
 		c.SuggestedAction = suggestedActionFor(c.TermID, quarantine)
@@ -86,7 +84,6 @@ func (r *Runner) Cluster(ctx context.Context, art Artifact) (Artifact, error) {
 		if gerr == nil && strings.TrimSpace(got.TLDR) != "" {
 			c.TLDR = got.TLDR
 			c.TLDRError = ""
-			c.SuggestedAction = suggestedActionFor(c.TermID, quarantine)
 			if err := r.persistCluster(ctx, *c, rowByHash); err != nil {
 				return finish(err)
 			}
@@ -98,10 +95,26 @@ func (r *Runner) Cluster(ctx context.Context, art Artifact) (Artifact, error) {
 				return finish(sirerr.Wrap(gerr, sirerr.CodeFailed, op, "get cluster cache"))
 			}
 		}
+	}
+	if err := r.fillClusterTLDRs(ctx, &clusters, rowByHash, quarantine); err != nil {
+		return finish(err)
+	}
+	return finish(nil)
+}
+
+func (r *Runner) fillClusterTLDRs(ctx context.Context, clusters *[]ClusterRow, rowByHash map[string]MessageRow, quarantine map[string]struct{}) error {
+	const op = "mailreport.Runner.fillClusterTLDRs"
+	var chatLines []openaibatch.ChatLine
+	chatClusterIdx := map[string]int{}
+	for i := range *clusters {
+		c := &(*clusters)[i]
+		if strings.TrimSpace(c.TLDR) != "" || c.Size == 1 {
+			continue
+		}
 		if r.tldrBatch == nil {
 			c.TLDRError = "tldr runner unavailable"
 			if err := r.persistCluster(ctx, *c, rowByHash); err != nil {
-				return finish(err)
+				return err
 			}
 			continue
 		}
@@ -115,37 +128,38 @@ func (r *Runner) Cluster(ctx context.Context, art Artifact) (Artifact, error) {
 			},
 		})
 	}
-	if len(chatLines) > 0 && r.tldrBatch != nil {
-		results, batchErr := r.tldrBatch.RunChatLines(ctx, chatLines)
-		if batchErr != nil {
-			return finish(sirerr.Wrap(batchErr, sirerr.CodeFailed, op, "tldr chat batch"))
+	if len(chatLines) == 0 || r.tldrBatch == nil {
+		return nil
+	}
+	results, batchErr := r.tldrBatch.RunChatLines(ctx, chatLines)
+	if batchErr != nil {
+		return sirerr.Wrap(batchErr, sirerr.CodeFailed, op, "tldr chat batch")
+	}
+	for cid := range chatClusterIdx {
+		c := findClusterByID(*clusters, cid)
+		if c == nil {
+			continue
 		}
-		for cid := range chatClusterIdx {
-			c := findClusterByID(clusters, cid)
-			if c == nil {
-				continue
-			}
-			res := results[cid]
-			if strings.TrimSpace(res.ErrMessage) != "" {
-				c.TLDRError = res.ErrMessage
+		res := results[cid]
+		if strings.TrimSpace(res.ErrMessage) != "" {
+			c.TLDRError = res.ErrMessage
+			c.TLDR = ""
+		} else {
+			parsed := parseTLDRLine(res.Content)
+			if parsed == "" {
+				c.TLDRError = "empty tldr"
 				c.TLDR = ""
 			} else {
-				parsed := parseTLDRLine(res.Content)
-				if parsed == "" {
-					c.TLDRError = "empty tldr"
-					c.TLDR = ""
-				} else {
-					c.TLDR = parsed
-					c.TLDRError = ""
-				}
-			}
-			c.SuggestedAction = suggestedActionFor(c.TermID, quarantine)
-			if err := r.persistCluster(ctx, *c, rowByHash); err != nil {
-				return finish(err)
+				c.TLDR = parsed
+				c.TLDRError = ""
 			}
 		}
+		c.SuggestedAction = suggestedActionFor(c.TermID, quarantine)
+		if err := r.persistCluster(ctx, *c, rowByHash); err != nil {
+			return err
+		}
 	}
-	return finish(nil)
+	return nil
 }
 
 func findClusterByID(clusters []ClusterRow, id string) *ClusterRow {
