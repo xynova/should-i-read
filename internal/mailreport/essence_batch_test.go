@@ -93,7 +93,10 @@ func TestRunner_EssencePrefetchRunChatLines(t *testing.T) {
 		{ObjectHash: "h2", Body: "two"},
 		{ObjectHash: "h3", Body: "three"},
 	}
-	got, errs := prefetchEssence(context.Background(), stub, "m", "", WorldContextAttach, DefaultEssenceSystemPrompt(), items, 8)
+	got, errs, err := prefetchEssence(context.Background(), nil, stub, "m", "", WorldContextAttach, DefaultEssenceSystemPrompt(), items, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(errs) != 0 {
 		t.Fatalf("errs=%v", errs)
 	}

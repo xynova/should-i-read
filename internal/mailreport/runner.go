@@ -125,6 +125,8 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	sysPrompt := strings.TrimSpace(cfg.EssenceSystemPrompt)
+	WireEssenceCheckpoint(cfg.Seats, cfg.Store, strings.TrimSpace(cfg.EssenceModel), cfg.EssenceEscalateModel, sysPrompt)
 	return &Runner{
 		h:                    cfg.Harness,
 		seats:                cfg.Seats,
@@ -199,7 +201,10 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	art.EssenceEscalateModel = r.essenceEscalateModel
 	pending := r.pendingClassifyItems(ctx, items)
 	if r.essenceBatch != nil && config.IsAttachStrategy(r.strategy) && len(pending) > 0 {
-		cache, prefetchErrs := prefetchEssence(ctx, r.essenceBatch, r.essenceModel, r.essenceEscalateModel, r.operateWorld, r.essenceSystemPrompt, pending, r.essenceBatchSize)
+		cache, prefetchErrs, prefetchErr := prefetchEssence(ctx, r.store, r.essenceBatch, r.essenceModel, r.essenceEscalateModel, r.operateWorld, r.essenceSystemPrompt, pending, r.essenceBatchSize)
+		if prefetchErr != nil {
+			return art, prefetchErr
+		}
 		r.essenceCache = cache
 		_ = prefetchErrs // misses fall back to per-message Essencer during Operate.
 	}
