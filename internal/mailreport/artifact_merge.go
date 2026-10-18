@@ -38,6 +38,7 @@ func MergeClassifyArtifacts(dst *Artifact, src Artifact) {
 	}
 	dst.Messages = append(dst.Messages, src.Messages...)
 	dst.Classified += src.Classified
+	dst.NewlyClassified += src.NewlyClassified
 	dst.Omitted += src.Omitted
 	dst.Unresolved += src.Unresolved
 	dst.AliasesAdded += src.AliasesAdded
