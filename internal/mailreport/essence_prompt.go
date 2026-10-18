@@ -242,7 +242,7 @@ func parseEssenceResponseWithCatalog(raw string, cat *tags.Catalog) (harness.Ess
 
 func normalizeEssenceTags(cat *tags.Catalog, raw string) (string, error) {
 	const op = "mailreport.normalizeEssenceTags"
-	raw = strings.TrimSpace(raw)
+	raw = splitEssenceTagPaths(raw)
 	if raw == "" {
 		return "", nil
 	}
@@ -261,6 +261,12 @@ func normalizeEssenceTags(cat *tags.Catalog, raw string) (string, error) {
 		return "", sirerr.New(sirerr.CodeAI, op, tags.ErrTokenInvalid)
 	}
 	return joined, nil
+}
+
+// splitEssenceTagPaths turns KIND-shaped TAGS ("a > b > c") into leftover tokens.
+func splitEssenceTagPaths(raw string) string {
+	raw = strings.ReplaceAll(raw, ">", " ")
+	return strings.TrimSpace(raw)
 }
 
 func essenceAssignParsedKey(why *[5]string, about, tagsRaw, kind *string, key, val string) {

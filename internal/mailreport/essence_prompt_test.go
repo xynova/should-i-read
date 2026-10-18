@@ -60,6 +60,19 @@ func TestParseEssenceResponse_rejectsRectangular(t *testing.T) {
 	}
 }
 
+func TestParseEssenceResponse_kindPathTags(t *testing.T) {
+	cat := testTagCatalog(t)
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: Auth0 free trial\nTAGS: auth0 > trial > notification > service-alert > transactional\nKIND: notification > service-alert > transactional\n"
+	out, err := parseEssenceResponseWithCatalog(raw, cat)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := "auth0 notification service-alert transactional trial"
+	if out.Shape != want {
+		t.Fatalf("shape: got %q want %q", out.Shape, want)
+	}
+}
+
 func TestParseEssenceResponse_mintKebab(t *testing.T) {
 	cat := testTagCatalog(t)
 	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: x\nTAGS: solicitation\nKIND: communication > professional-networking > business\n"
