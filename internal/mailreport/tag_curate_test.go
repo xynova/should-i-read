@@ -151,7 +151,7 @@ func TestTagCurator_jevDropAndMerge(t *testing.T) {
 	}
 }
 
-func TestTagCurator_belowThresholdNoTOML(t *testing.T) {
+func TestTagCurator_belowThresholdWritesSkipped(t *testing.T) {
 	store := testLedger(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -183,12 +183,15 @@ func TestTagCurator_belowThresholdNoTOML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), "id = \"notification\"") {
+	if !strings.Contains(string(b), "[[skipped]]") || !strings.Contains(string(b), "notification") {
+		t.Fatalf("expected skipped entry: %s", b)
+	}
+	if strings.Contains(string(b), "[[dropped]]\nid = \"notification\"") {
 		t.Fatalf("should not write dropped entry: %s", b)
 	}
 }
 
-func TestRunner_Classify_tagCurateErrorDoesNotFail(t *testing.T) {
+func TestRunner_RunTagPass_skipsWhenNoNewClassify(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	store := testLedger(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -241,9 +244,73 @@ func TestRunner_Classify_tagCurateErrorDoesNotFail(t *testing.T) {
 	}
 	art, err := runner.Classify(ctx, SourceReport, nil)
 	if err != nil {
-		t.Fatalf("Classify should not fail on curate: %v", err)
+		t.Fatalf("Classify should not fail: %v", err)
 	}
 	runner.RunTagPass(ctx, &art)
+	if !art.TagPassSkipped {
+		t.Fatal("expected tag pass skipped")
+	}
+	if art.TagCurateError != "" {
+		t.Fatalf("unexpected curate error: %q", art.TagCurateError)
+	}
+}
+
+func TestRunner_RunTagPass_curateErrorWhenNewlyClassified(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	store := testLedger(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cat, _, _ := testTagCurateCatalog(t)
+	vocab := testInboxVocab()
+	taxCat, err := catalog.BuildCatalog(vocab)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats := Seats{
+		Judge:  &stubJudge{choices: []string{harness.ChoiceReject}, scores: []float64{1}},
+		Author: &stubAuthor{},
+	}
+	h, err := harness.CreateHarness(harness.Config{Judge: seats.Judge, Author: seats.Author})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipe, err := CreatePipeline(PipelineConfig{Harness: h, Seats: seats})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failCurator, err := CreateTagCurator(TagCuratorConfig{
+		Store:   store,
+		Catalog: cat,
+		Judge:   &errTagJudge{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, _, err := store.Claim(ctx, "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Complete(ctx, "h1", tok, hoststore.StateRow{TermID: "t", Shape: "leftover-token"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	runner, err := CreateRunner(RunnerConfig{
+		Harness:     h,
+		Seats:       seats,
+		Pipeline:    pipe,
+		Store:       store,
+		ClassifyMax: 1,
+		TagCatalog:  cat,
+		TagCurator:  failCurator,
+		Now:         time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC),
+	}, vocab, taxCat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	art := Artifact{NewlyClassified: 1}
+	runner.RunTagPass(ctx, &art)
+	if art.TagPassSkipped {
+		t.Fatal("expected tag pass to run")
+	}
 	if art.TagCurateError == "" {
 		t.Fatal("expected tag curate error on artifact")
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/mailreport"
 	"github.com/xynova/should-i-read/internal/polypus"
+	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 const mailTagsPathLabelWidth = 12
@@ -52,8 +53,10 @@ func runMailTags(cmd *cobra.Command, opts *rootOptions, repoRoot string) error {
 	}
 	parent := cmd.Context()
 	if parent == nil {
-		parent = context.Background()
+		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
+	tagCtx, tagCancel := context.WithTimeout(parent, mailreport.TagPassTimeout)
+	defer tagCancel()
 	registerPath, err := config.DefaultTagRegisterPath()
 	if err != nil {
 		return wrapCLIHop(err, op, "register path")
@@ -100,7 +103,7 @@ func runMailTags(cmd *cobra.Command, opts *rootOptions, repoRoot string) error {
 	if err != nil {
 		return wrapCLIHop(err, op, "create tag curator")
 	}
-	result, err := curator.Run(parent)
+	result, err := curator.Run(tagCtx)
 	if err != nil {
 		return wrapCLIHop(err, op, "curate tags")
 	}

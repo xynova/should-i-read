@@ -28,6 +28,9 @@ const (
 // TagCurateTimeout is the Judge hop deadline for mail tag curation.
 const TagCurateTimeout = tagCurateJevTimeout
 
+// TagPassTimeout is the parent budget for a full tag pass (two store phases plus Judge).
+const TagPassTimeout = tagCurateJevTimeout + tagCurateStoreTimeout*2
+
 // TagCuratorConfig configures ledger tag unify and optional Jev curation.
 type TagCuratorConfig struct {
 	Store      *hoststore.Store

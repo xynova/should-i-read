@@ -39,6 +39,8 @@ Token bare invoke (`token gmail`) still prints only the access token for Neveres
 | Export summary JSON | `mail export` | `go tool task mail:export` |
 | Read one message body | `mail show <ref>` | (CLI only) |
 
+`mail report` runs tag cleanup only when new messages were classified this run; resume-only reports skip it. To re-judge a token, delete its `[[kept]]` or `[[skipped]]` row in `tag-deprecations.toml`, then run `mail tags`.
+
 **CONSTRAINT:** MUST use `mail readiness`, `mail sync`, `mail export`, and `mail show` in operator guidance. MUST NOT instruct `pim doctor`, `pim sync`, `pim snapshot`, or `pim show` for normal day-2 work.
 
 ## First-time setup

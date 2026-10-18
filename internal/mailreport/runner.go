@@ -243,13 +243,9 @@ func (r *Runner) RunTagPass(ctx context.Context, art *Artifact) {
 	if r == nil || art == nil {
 		return
 	}
-	if r.tagCatalog != nil {
-		regPath, regErr := RegenerateTagRegister(ctx, r.store, r.tagCatalog)
-		if regErr != nil {
-			art.TagRegisterError = regErr.Error()
-		} else {
-			art.TagRegisterPath = regPath
-		}
+	if art.NewlyClassified == 0 {
+		art.TagPassSkipped = true
+		return
 	}
 	if r.tagCurator != nil {
 		curateRes, curErr := r.tagCurator.Run(ctx)
@@ -257,6 +253,7 @@ func (r *Runner) RunTagPass(ctx context.Context, art *Artifact) {
 			art.TagCurateError = curErr.Error()
 		} else {
 			art.TagCurateDropped = curateRes.Dropped
+			art.TagCurateKept = curateRes.Kept
 			art.TagCurateMerged = curateRes.Merged
 			if curateRes.RegisterPath != "" {
 				art.TagRegisterPath = curateRes.RegisterPath
@@ -269,7 +266,15 @@ func (r *Runner) RunTagPass(ctx context.Context, art *Artifact) {
 			r.tagCatalog = cat
 		}
 		patchMessageTagShapes(&art.Messages, r.tagCatalog)
-	} else if r.tagCatalog != nil {
+		return
+	}
+	if r.tagCatalog != nil {
+		regPath, regErr := RegenerateTagRegister(ctx, r.store, r.tagCatalog)
+		if regErr != nil {
+			art.TagRegisterError = regErr.Error()
+		} else {
+			art.TagRegisterPath = regPath
+		}
 		patchMessageTagShapes(&art.Messages, r.tagCatalog)
 	}
 }
@@ -401,6 +406,7 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 	}
 	art.Messages = append(art.Messages, row)
 	art.Classified++
+	art.NewlyClassified++
 	return nil
 }
 

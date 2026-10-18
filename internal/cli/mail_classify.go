@@ -131,7 +131,7 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 				art.IncompleteError = sliceCtx.Err().Error()
 			}
 		}
-		tagCtx, tagCancel := context.WithTimeout(cmd.Context(), hostStoreOpTimeout)
+		tagCtx, tagCancel := context.WithTimeout(cmd.Context(), mailreport.TagPassTimeout)
 		defer tagCancel()
 		runner.RunTagPass(tagCtx, &art)
 		for _, sw := range slices {
@@ -185,7 +185,7 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 		if err != nil {
 			return err
 		}
-		tagCtx, tagCancel := context.WithTimeout(cmd.Context(), hostStoreOpTimeout)
+		tagCtx, tagCancel := context.WithTimeout(cmd.Context(), mailreport.TagPassTimeout)
 		defer tagCancel()
 		runner.RunTagPass(tagCtx, &art)
 		attCtx, attCancel := context.WithTimeout(cmd.Context(), classifyJobTimeout)
