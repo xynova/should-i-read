@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	operatorconfig "github.com/behaviorengineering/operatorconfig/pkg/operatorconfig"
@@ -308,14 +309,82 @@ polypus:
 	}
 }
 
+func TestDefaultFileOTLPPlaceholder(t *testing.T) {
+	t.Parallel()
+	f := DefaultFile()
+	if f.Polypus.OTLPEndpoint != polypusOTLPPlaceholder {
+		t.Fatalf("otlp_endpoint %q", f.Polypus.OTLPEndpoint)
+	}
+	raw, err := ExampleYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "otlp_endpoint:") {
+		t.Fatalf("example yaml missing otlp_endpoint:\n%s", raw)
+	}
+	for _, s := range DefaultSecrets() {
+		if s.Env == envPolypusOTLP {
+			t.Fatal("POLYPUS_OTLP_ENDPOINT must not be in secrets")
+		}
+	}
+}
+
+func TestLoadDerivesPolypusOTLPFromBaseURL(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	body := `
+polypus:
+  base_url: "http://127.0.0.1:1320"
+`
+	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envPolypusOTLP, "")
+	t.Setenv(envPolypusBaseURL, "")
+	cfg, err := Load("/repo", cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PolypusOTLPEndpoint != defaultPolypusOTLPLoopback {
+		t.Fatalf("otlp: %q", cfg.PolypusOTLPEndpoint)
+	}
+	red := cfg.Redacted()
+	pol, ok := red["polypus"].(map[string]string)
+	if !ok || pol["otlp_endpoint"] != defaultPolypusOTLPLoopback {
+		t.Fatalf("redacted otlp: %v", red["polypus"])
+	}
+}
+
+func TestLoadPolypusOTLPLiteralYAML(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	body := `
+polypus:
+  base_url: "http://127.0.0.1:1320"
+  otlp_endpoint: "collector.example:4317"
+`
+	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envPolypusOTLP, "")
+	cfg, err := Load("/repo", cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PolypusOTLPEndpoint != "collector.example:4317" {
+		t.Fatalf("otlp: %q", cfg.PolypusOTLPEndpoint)
+	}
+}
+
 func TestRedacted(t *testing.T) {
 	t.Parallel()
 	cfg := Config{
-		Path:              "/tmp/c.yaml",
-		PolypusBaseURL:    "http://127.0.0.1:1320",
-		GmailClientID:     "id",
-		GmailClientSecret: "sekrit",
-		OutlookClientID:   "",
+		Path:                "/tmp/c.yaml",
+		PolypusBaseURL:      "http://127.0.0.1:1320",
+		PolypusOTLPEndpoint: "127.0.0.1:4317",
+		GmailClientID:       "id",
+		GmailClientSecret:   "sekrit",
+		OutlookClientID:     "",
 	}
 	r := cfg.Redacted()
 	oauth, ok := r["oauth"].(map[string]string)

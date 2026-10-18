@@ -6,7 +6,7 @@ Host product AI MUST go through Polypus only. Taxonomy `Operate` walks the catal
 
 ## Constraint
 
-Every host AI call MUST go through Polypus at the configured base URL: `polypus.base_url` in `~/.config/should-i-read/config.yaml`, expanded from `${POLYPUS_BASE_URL}` when set, otherwise `POLYPUS_BASE_URL` in the process environment, otherwise `http://127.0.0.1:1320`. Clients MUST NOT dial Cloudflare, LM Studio, OpenRouter cloud, Ollama, or other leaf vendors directly.
+Every host AI call MUST go through Polypus at the configured base URL: `polypus.base_url` in `~/.config/should-i-read/config.yaml`, expanded from `${POLYPUS_BASE_URL}` when set, otherwise `POLYPUS_BASE_URL` in the process environment, otherwise `http://127.0.0.1:1320`. Host CLI traces export to Phoenix OTLP gRPC `polypus.otlp_endpoint` / `POLYPUS_OTLP_ENDPOINT` (derived `<gateway-host>:4317`, UI `:6006`); this is not a secret. Clients MUST NOT dial Cloudflare, LM Studio, OpenRouter cloud, Ollama, or other leaf vendors directly.
 
 ## Routes the host may use
 

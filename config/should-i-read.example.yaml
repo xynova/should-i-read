@@ -19,6 +19,9 @@ secrets:
 polypus:
   # Resolves from env when unset in YAML; fallback http://127.0.0.1:1320
   base_url: "${POLYPUS_BASE_URL}"
+  # Phoenix OTLP gRPC host:port (plaintext :4317 on the Polypus host; UI is :6006).
+  # Not a secret. Empty / missing derives <gateway-host>:4317 from base_url.
+  otlp_endpoint: "${POLYPUS_OTLP_ENDPOINT}"
   # Classify Author (chat). On routed Polypus homelabs prefer cf_local/@cf/... over bare @cf/... ids.
   classify_model: "cf_local/@cf/ibm-granite/granite-4.0-h-micro"
   # Classify Judge (SystemOne). Empty enables catalog + probe discovery.

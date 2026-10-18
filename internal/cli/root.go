@@ -69,7 +69,7 @@ func Execute(ctx context.Context, repoRoot string) int {
 			if skipTelemetryForCmd(cmd) {
 				return nil
 			}
-			return startTelemetry(cmd.Root().Name())
+			return startTelemetry(cmd.Root().Name(), opts.configPath)
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 			_ = stopTelemetry()
