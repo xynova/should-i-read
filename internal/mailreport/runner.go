@@ -18,7 +18,7 @@ import (
 
 const (
 	operateTimeoutWalk   = 60 * time.Second
-	operateTimeoutAttach = 180 * time.Second
+	operateTimeoutAttach = 5 * time.Minute
 )
 
 // RunnerConfig configures classify runs.
@@ -374,10 +374,6 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 	defer cancel()
 	res, opErr := r.runOperate(opCtx, item)
 	if opErr != nil {
-		if isUnavailable(opErr) {
-			_ = r.store.Fail(ctx, hash, token, formatRowError(opErr))
-			return opErr
-		}
 		row.Error = formatRowError(opErr)
 		art.Messages = append(art.Messages, row)
 		if failErr := r.store.Fail(ctx, hash, token, row.Error); failErr != nil {

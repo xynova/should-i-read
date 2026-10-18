@@ -135,7 +135,9 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 		defer tagCancel()
 		runner.RunTagPass(tagCtx, &art)
 		for _, sw := range slices {
-			items, err := loadReportItems(cmd.Context(), reader, inPath, sw, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
+			reloadCtx, reloadCancel := context.WithTimeout(cmd.Context(), hostStoreOpTimeout)
+			items, err := loadReportItems(reloadCtx, reader, inPath, sw, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
+			reloadCancel()
 			if err != nil {
 				return wrapCLIHop(err, op, "reload slice items")
 			}

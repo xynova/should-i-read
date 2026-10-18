@@ -32,6 +32,8 @@ polypus:
   tldr_model: ""
   # Optional. After essence integrity exhaust, one extra chat on this Polypus id.
   # Empty = no Compensate. Must be a Polypus catalog id, not a leaf vendor URL.
+  # Homelab Compensate often uses DeepSeek Flash (cheaper output than Granite 8B):
+  #   deepinfra/deepseek-ai/DeepSeek-V4-Flash-0731
   essence_escalate_model: ""
 
 cluster:

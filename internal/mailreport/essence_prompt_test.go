@@ -60,6 +60,21 @@ func TestParseEssenceResponse_rejectsRectangular(t *testing.T) {
 	}
 }
 
+func TestParseEssenceResponse_kindPathTagsDropsDeny(t *testing.T) {
+	cat := testTagCatalog(t)
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: Google security alert\nTAGS: security > alert > google > notification > email\nKIND: security > alert > notification > email\n"
+	out, err := parseEssenceResponseWithCatalog(raw, cat)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if strings.Contains(out.Shape, "email") {
+		t.Fatalf("shape kept deny token: %q", out.Shape)
+	}
+	if !strings.Contains(out.Shape, "security") || !strings.Contains(out.Shape, "notification") {
+		t.Fatalf("shape dropped valid tokens: %q", out.Shape)
+	}
+}
+
 func TestParseEssenceResponse_kindPathTags(t *testing.T) {
 	cat := testTagCatalog(t)
 	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: Auth0 free trial\nTAGS: auth0 > trial > notification > service-alert > transactional\nKIND: notification > service-alert > transactional\n"
@@ -93,14 +108,60 @@ func TestEssenceIntegrityCompleteNote_namedWhyKeys(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 	note := essenceIntegrityCompleteNote(err)
-	if !strings.Contains(note, "Missing: WHY1, WHY2, WHY3, WHY4.") {
-		t.Fatalf("missing keys: %q", note)
+	if !strings.Contains(note, "Add WHY1, WHY2, and WHY3") {
+		t.Fatalf("add first whys: %q", note)
 	}
-	if !strings.Contains(note, "Keep WHY5, ABOUT, TAGS, KIND.") {
-		t.Fatalf("keep keys: %q", note)
+	if !strings.Contains(note, "do not rename WHY4 to WHY1") {
+		t.Fatalf("keep later why keys: %q", note)
+	}
+	if !strings.Contains(note, "WHY1, WHY2, WHY3, WHY4") {
+		t.Fatalf("missing keys: %q", note)
 	}
 	if strings.Contains(strings.ToLower(note), "start over") {
 		t.Fatalf("note must not discard prior: %q", note)
+	}
+}
+
+func TestEssenceIntegrityCompleteNote_startedAtWhy4(t *testing.T) {
+	cat := testTagCatalog(t)
+	raw := "WHY4: delivered promptly\nWHY5: short layout\nTAGS: job-alert\nKIND: notification > job-alert > software-engineering\n"
+	_, err := parseEssenceResponseWithCatalog(raw, cat)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	note := essenceIntegrityCompleteNote(err)
+	if !strings.Contains(note, "do not rename WHY4 to WHY1") {
+		t.Fatalf("note %q", note)
+	}
+	if !strings.Contains(note, "WHY1, WHY2, WHY3") {
+		t.Fatalf("note %q", note)
+	}
+}
+
+func TestParseEssenceResponse_kindTrailingArrow(t *testing.T) {
+	cat := testTagCatalog(t)
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: CI run failed\nTAGS: ci failure\nKIND: ci >\n"
+	_, err := parseEssenceResponseWithCatalog(raw, cat)
+	if err == nil {
+		t.Fatal("expected kind short")
+	}
+	if !essenceKindShortFromErr(err) {
+		t.Fatalf("err %v", err)
+	}
+	note := essenceIntegrityCompleteNote(err)
+	if !strings.Contains(note, `trailing " > "`) {
+		t.Fatalf("note %q", note)
+	}
+}
+
+func TestDefaultEssenceSystemPrompt_whyOrderAndKind(t *testing.T) {
+	t.Parallel()
+	p := DefaultEssenceSystemPrompt()
+	if !strings.Contains(p, "Never start at WHY4") {
+		t.Fatalf("prompt missing WHY order: %s", p)
+	}
+	if !strings.Contains(p, `trailing " > "`) {
+		t.Fatalf("prompt missing KIND trailing rule: %s", p)
 	}
 }
 
@@ -119,6 +180,9 @@ func TestEssenceIntegrityCompleteNote_kindSegments(t *testing.T) {
 		t.Fatalf("note %q", note)
 	}
 	if !strings.Contains(note, "Expand KIND") {
+		t.Fatalf("note %q", note)
+	}
+	if !strings.Contains(note, `trailing " > "`) {
 		t.Fatalf("note %q", note)
 	}
 }

@@ -151,7 +151,7 @@ func TestRunner_Classify_useLeaf(t *testing.T) {
 	}
 }
 
-func TestRunner_Classify_unavailableAborts(t *testing.T) {
+func TestRunner_Classify_unavailableFailsRow(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	vocab := testInboxVocab()
 	cat, err := catalog.BuildCatalog(vocab)
@@ -185,17 +185,23 @@ func TestRunner_Classify_unavailableAborts(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err = runner.Classify(ctx, SourceReport, []Item{{
-		ObjectHash: "abc123",
-		Subject:    "CI failed",
-		Sender:     "noreply@github.com",
-		Body:       "Your workflow failed.",
-	}})
-	if err == nil {
-		t.Fatal("expected unavailable")
+	art, err := runner.Classify(ctx, SourceReport, []Item{
+		{ObjectHash: "abc123", Subject: "CI failed", Sender: "noreply@github.com", Body: "Your workflow failed."},
+		{ObjectHash: "def456", Subject: "CI failed again", Sender: "noreply@github.com", Body: "Still failed."},
+	})
+	if err != nil {
+		t.Fatalf("classify should continue: %v", err)
 	}
-	if !isUnavailable(err) {
-		t.Fatalf("want unavailable through Operate: %v", err)
+	if art.Classified != 0 {
+		t.Fatalf("classified: %d", art.Classified)
+	}
+	if len(art.Messages) != 2 {
+		t.Fatalf("messages: %d", len(art.Messages))
+	}
+	for i, row := range art.Messages {
+		if row.Error == "" {
+			t.Fatalf("message %d missing error", i)
+		}
 	}
 }
 
@@ -361,5 +367,12 @@ func TestRunner_Classify_embedPersistDoesNotFailComplete(t *testing.T) {
 	code, ok := sirerr.AsCode(err)
 	if !ok || code != sirerr.CodeNotFound {
 		t.Fatalf("want not_found embedding, got %v", err)
+	}
+}
+
+func TestOperateTimeoutAttachIsFiveMinutes(t *testing.T) {
+	t.Parallel()
+	if operateTimeoutAttach != 5*time.Minute {
+		t.Fatalf("attach operate timeout %s", operateTimeoutAttach)
 	}
 }

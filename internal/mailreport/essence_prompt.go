@@ -109,8 +109,10 @@ func BuildEssenceSystemPrompt(activeTags []string) string {
 Reply with these keys (one per line). Values may continue on the next line after "KEY:".
 
 ` + keys.String() + `
+WHY1, WHY2, and WHY3 are required first. Never start at WHY4. WHY4 and WHY5 are extra reasons after WHY3, not replacements for WHY1.
+
 ` + tagHint.String() + `
-KIND must be 3 to 5 kebab-case segments joined by " > " (example: notification > software-release > changelog).`
+KIND must be 3 to 5 kebab-case segments joined by " > " (example: notification > software-release > changelog). Do not emit a trailing " > " or a single root such as "ci >".`
 }
 
 // SetEssenceTagCatalog sets the catalog used for tag validation during classify runs.
@@ -131,6 +133,9 @@ func essenceIntegrityValidateFor(cat *tags.Catalog) func(string) error {
 func essenceIntegrityCompleteNote(err error) string {
 	missing, present := essenceKeysFromErr(err)
 	if len(missing) > 0 {
+		if essenceStartedAtLaterWhy(missing, present) {
+			return "Continue your previous reply. Add WHY1, WHY2, and WHY3 as the first three reasons. Keep WHY4 and WHY5 as those same keys; do not rename WHY4 to WHY1. Keep ABOUT, TAGS, and KIND. Fill every missing key: " + strings.Join(missing, ", ") + "."
+		}
 		var b strings.Builder
 		b.WriteString("Continue your previous reply. Missing: ")
 		b.WriteString(strings.Join(missing, ", "))
@@ -144,7 +149,7 @@ func essenceIntegrityCompleteNote(err error) string {
 		return b.String()
 	}
 	if essenceKindShortFromErr(err) {
-		return "Continue your previous reply. Keep WHY, ABOUT, and TAGS. Expand KIND to 3 to 5 kebab-case segments joined by \" > \" (example: notification > software-release > changelog)."
+		return "Continue your previous reply. Keep WHY, ABOUT, and TAGS. Expand KIND to 3 to 5 kebab-case segments joined by \" > \". Do not leave a trailing \" > \". Example: notification > software-release > changelog."
 	}
 	if essenceTagInvalidFromErr(err) {
 		return "Continue your previous reply. Fix TAGS: use kebab-case tag ids only (no geometry words, no KIND paths). Prefer listed Active tags or mint a new kebab tag."
@@ -246,21 +251,30 @@ func normalizeEssenceTags(cat *tags.Catalog, raw string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}
-	if cat != nil {
-		return cat.NormalizeField(raw)
-	}
 	deny := mailTagDenySet()
-	tokens := tags.SplitTags(raw)
-	for _, tok := range tokens {
-		if err := tags.ValidateToken(tok, deny); err != nil {
-			return "", err
-		}
+	if cat != nil {
+		deny = cat.DenySet()
 	}
-	joined := tags.JoinTags(tokens)
-	if joined == "" {
+	tokens := keepValidEssenceTagTokens(tags.SplitTags(raw), deny)
+	if len(tokens) == 0 {
 		return "", sirerr.New(sirerr.CodeAI, op, tags.ErrTokenInvalid)
 	}
+	joined := tags.JoinTags(tokens)
+	if cat != nil {
+		return cat.NormalizeField(joined)
+	}
 	return joined, nil
+}
+
+func keepValidEssenceTagTokens(tokens []string, deny map[string]struct{}) []string {
+	out := make([]string, 0, len(tokens))
+	for _, tok := range tokens {
+		if err := tags.ValidateToken(tok, deny); err != nil {
+			continue
+		}
+		out = append(out, tok)
+	}
+	return out
 }
 
 // splitEssenceTagPaths turns KIND-shaped TAGS ("a > b > c") into leftover tokens.
@@ -342,6 +356,11 @@ func essenceKeyInventory(e harness.EssenceOut) (missing, present []string, kindS
 	}
 	present = append(present, essenceKeyKind)
 	return missing, present, len(catalog.ParseKindSegments(kind)) < 3
+}
+
+func essenceStartedAtLaterWhy(missing, present []string) bool {
+	return slices.Contains(missing, essenceKeyWhy1) &&
+		(slices.Contains(present, essenceKeyWhy4) || slices.Contains(present, essenceKeyWhy5))
 }
 
 func essenceHasWhyMissing(missing []string) bool {
