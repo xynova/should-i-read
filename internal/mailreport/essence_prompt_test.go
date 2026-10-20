@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/behaviorengineering/strop/pkg/integrity"
 	"github.com/behaviorengineering/taxonomy/pkg/tags"
 )
 
@@ -119,6 +120,26 @@ func TestEssenceIntegrityCompleteNote_namedWhyKeys(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(note), "start over") {
 		t.Fatalf("note must not discard prior: %q", note)
+	}
+}
+
+func TestEssenceIntegrityAfterMiss_why1EmptyRestarts(t *testing.T) {
+	cat := testTagCatalog(t)
+	why4First := "WHY4: delivered promptly\nWHY5: short layout\nTAGS: job-alert\nKIND: notification > job-alert > software-engineering\n"
+	_, err := parseEssenceResponseWithCatalog(why4First, cat)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if essenceIntegrityAfterMiss(err) != integrity.MissRestart {
+		t.Fatalf("expected MissRestart for WHY1 empty, got %v", essenceIntegrityAfterMiss(err))
+	}
+	whyOnly := "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\n"
+	_, err = parseEssenceResponseWithCatalog(whyOnly, cat)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if essenceIntegrityAfterMiss(err) != integrity.MissContinue {
+		t.Fatalf("expected MissContinue when WHY1 present, got %v", essenceIntegrityAfterMiss(err))
 	}
 }
 

@@ -149,6 +149,47 @@ func (s *escalatePrefetchStub) RunChatLines(_ context.Context, lines []openaibat
 	return map[string]openaibatch.LineResult{lines[0].CustomID: {Content: content}}, nil
 }
 
+type why4RestartPrefetchStub struct {
+	calls atomic.Int32
+}
+
+func (s *why4RestartPrefetchStub) RunChatLines(_ context.Context, lines []openaibatch.ChatLine) (map[string]openaibatch.LineResult, error) {
+	s.calls.Add(1)
+	if len(lines) != 1 {
+		return nil, errors.New("expected one line")
+	}
+	if len(lines[0].Messages) != 2 {
+		return nil, errors.New("expected seed-only messages after WHY1 restart")
+	}
+	full := "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nTAGS: fyi\nKIND: notification > software-release > changelog\n"
+	return map[string]openaibatch.LineResult{lines[0].CustomID: {Content: full}}, nil
+}
+
+func TestPrefetchOneEssence_why4RestartSkipsAssistantAppend(t *testing.T) {
+	why4First := "WHY4: delivered promptly\nWHY5: short layout\nTAGS: job-alert\nKIND: notification > job-alert > software-engineering\n"
+	ln := openaibatch.ChatLine{
+		CustomID: "h1",
+		Model:    "m",
+		Messages: []map[string]string{
+			{chatRoleKey: polypus.RoleSystem, chatContentKey: DefaultEssenceSystemPrompt()},
+			{chatRoleKey: polypus.RoleUser, chatContentKey: "prompt"},
+		},
+	}
+	stub := &why4RestartPrefetchStub{}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	parsed, err := prefetchOneEssence(ctx, stub, ln, why4First, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Kind == "" {
+		t.Fatal("expected kind")
+	}
+	if stub.calls.Load() != 1 {
+		t.Fatalf("resume chat calls=%d", stub.calls.Load())
+	}
+}
+
 func TestPrefetchOneEssence_compensateUsesEscalateModel(t *testing.T) {
 	whyOnly := "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\n"
 	ln := openaibatch.ChatLine{

@@ -115,7 +115,7 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 		attempt := essenceParseMaxAttempts
 		if strings.TrimSpace(e.escalateModel) != "" {
 			dumpModel = e.escalateModel
-			attempt = essenceParseMaxAttempts + 1
+			attempt = essenceParseMaxAttempts * 2
 		}
 		path, dumpErr := e.dump.writeLast(id, dumpModel, messageText, raw, attempt, lastErr)
 		retErr = attachEssenceDump(retErr, path, dumpErr)
