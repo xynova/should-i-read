@@ -2,8 +2,11 @@ package mailreport
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/xynova/should-i-read/internal/polypus"
@@ -134,6 +137,40 @@ func formatAttentionState(in AttentionIn) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// AttentionInputHash fingerprints canonical AttentionIn fields for cache lookup.
+func AttentionInputHash(in AttentionIn) string {
+	canonical := formatAttentionInputCanonical(in)
+	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:])
+}
+
+// AttentionPromptHash changes when SystemOne instruction constants change.
+func AttentionPromptHash() string {
+	payload := attentionUrgencyInstructions + attentionReplyInstructions + attentionDecisionInstructions
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:])
+}
+
+func formatAttentionInputCanonical(in AttentionIn) string {
+	var b strings.Builder
+	b.WriteString("v1\n")
+	writeAttentionLenField(&b, "subject", strings.TrimSpace(in.Subject))
+	writeAttentionLenField(&b, "sender", strings.TrimSpace(in.Sender))
+	writeAttentionLenField(&b, "kind", strings.TrimSpace(in.Kind))
+	writeAttentionLenField(&b, "about", strings.TrimSpace(in.About))
+	writeAttentionLenField(&b, "shape", strings.TrimSpace(in.Shape))
+	return b.String()
+}
+
+func writeAttentionLenField(b *strings.Builder, name, val string) {
+	b.WriteString(name)
+	b.WriteByte('=')
+	b.WriteString(strconv.Itoa(len(val)))
+	b.WriteByte(':')
+	b.WriteString(val)
+	b.WriteByte('\n')
 }
 
 func parseAttentionAnswers(op string, out polypus.SystemOneResponse, trueMin float64) (Attention, error) {

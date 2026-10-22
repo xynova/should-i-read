@@ -450,16 +450,12 @@ func (r *Runner) applyAcceptedDraft(art *Artifact, row *MessageRow, res harness.
 		row.Error = formatRowError(applyErr)
 		return
 	}
-	if err := SaveCatalog(r.catalogPath, vocab); err != nil {
-		row.Error = formatRowError(err)
+	cat, persistErr := persistCatalogIfBuildable(r.catalogPath, vocab)
+	if persistErr != nil {
+		row.Error = formatRowError(persistErr)
 		return
 	}
 	r.vocab = vocab
-	cat, buildErr := catalog.BuildCatalog(vocab)
-	if buildErr != nil {
-		row.Error = formatRowError(buildErr)
-		return
-	}
 	r.cat = cat
 	row.CatalogApplied = true
 	if res.Draft == nil {

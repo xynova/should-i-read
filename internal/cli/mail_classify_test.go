@@ -98,6 +98,53 @@ func TestClassifyJobContextDeadline(t *testing.T) {
 	}
 }
 
+func TestJobContextIncompleteLive(t *testing.T) {
+	t.Parallel()
+	if jobContextIncomplete(context.Background()) != "" {
+		t.Fatal("expected empty on live context")
+	}
+}
+
+func TestJobContextIncompleteNil(t *testing.T) {
+	t.Parallel()
+	if jobContextIncomplete(nil) != "" { //nolint:staticcheck // tests nil guard explicitly
+		t.Fatal("expected empty on nil context")
+	}
+}
+
+func TestJobContextIncompleteCanceled(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got := jobContextIncomplete(ctx)
+	if got != context.Canceled.Error() {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestJobContextIncompleteDeadline(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	<-ctx.Done()
+	got := jobContextIncomplete(ctx)
+	if got != context.DeadlineExceeded.Error() {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestJobContextIncompleteAfterSelfCancelOnLive(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	if jobContextIncomplete(ctx) != "" {
+		t.Fatal("expected empty before cancel")
+	}
+	cancel()
+	if jobContextIncomplete(ctx) != context.Canceled.Error() {
+		t.Fatal("documents smell: Err after our cancel is Canceled even on success path")
+	}
+}
+
 func TestTruncateRunesUTF8(t *testing.T) {
 	t.Parallel()
 	got := truncateRunes("café-menu-item", 6)

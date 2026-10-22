@@ -48,8 +48,8 @@ func DerivePolypusOTLPEndpoint(baseURL string) string {
 }
 
 // ResolvePolypusOTLPEndpoint picks the OTLP gRPC target.
-// explicitOTEL and explicitOTLP are process env values snapshotted before EnvDefaults.
-// yamlOTLP is the expanded polypus.otlp_endpoint (empty if missing or unresolved placeholder).
+// ExplicitOTEL and explicitOTLP are process env values snapshotted before EnvDefaults.
+// YamlOTLP is the expanded polypus.otlp_endpoint (empty if missing or unresolved placeholder).
 func ResolvePolypusOTLPEndpoint(explicitOTEL, explicitOTLP, yamlOTLP, derivedOTLP, baseURL string) string {
 	if v := strings.TrimSpace(explicitOTEL); v != "" {
 		return v

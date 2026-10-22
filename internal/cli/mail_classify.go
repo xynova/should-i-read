@@ -111,25 +111,11 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 		art.WindowFrom = window.DateFrom()
 		art.WindowTo = window.DateTo()
 		for _, sw := range slices {
-			sliceCtx, cancel, err := classifyJobContext(cmd.Context(), true)
+			sliceArt, err := classifyReportWindowSlice(cmd.Context(), runner, reader, inPath, sw, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
 			if err != nil {
-				return err
-			}
-			items, err := loadReportItems(sliceCtx, reader, inPath, sw, limit, limitChanged, cOpts.maxBody, cfg.Taxonomy.Collections)
-			if err != nil {
-				cancel()
-				return wrapCLIHop(err, op, "load items")
-			}
-			items = mailreport.DedupeItemsByHash(items)
-			sliceArt, err := runner.Classify(sliceCtx, mailreport.SourceReport, items)
-			cancel()
-			if err != nil {
-				return err
+				return wrapCLIHop(err, op, "classify slice")
 			}
 			mailreport.MergeClassifyArtifacts(&art, sliceArt)
-			if sliceCtx.Err() != nil && art.IncompleteError == "" {
-				art.IncompleteError = sliceCtx.Err().Error()
-			}
 		}
 		tagCtx, tagCancel := context.WithTimeout(cmd.Context(), mailreport.TagPassTimeout)
 		defer tagCancel()
@@ -345,7 +331,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		return nil, unavail(err, "resolve author model")
 	}
 	embedModel := ""
-	var embedSeat harness.Embedder
+	var stropEmbedInner harness.Embedder
 	essenceModel := ""
 	if config.IsAttachStrategy(cfg.Taxonomy.Strategy) {
 		essenceModel = author
@@ -358,7 +344,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		if err != nil {
 			return nil, unavail(err, "create embedder")
 		}
-		embedSeat = mailreport.NewStropEmbedSeat(stropEmb, embedModel)
+		stropEmbedInner = mailreport.NewStropEmbedSeat(stropEmb, embedModel)
 	}
 	essenceEscalate := mailreport.EffectiveEssenceEscalateModel(essenceModel, cfg.PolypusEssenceEscalateModel)
 	if essenceEscalate != "" {
@@ -419,6 +405,17 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		essenceCache, err = mailreport.CreateEssenceCache(store, essencePrompt, essenceModel, essenceEscalate)
 		if err != nil {
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "essence cache")
+		}
+	}
+	var embedSeat harness.Embedder
+	if stropEmbedInner != nil {
+		embedSeat, err = mailreport.CreateCachingEmbedder(mailreport.CachingEmbedderConfig{
+			Inner: stropEmbedInner,
+			Model: embedModel,
+			Store: store,
+		})
+		if err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "caching embedder")
 		}
 	}
 	seats, err := mailreport.CreateSeats(mailreport.SeatsConfig{
@@ -819,6 +816,42 @@ func formatClassifyTLDR(tldr string) string {
 		b.WriteString(line)
 	}
 	return b.String()
+}
+
+func jobContextIncomplete(ctx context.Context) string {
+	if ctx == nil || ctx.Err() == nil {
+		return ""
+	}
+	return ctx.Err().Error()
+}
+
+func classifyReportWindowSlice(
+	cmdCtx context.Context,
+	runner *mailreport.Runner,
+	reader *pimdir.Reader,
+	inPath string,
+	sw pimdir.DateWindow,
+	limit int,
+	limitChanged bool,
+	maxBody int,
+	collections []string,
+) (mailreport.Artifact, error) {
+	sliceCtx, cancel, err := classifyJobContext(cmdCtx, true)
+	if err != nil {
+		return mailreport.Artifact{}, err
+	}
+	defer cancel()
+	items, err := loadReportItems(sliceCtx, reader, inPath, sw, limit, limitChanged, maxBody, collections)
+	if err != nil {
+		return mailreport.Artifact{}, err
+	}
+	items = mailreport.DedupeItemsByHash(items)
+	sliceArt, err := runner.Classify(sliceCtx, mailreport.SourceReport, items)
+	if err != nil {
+		return mailreport.Artifact{}, err
+	}
+	sliceArt.IncompleteError = jobContextIncomplete(sliceCtx)
+	return sliceArt, nil
 }
 
 func classifyJobContext(parent context.Context, windowed bool) (context.Context, context.CancelFunc, error) {

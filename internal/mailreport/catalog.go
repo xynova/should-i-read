@@ -52,11 +52,38 @@ func LoadCatalog(path string) (*catalog.Catalog, catalog.Vocabulary, error) {
 	if err != nil {
 		return nil, catalog.Vocabulary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "parse catalog")
 	}
+	cat, buildErr := catalog.BuildCatalog(vocab)
+	if buildErr == nil {
+		return cat, vocab, nil
+	}
+	if catalog.CodeOf(buildErr) != catalog.CodeAliasCollision {
+		return nil, catalog.Vocabulary{}, sirerr.Wrap(buildErr, sirerr.CodeFailed, op, "build catalog")
+	}
+	repaired, drops, repairErr := catalog.RepairAliases(vocab)
+	if repairErr != nil {
+		return nil, catalog.Vocabulary{}, sirerr.Wrap(repairErr, sirerr.CodeFailed, op, "repair catalog aliases")
+	}
+	if len(drops) == 0 {
+		return nil, catalog.Vocabulary{}, sirerr.Wrap(buildErr, sirerr.CodeFailed, op, "build catalog")
+	}
+	cat, err = persistCatalogIfBuildable(path, repaired)
+	if err != nil {
+		return nil, catalog.Vocabulary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "persist repaired catalog")
+	}
+	return cat, repaired, nil
+}
+
+// persistCatalogIfBuildable builds the catalog and saves YAML only when the build succeeds.
+func persistCatalogIfBuildable(path string, vocab catalog.Vocabulary) (*catalog.Catalog, error) {
+	const op = "mailreport.persistCatalogIfBuildable"
 	cat, err := catalog.BuildCatalog(vocab)
 	if err != nil {
-		return nil, catalog.Vocabulary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "build catalog")
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "build catalog")
 	}
-	return cat, vocab, nil
+	if err := SaveCatalog(path, vocab); err != nil {
+		return nil, err
+	}
+	return cat, nil
 }
 
 // SaveCatalog atomically writes vocabulary YAML.

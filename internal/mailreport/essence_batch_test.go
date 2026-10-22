@@ -69,21 +69,6 @@ func TestParallelChatRunnerConcurrent(t *testing.T) {
 	}
 }
 
-type stubChatLines struct {
-	calls atomic.Int32
-	last  []openaibatch.ChatLine
-}
-
-func (s *stubChatLines) RunChatLines(_ context.Context, lines []openaibatch.ChatLine) (map[string]openaibatch.LineResult, error) {
-	s.calls.Add(1)
-	s.last = lines
-	out := map[string]openaibatch.LineResult{}
-	for _, ln := range lines {
-		out[ln.CustomID] = openaibatch.LineResult{Content: "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nTAGS: fyi\nKIND: notification > software-release > changelog"}
-	}
-	return out, nil
-}
-
 type resumeChatLinesStub struct {
 	calls atomic.Int32
 }
