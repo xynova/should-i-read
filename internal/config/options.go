@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 
 	operatorconfig "github.com/behaviorengineering/operatorconfig/pkg/operatorconfig"
@@ -17,6 +18,9 @@ func Options(flagPath string) operatorconfig.Options {
 		Filename:       "config.yaml",
 		EnvDefaults: []operatorconfig.EnvDefault{
 			{Env: envPolypusBaseURL, Value: defaultPolypusBaseURL},
+			{Env: envPolypusOTLP, Derive: func() (string, error) {
+				return DerivePolypusOTLPEndpoint(os.Getenv(envPolypusBaseURL)), nil
+			}},
 		},
 	}
 }

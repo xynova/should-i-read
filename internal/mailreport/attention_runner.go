@@ -67,6 +67,23 @@ func (r *Runner) ScoreAttention(ctx context.Context, art Artifact) (Artifact, er
 		if attentionInputEmpty(in) {
 			continue
 		}
+		inputHash := AttentionInputHash(in)
+		promptHash := AttentionPromptHash()
+		judgeModel := strings.TrimSpace(r.judgeModel)
+		if judgeModel != "" {
+			cached, cacheErr := r.store.GetAttentionInput(ctx, inputHash, judgeModel, promptHash)
+			if cacheErr != nil {
+				return art, sirerr.Wrap(cacheErr, sirerr.CodeFailed, op, "get attention input cache")
+			}
+			if cached != nil {
+				row.Attention = AttentionFromState(cached.Urgency, cached.NeedsReplyNoul, cached.InvolvesDecisionNoul, tm)
+				if err := r.store.PutAttention(ctx, hash, cached.Urgency, cached.NeedsReplyNoul, cached.InvolvesDecisionNoul); err != nil {
+					return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention")
+				}
+				art.AttentionScored++
+				continue
+			}
+		}
 		r.aiHops++
 		att, scoreErr := r.attention.Score(ctx, in)
 		if scoreErr != nil {
@@ -79,6 +96,11 @@ func (r *Runner) ScoreAttention(ctx context.Context, art Artifact) (Artifact, er
 		row.Attention = &att
 		if err := r.store.PutAttention(ctx, hash, att.Urgency, att.NeedsReplyNoul, att.InvolvesDecisionNoul); err != nil {
 			return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention")
+		}
+		if judgeModel != "" {
+			if err := r.store.PutAttentionInput(ctx, inputHash, judgeModel, promptHash, att.Urgency, att.NeedsReplyNoul, att.InvolvesDecisionNoul); err != nil {
+				return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention input cache")
+			}
 		}
 		art.AttentionScored++
 	}

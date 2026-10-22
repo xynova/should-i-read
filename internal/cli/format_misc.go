@@ -60,6 +60,11 @@ func formatConfigRedacted(m map[string]any) string {
 		b.WriteString("polypus.base_url: ")
 		b.WriteString(pol["base_url"])
 		b.WriteByte('\n')
+		if v := strings.TrimSpace(pol["otlp_endpoint"]); v != "" {
+			b.WriteString("polypus.otlp_endpoint: ")
+			b.WriteString(v)
+			b.WriteByte('\n')
+		}
 	}
 	if pim, ok := m["pimalaya"].(map[string]string); ok {
 		for _, k := range []string{"neverest_config", "default_account", "pimdir_path"} {

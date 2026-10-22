@@ -22,6 +22,16 @@ func EffectiveEssenceEscalateModel(essenceModel, escalateModel string) string {
 	return escalateModel
 }
 
+func essenceIntegrityAfterMiss(err error) integrity.MissAction {
+	missing, _ := essenceKeysFromErr(err)
+	for _, key := range missing {
+		if key == essenceKeyWhy1 {
+			return integrity.MissRestart
+		}
+	}
+	return integrity.MissContinue
+}
+
 func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, escalateModel string, tagCatalog *tags.Catalog) (*integrity.Shell, error) {
 	const op = "mailreport.createEssenceIntegrityShellPolypus"
 	if client == nil {
@@ -42,10 +52,11 @@ func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, es
 		},
 		Validate:     essenceIntegrityValidateFor(tagCatalog),
 		CompleteNote: essenceIntegrityCompleteNote,
+		AfterMiss:    essenceIntegrityAfterMiss,
 		MaxAttempts:  essenceParseMaxAttempts,
 	}
 	if escalateModel != "" {
-		cfg.Compensate = essenceCompensatePolypus(client, escalateModel)
+		cfg.Compensate = essenceCompensateSteerPolypus(client, escalateModel)
 	}
 	return integrity.CreateShell(cfg)
 }
@@ -78,33 +89,43 @@ func createEssenceIntegrityShellChatLines(runner ChatLineRunner, ln openaibatch.
 		},
 		Validate:     essenceIntegrityValidateFor(tagCatalog),
 		CompleteNote: essenceIntegrityCompleteNote,
+		AfterMiss:    essenceIntegrityAfterMiss,
 		MaxAttempts:  essenceParseMaxAttempts,
 	}
 	if escalateModel != "" {
-		cfg.Compensate = essenceCompensateChatLines(runner, ln, escalateModel)
+		cfg.Compensate = essenceCompensateSteerChatLines(runner, ln, escalateModel)
 	}
 	return integrity.CreateShell(cfg)
 }
 
-func essenceCompensatePolypus(client *polypus.Client, escalateModel string) integrity.CompensateFunc {
-	return func(ctx context.Context, messages []integrity.Message, lastRaw string, lastErr error) (string, error) {
-		msgs := essenceCompensateMessages(messages, lastRaw, lastErr)
+func essenceCompensateSteerPolypus(client *polypus.Client, escalateModel string) integrity.CompensateFunc {
+	escalateChat := func(ctx context.Context, messages []integrity.Message) (string, error) {
 		return client.Chat(ctx, polypus.ChatRequest{
 			Model:       escalateModel,
 			Temperature: 0,
-			Messages:    integrityMessagesToPolypus(msgs),
+			Messages:    integrityMessagesToPolypus(messages),
 		})
+	}
+	return func(ctx context.Context, messages []integrity.Message, lastRaw string, lastErr error) (integrity.Steer, error) {
+		_ = messages
+		_ = lastRaw
+		_ = lastErr
+		return integrity.Steer{
+			Action:   integrity.SteerReenter,
+			Chat:     escalateChat,
+			Restart:  true,
+			Attempts: essenceParseMaxAttempts,
+		}, nil
 	}
 }
 
-func essenceCompensateChatLines(runner ChatLineRunner, ln openaibatch.ChatLine, escalateModel string) integrity.CompensateFunc {
-	const op = "mailreport.essenceCompensateChatLines"
-	return func(ctx context.Context, messages []integrity.Message, lastRaw string, lastErr error) (string, error) {
-		msgs := essenceCompensateMessages(messages, lastRaw, lastErr)
+func essenceCompensateSteerChatLines(runner ChatLineRunner, ln openaibatch.ChatLine, escalateModel string) integrity.CompensateFunc {
+	const op = "mailreport.essenceCompensateSteerChatLines"
+	escalateChat := func(ctx context.Context, messages []integrity.Message) (string, error) {
 		line := openaibatch.ChatLine{
 			CustomID: ln.CustomID,
 			Model:    escalateModel,
-			Messages: integrityMessagesToMaps(msgs),
+			Messages: integrityMessagesToMaps(messages),
 		}
 		results, err := runner.RunChatLines(ctx, []openaibatch.ChatLine{line})
 		if err != nil {
@@ -119,15 +140,17 @@ func essenceCompensateChatLines(runner ChatLineRunner, ln openaibatch.ChatLine, 
 		}
 		return lr.Content, nil
 	}
-}
-
-func essenceCompensateMessages(messages []integrity.Message, lastRaw string, lastErr error) []integrity.Message {
-	out := append([]integrity.Message{}, messages...)
-	out = append(out,
-		integrity.Message{Role: integrity.RoleAssistant, Content: lastRaw},
-		integrity.Message{Role: integrity.RoleUser, Content: essenceIntegrityCompleteNote(lastErr)},
-	)
-	return out
+	return func(ctx context.Context, messages []integrity.Message, lastRaw string, lastErr error) (integrity.Steer, error) {
+		_ = messages
+		_ = lastRaw
+		_ = lastErr
+		return integrity.Steer{
+			Action:   integrity.SteerReenter,
+			Chat:     escalateChat,
+			Restart:  true,
+			Attempts: essenceParseMaxAttempts,
+		}, nil
+	}
 }
 
 func integrityMessagesToPolypus(messages []integrity.Message) []polypus.ChatMessage {

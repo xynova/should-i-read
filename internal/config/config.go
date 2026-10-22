@@ -50,6 +50,7 @@ type StoreFile struct {
 // PolypusFile is the polypus YAML section.
 type PolypusFile struct {
 	BaseURL              string `yaml:"base_url"`
+	OTLPEndpoint         string `yaml:"otlp_endpoint,omitempty"`
 	ClassifyModel        string `yaml:"classify_model"`
 	JudgeModel           string `yaml:"judge_model"`
 	EmbedModel           string `yaml:"embed_model"`
@@ -78,6 +79,7 @@ type Config struct {
 	Path                        string
 	RepoRoot                    string
 	PolypusBaseURL              string
+	PolypusOTLPEndpoint         string
 	PolypusClassifyModel        string
 	PolypusJudgeModel           string
 	PolypusEmbedModel           string
@@ -125,6 +127,7 @@ func (c Config) Redacted() map[string]any {
 		"path": c.Path,
 		"polypus": map[string]string{
 			"base_url":               c.PolypusBaseURL,
+			"otlp_endpoint":          c.PolypusOTLPEndpoint,
 			"classify_model":         setUnset(c.PolypusClassifyModel),
 			"judge_model":            setUnset(c.PolypusJudgeModel),
 			"tldr_model":             setUnset(c.PolypusTldrModel),
@@ -198,7 +201,10 @@ func ResolvePath(override string) (string, error) {
 func DefaultFile() File {
 	return File{
 		Secrets: DefaultSecrets(),
-		Polypus: PolypusFile{BaseURL: "${POLYPUS_BASE_URL}"},
+		Polypus: PolypusFile{
+			BaseURL:      "${POLYPUS_BASE_URL}",
+			OTLPEndpoint: polypusOTLPPlaceholder,
+		},
 		Taxonomy: TaxonomyFile{
 			Strategy: string(harness.StrategyWalk),
 		},
@@ -327,6 +333,11 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultPolypusBaseURL
 	}
+	otlpEndpoint, err := ExpandString(file.Polypus.OTLPEndpoint, resolve, false)
+	if err != nil {
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand polypus.otlp_endpoint")
+	}
+	otlpEndpoint = resolvePolypusOTLPForLoad(otlpEndpoint, baseURL)
 	classifyModel := strings.TrimSpace(file.Polypus.ClassifyModel)
 	judgeModel := strings.TrimSpace(file.Polypus.JudgeModel)
 	embedModel := strings.TrimSpace(file.Polypus.EmbedModel)
@@ -356,6 +367,7 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 		Path:                        path,
 		RepoRoot:                    repoRoot,
 		PolypusBaseURL:              strings.TrimRight(baseURL, "/"),
+		PolypusOTLPEndpoint:         otlpEndpoint,
 		PolypusClassifyModel:        classifyModel,
 		PolypusJudgeModel:           judgeModel,
 		PolypusEmbedModel:           embedModel,
