@@ -376,3 +376,13 @@ func TestOperateTimeoutAttachIsFiveMinutes(t *testing.T) {
 		t.Fatalf("attach operate timeout %s", operateTimeoutAttach)
 	}
 }
+
+func TestStoreWriteContext_survivesParentCancel(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctx, stop := storeWriteContext(parent)
+	defer stop()
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("write ctx done: %v", err)
+	}
+}

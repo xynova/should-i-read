@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -97,12 +98,28 @@ func Execute(ctx context.Context, repoRoot string) int {
 	root.AddCommand(newTokenCmd(opts, repoRoot))
 
 	if err := root.ExecuteContext(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			_, _ = fmt.Fprintln(os.Stderr, "interrupted")
+			_ = os.Stderr.Sync()
+			return commandExitCode(err)
+		}
 		if !opts.humanErr {
 			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
-		return sirerr.ExitCode(err)
+		_ = os.Stderr.Sync()
+		return commandExitCode(err)
 	}
 	return 0
+}
+
+func commandExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	if errors.Is(err, context.Canceled) {
+		return 130
+	}
+	return sirerr.ExitCode(err)
 }
 
 func (o *rootOptions) load(repoRoot string) error {
