@@ -10,11 +10,14 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 	defer stop()
 
 	repoRoot := findRepoRoot()
-	os.Exit(cli.Execute(ctx, repoRoot))
+	code := cli.Execute(ctx, repoRoot)
+	_ = os.Stdout.Sync()
+	_ = os.Stderr.Sync()
+	os.Exit(code)
 }
 
 func findRepoRoot() string {

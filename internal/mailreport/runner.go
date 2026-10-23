@@ -374,16 +374,33 @@ func isResumeComplete(got hoststore.StateRow) bool {
 		(strings.TrimSpace(got.TermID) != "" || len(got.Path) > 0)
 }
 
+const storeWriteTimeout = 5 * time.Second
+
+func storeWriteContext(parent context.Context) (context.Context, context.CancelFunc) {
+	base := parent
+	if base == nil {
+		base = context.Background()
+	} else {
+		base = context.WithoutCancel(parent)
+	}
+	return context.WithTimeout(base, storeWriteTimeout)
+}
+
 func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item Item, art *Artifact) error {
 	row := MessageRow{ObjectHash: hash, Subject: item.Subject, Sender: item.Sender}
 	opCtx, cancel := context.WithTimeout(ctx, r.operateTimeout())
 	defer cancel()
 	res, opErr := r.runOperate(opCtx, item)
+	storeCtx, storeCancel := storeWriteContext(ctx)
+	defer storeCancel()
 	if opErr != nil {
 		row.Error = formatRowError(opErr)
 		art.Messages = append(art.Messages, row)
-		if failErr := r.store.Fail(ctx, hash, token, row.Error); failErr != nil {
+		if failErr := r.store.Fail(storeCtx, hash, token, row.Error); failErr != nil {
 			return failErr
+		}
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
 		}
 		return nil
 	}
@@ -394,7 +411,7 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 			row.Error = "empty assignment"
 		}
 		art.Messages = append(art.Messages, row)
-		if failErr := r.store.Fail(ctx, hash, token, row.Error); failErr != nil {
+		if failErr := r.store.Fail(storeCtx, hash, token, row.Error); failErr != nil {
 			return failErr
 		}
 		return nil
@@ -403,7 +420,7 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 	if embErr != nil {
 		row.EmbedPersist = formatRowError(embErr)
 	}
-	if err := r.store.Complete(ctx, hash, token, stateFromRow(row, r.vocab.ID, r.judgeModel, r.embedModel), emb); err != nil {
+	if err := r.store.Complete(storeCtx, hash, token, stateFromRow(row, r.vocab.ID, r.judgeModel, r.embedModel), emb); err != nil {
 		return err
 	}
 	art.Messages = append(art.Messages, row)
