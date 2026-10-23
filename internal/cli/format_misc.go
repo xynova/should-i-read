@@ -43,6 +43,10 @@ func formatPolypusHealth(h *polypus.HealthResult, classifyChecked bool) string {
 		} else {
 			b.WriteString(clui.Muted(fmt.Sprintf("author %s", h.AuthorModel)))
 		}
+		if h.AliasJudgeModel != "" {
+			b.WriteByte('\n')
+			b.WriteString(clui.Muted(fmt.Sprintf("alias judge %s", h.AliasJudgeModel)))
+		}
 	} else if !classifyChecked {
 		b.WriteString(clui.Muted("Classify: not verified (use --classify)"))
 	}

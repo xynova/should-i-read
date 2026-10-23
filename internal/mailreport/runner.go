@@ -52,6 +52,8 @@ type RunnerConfig struct {
 	EssenceSystemPrompt  string
 	TagCatalog           *tags.Catalog
 	TagCurator           *TagCurator
+	AliasJudge           harness.Judge
+	MinJudgeScore        float64
 	Now                  time.Time
 }
 
@@ -90,6 +92,8 @@ type Runner struct {
 	essenceSystemPrompt  string
 	tagCatalog           *tags.Catalog
 	tagCurator           *TagCurator
+	aliasJudge           harness.Judge
+	minJudgeScore        float64
 	aiHops               int
 	now                  time.Time
 }
@@ -158,6 +162,8 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		essenceSystemPrompt:  strings.TrimSpace(cfg.EssenceSystemPrompt),
 		tagCatalog:           cfg.TagCatalog,
 		tagCurator:           cfg.TagCurator,
+		aliasJudge:           cfg.AliasJudge,
+		minJudgeScore:        cfg.MinJudgeScore,
 		now:                  now,
 	}, nil
 }
@@ -382,7 +388,7 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 		return nil
 	}
 	fillMessageRowFromOperate(&row, r.strategy, res)
-	r.applyAcceptedDraft(art, &row, res)
+	r.applyAcceptedDraft(opCtx, art, &row, res)
 	if !assignmentComplete(row) {
 		if row.Error == "" {
 			row.Error = "empty assignment"
@@ -440,13 +446,55 @@ func fillMessageRowFromOperate(row *MessageRow, fallbackStrategy string, res har
 	}
 }
 
-func (r *Runner) applyAcceptedDraft(art *Artifact, row *MessageRow, res harness.Result) {
+func (r *Runner) applyAcceptedDraft(ctx context.Context, art *Artifact, row *MessageRow, res harness.Result) {
 	if !res.DraftAccepted || !r.apply {
 		return
 	}
 	termsBefore := len(r.vocab.Terms)
 	vocab, applyErr := harness.Apply(r.vocab, res)
 	if applyErr != nil {
+		if res.Draft != nil &&
+			res.Draft.Kind == harness.DraftKindAlias &&
+			catalog.CodeOf(applyErr) == catalog.CodeAliasCollision {
+			alias := strings.TrimSpace(res.Draft.Alias)
+			challenger := strings.TrimSpace(res.Draft.LeafID)
+			owner, hasOwner := catalog.AliasOwner(r.vocab, alias)
+			if r.aliasJudge == nil || ctx == nil || ctx.Err() != nil ||
+				!hasOwner || alias == "" || challenger == "" || owner == challenger {
+				row.Error = ""
+				return
+			}
+			winnerID, decided := decideAliasOwner(ctx, r.aliasJudge, r.cat, alias, challenger, owner, r.minJudgeScore)
+			if !decided {
+				row.Error = ""
+				return
+			}
+			next, transferErr := catalog.TransferAlias(r.vocab, alias, winnerID)
+			if transferErr != nil {
+				row.Error = ""
+				return
+			}
+			cat, persistErr := persistCatalogIfBuildable(r.catalogPath, next)
+			if persistErr != nil {
+				row.Error = ""
+				return
+			}
+			r.vocab = next
+			r.cat = cat
+			rt, ok := r.cat.PreferLeaf(winnerID)
+			if !ok || rt == nil {
+				row.Error = ""
+				return
+			}
+			row.TermID = rt.ID
+			row.Label = rt.Label
+			row.Path = rt.Path
+			row.CanonicalTermID = rt.ID
+			row.CatalogApplied = true
+			art.AliasesAdded++
+			row.Error = ""
+			return
+		}
 		row.Error = formatRowError(applyErr)
 		return
 	}

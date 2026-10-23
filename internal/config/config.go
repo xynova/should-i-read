@@ -53,6 +53,7 @@ type PolypusFile struct {
 	OTLPEndpoint         string `yaml:"otlp_endpoint,omitempty"`
 	ClassifyModel        string `yaml:"classify_model"`
 	JudgeModel           string `yaml:"judge_model"`
+	AliasJudgeModel      string `yaml:"alias_judge_model"`
 	EmbedModel           string `yaml:"embed_model"`
 	TldrModel            string `yaml:"tldr_model"`
 	EssenceEscalateModel string `yaml:"essence_escalate_model"`
@@ -82,6 +83,7 @@ type Config struct {
 	PolypusOTLPEndpoint         string
 	PolypusClassifyModel        string
 	PolypusJudgeModel           string
+	PolypusAliasJudgeModel      string
 	PolypusEmbedModel           string
 	PolypusTldrModel            string
 	PolypusEssenceEscalateModel string
@@ -130,6 +132,7 @@ func (c Config) Redacted() map[string]any {
 			"otlp_endpoint":          c.PolypusOTLPEndpoint,
 			"classify_model":         setUnset(c.PolypusClassifyModel),
 			"judge_model":            setUnset(c.PolypusJudgeModel),
+			"alias_judge_model":      setUnset(c.PolypusAliasJudgeModel),
 			"tldr_model":             setUnset(c.PolypusTldrModel),
 			"essence_escalate_model": setUnset(c.PolypusEssenceEscalateModel),
 		},
@@ -340,6 +343,7 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	otlpEndpoint = resolvePolypusOTLPForLoad(otlpEndpoint, baseURL)
 	classifyModel := strings.TrimSpace(file.Polypus.ClassifyModel)
 	judgeModel := strings.TrimSpace(file.Polypus.JudgeModel)
+	aliasJudgeModel := strings.TrimSpace(file.Polypus.AliasJudgeModel)
 	embedModel := strings.TrimSpace(file.Polypus.EmbedModel)
 	tldrModel := strings.TrimSpace(file.Polypus.TldrModel)
 	essenceEscalateModel := strings.TrimSpace(file.Polypus.EssenceEscalateModel)
@@ -370,6 +374,7 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 		PolypusOTLPEndpoint:         otlpEndpoint,
 		PolypusClassifyModel:        classifyModel,
 		PolypusJudgeModel:           judgeModel,
+		PolypusAliasJudgeModel:      aliasJudgeModel,
 		PolypusEmbedModel:           embedModel,
 		PolypusTldrModel:            tldrModel,
 		PolypusEssenceEscalateModel: essenceEscalateModel,

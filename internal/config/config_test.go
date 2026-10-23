@@ -106,6 +106,32 @@ oauth:
 	}
 }
 
+func TestLoadAliasJudgeModel(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	body := `
+polypus:
+  base_url: "http://127.0.0.1:1320"
+  alias_judge_model: "openrouter/inception/mercury-decide"
+`
+	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load("/repo", cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "openrouter/inception/mercury-decide"
+	if cfg.PolypusAliasJudgeModel != want {
+		t.Fatalf("loaded: %q", cfg.PolypusAliasJudgeModel)
+	}
+	red := cfg.Redacted()
+	pol, ok := red["polypus"].(map[string]string)
+	if !ok || pol["alias_judge_model"] != "(set)" {
+		t.Fatalf("redacted polypus: %v", red["polypus"])
+	}
+}
+
 func TestLoadEssenceEscalateModel(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "config.yaml")

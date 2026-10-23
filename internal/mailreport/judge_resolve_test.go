@@ -43,12 +43,24 @@ func ctxProbe(t *testing.T) context.Context {
 }
 
 func TestResolveJudgeModel_probeCandidate(t *testing.T) {
-	p := &stubProber{okModels: map[string]bool{"cf_local/typesafe/jev": true}}
+	p := &stubProber{okModels: map[string]bool{"openrouter/perplexity/pplx-decider-v1.2": true}}
 	model, src, err := ResolveJudgeModel(ctxProbe(t), p, homelabCatalog(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if model != "cf_local/typesafe/jev" || src != JudgeSourceProbe {
+	if model != "openrouter/perplexity/pplx-decider-v1.2" || src != JudgeSourceProbe {
+		t.Fatalf("got %q %q", model, src)
+	}
+}
+
+func TestResolveJudgeModel_configuredPerplexity(t *testing.T) {
+	id := "openrouter/perplexity/pplx-decider-v1.2"
+	p := &stubProber{okModels: map[string]bool{id: true}}
+	model, src, err := ResolveJudgeModel(ctxProbe(t), p, homelabCatalog(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model != id || src != JudgeSourceConfig {
 		t.Fatalf("got %q %q", model, src)
 	}
 }

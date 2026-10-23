@@ -33,3 +33,11 @@ func isJevModelID(id string) bool {
 	}
 	return strings.HasSuffix(s, "/jev") || s == "jev"
 }
+
+func isSystemOneJudgeID(id string) bool {
+	if isJevModelID(id) {
+		return true
+	}
+	s := strings.ToLower(strings.TrimSpace(id))
+	return strings.Contains(s, "pplx-decider")
+}

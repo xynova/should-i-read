@@ -13,7 +13,8 @@ Every host AI call MUST go through Polypus at the configured base URL: `polypus.
 | Operation | Preferred Polypus route | Notes |
 |-----------|-------------------------|-------|
 | Chat / drafts / summaries / TLDR | `POST /v1/chat/completions` | Model id from Polypus allow-list |
-| Taxonomy Judge (classify) | `POST /v1/systemone` | `polypus.judge_model` when set (smoked), else catalog `typesafe/jev` id, else off-catalog candidates (`cf_local/typesafe/jev`, `typesafe/jev`); each choice is verified with a SystemOne readiness probe |
+| Taxonomy Judge (classify walk) | `POST /v1/systemone` | `polypus.judge_model` when set (smoked), else catalog Perplexity `pplx-decider` or `typesafe/jev` id, else off-catalog candidates (`openrouter/perplexity/pplx-decider-v1.2`, `cf_local/typesafe/jev`, `typesafe/jev`); each choice is verified with a SystemOne readiness probe |
+| Alias-owner Judge (Apply collision) | `POST /v1/systemone` | `polypus.alias_judge_model` when set (smoked at classify start); KIND plus term cards only (no mail body). Empty skips the hop and soft-skips collisions. |
 | Taxonomy Author (classify) | `POST /v1/chat/completions` | `polypus.classify_model` (e.g. Granite micro on `cf_local`); runs only when Judge skips and `taxonomy.author_on_skip` is true. Host prepares Author input: latest-message trim, deterministic denoise, extractive essence (no extra LLM hop). Judge stays on SystemOne (JEV) with full message text. |
 | Embeddings / attach classify | `POST /v1/embeddings` via strop `LLMFactory.CreateEmbedder` (dspy-go) | Same Polypus base URL; host does not call `polypus.Client.Embed` on classify |
 | API catalog | `GET /v1/apis` | Lists flavors (`openai`, `systemone`) and each flavor’s `models` path |
