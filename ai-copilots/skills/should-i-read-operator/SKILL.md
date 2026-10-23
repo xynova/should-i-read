@@ -98,7 +98,7 @@ Phoenix (Arize) on the same host as Polypus: UI `http://<polypus-host>:6006`, cl
 
 **Sync folders:** `pimalaya.sync_exclude_collections` (default `[Gmail]/Spam` and `[Gmail]/Trash`) plus `--exclude-collection`. An empty YAML list syncs every folder. This is not `taxonomy.collections` (report listing only).
 
-**Attach (only strategy):** catalog `inbox-kind` (seed `config/vocabularies/inbox-kind.yaml`, default under `~/.config/should-i-read/vocabularies/`), `polypus.embed_model` via strop `CreateEmbedder`, Essence chat (same model as classify author), thresholds `attach_min_cosine` / `walk_reinforce_min` with `strop/pkg/embed.CosineSimilarity`. Legacy `taxonomy.strategy: walk` in YAML is treated as attach.
+**Attach (only strategy):** catalog `inbox-kind` (seed `config/vocabularies/inbox-kind.yaml`, default under `~/.config/should-i-read/vocabularies/`), `polypus.embed_model` via strop `CreateEmbedder`, Essence as three Polypus chat hops on `polypus.essence_model` (empty uses classify author), thresholds `attach_min_cosine` / `walk_reinforce_min` with `strop/pkg/embed.CosineSimilarity`. Legacy `taxonomy.strategy: walk` in YAML is treated as attach.
 
 ## Operator recipe
 

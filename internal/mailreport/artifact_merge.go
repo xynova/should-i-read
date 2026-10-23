@@ -86,6 +86,9 @@ func copyClassifyEnvelope(dst *Artifact, src Artifact) {
 	if dst.TldrModel == "" {
 		dst.TldrModel = src.TldrModel
 	}
+	if dst.EssenceModel == "" {
+		dst.EssenceModel = src.EssenceModel
+	}
 	if dst.EssenceEscalateModel == "" {
 		dst.EssenceEscalateModel = src.EssenceEscalateModel
 	}

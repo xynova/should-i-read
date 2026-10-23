@@ -15,6 +15,7 @@ const authorSystemPrompt = `Reply with JSON only. No markdown fences or prose ou
 Choose exactly one draft:
 - kind "alias": map this message to an existing leaf id. Include leafId (must be one of the listed leaf ids) and alias (short synonym phrase).
 - kind "new_leaf": only when no listed leaf fits. Include id (kebab-case), parent (one of the listed branch ids), label, description.
+  Description must be one grounded sentence about this mail genre. Do not name layout or geometry. Do not copy a tag list. The id must not prefix-repeat the parent (ci not notification-ci).
 
 Prefer alias over new_leaf. Do not invent leaf ids outside the list.`
 
@@ -69,6 +70,12 @@ func validateAuthorDraft(cat *catalog.Catalog, parents []harness.PackedOption, p
 		if strings.TrimSpace(parsed.Label) == "" {
 			return sirerr.New(sirerr.CodeFailed, op, "new_leaf draft missing label")
 		}
+		if strings.HasPrefix(id, parent+"-") {
+			return sirerr.New(sirerr.CodeFailed, op, "new_leaf id repeats parent").With("id", id).With("parent", parent)
+		}
+		if err := validateAuthorDescription(parsed.Description); err != nil {
+			return err
+		}
 		return nil
 	default:
 		return sirerr.New(sirerr.CodeFailed, op, "unknown draft kind").With("kind", kind)
@@ -114,6 +121,28 @@ func parentInAuthorScope(cat *catalog.Catalog, parents []harness.PackedOption, p
 		return false
 	}
 	return !cat.IsLeaf(rt.ID)
+}
+
+func validateAuthorDescription(desc string) error {
+	const op = "mailreport.validateAuthorDescription"
+	desc = strings.TrimSpace(desc)
+	if desc == "" {
+		return sirerr.New(sirerr.CodeFailed, op, "new_leaf draft missing description")
+	}
+	words := strings.Fields(desc)
+	if len(words) < 4 {
+		return sirerr.New(sirerr.CodeFailed, op, "new_leaf description too short")
+	}
+	low := strings.ToLower(desc)
+	for _, bad := range []string{
+		"rectangular", "square", "circle", "triangle",
+		"structured layout", "css styling", "font-family",
+	} {
+		if strings.Contains(low, bad) {
+			return sirerr.New(sirerr.CodeFailed, op, "new_leaf description is layout metadata")
+		}
+	}
+	return nil
 }
 
 func isKebabID(id string) bool {

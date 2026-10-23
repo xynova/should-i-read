@@ -32,7 +32,14 @@ func essenceIntegrityAfterMiss(err error) integrity.MissAction {
 	return integrity.MissContinue
 }
 
-func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, escalateModel string, tagCatalog *tags.Catalog) (*integrity.Shell, error) {
+// essenceShellHooks configures one Essence integrity shell (WHY, TAGS, or KIND).
+type essenceShellHooks struct {
+	Validate     func(string) error
+	CompleteNote func(error) string
+	AfterMiss    func(error) integrity.MissAction
+}
+
+func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, escalateModel string, hooks essenceShellHooks) (*integrity.Shell, error) {
 	const op = "mailreport.createEssenceIntegrityShellPolypus"
 	if client == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil client")
@@ -40,6 +47,9 @@ func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, es
 	essenceModel = strings.TrimSpace(essenceModel)
 	if essenceModel == "" {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "empty model")
+	}
+	if hooks.Validate == nil || hooks.CompleteNote == nil || hooks.AfterMiss == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil essence shell hooks")
 	}
 	escalateModel = EffectiveEssenceEscalateModel(essenceModel, escalateModel)
 	cfg := integrity.ShellConfig{
@@ -50,9 +60,9 @@ func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, es
 				Messages:    integrityMessagesToPolypus(messages),
 			})
 		},
-		Validate:     essenceIntegrityValidateFor(tagCatalog),
-		CompleteNote: essenceIntegrityCompleteNote,
-		AfterMiss:    essenceIntegrityAfterMiss,
+		Validate:     hooks.Validate,
+		CompleteNote: hooks.CompleteNote,
+		AfterMiss:    hooks.AfterMiss,
 		MaxAttempts:  essenceParseMaxAttempts,
 	}
 	if escalateModel != "" {
@@ -67,6 +77,7 @@ func createEssenceIntegrityShellChatLines(runner ChatLineRunner, ln openaibatch.
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil runner")
 	}
 	escalateModel = EffectiveEssenceEscalateModel(ln.Model, escalateModel)
+	hooks := essenceFullFormShellHooks(tagCatalog)
 	cfg := integrity.ShellConfig{
 		Chat: func(ctx context.Context, messages []integrity.Message) (string, error) {
 			line := openaibatch.ChatLine{
@@ -87,9 +98,9 @@ func createEssenceIntegrityShellChatLines(runner ChatLineRunner, ln openaibatch.
 			}
 			return lr.Content, nil
 		},
-		Validate:     essenceIntegrityValidateFor(tagCatalog),
-		CompleteNote: essenceIntegrityCompleteNote,
-		AfterMiss:    essenceIntegrityAfterMiss,
+		Validate:     hooks.Validate,
+		CompleteNote: hooks.CompleteNote,
+		AfterMiss:    hooks.AfterMiss,
 		MaxAttempts:  essenceParseMaxAttempts,
 	}
 	if escalateModel != "" {

@@ -196,7 +196,7 @@ func TestEssenceIntegrityCompleteNote_kindSegments(t *testing.T) {
 	if !essenceKindShortFromErr(err) {
 		t.Fatal("expected kind_short field")
 	}
-	note := essenceIntegrityCompleteNote(err)
+	note := essenceKindIntegrityCompleteNote(err)
 	if !strings.Contains(strings.ToLower(note), "continue") {
 		t.Fatalf("note %q", note)
 	}
@@ -205,5 +205,81 @@ func TestEssenceIntegrityCompleteNote_kindSegments(t *testing.T) {
 	}
 	if !strings.Contains(note, `trailing " > "`) {
 		t.Fatalf("note %q", note)
+	}
+	if strings.Contains(note, "software-release") || strings.Contains(note, "changelog") {
+		t.Fatalf("note must not leak example path: %q", note)
+	}
+}
+
+func TestParseEssenceWhy_acceptsMarkdownKeys(t *testing.T) {
+	t.Parallel()
+	raw := "**WHY1:** New notes have been posted.\n**WHY2:** Substack posted them.\n**WHY3:** Substack is a writing platform.\n**WHY4:** Rob Stephenson uses Substack.\n**WHY5:** He records neighborhoods in New York City.\n**ABOUT:** A Substack notification that new notes were posted."
+	out, err := parseEssenceWhy(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if out.Why[0] != "New notes have been posted." {
+		t.Fatalf("why1: %q", out.Why[0])
+	}
+	if !strings.Contains(out.About, "Substack") {
+		t.Fatalf("about: %q", out.About)
+	}
+}
+
+func TestParseEssenceKind_rejectsParentPrefix(t *testing.T) {
+	t.Parallel()
+	_, err := parseEssenceKind("KIND: notification > notification-ci > workflow-failure\n")
+	if err == nil {
+		t.Fatal("expected ancestor error")
+	}
+	if !essenceKindAncestorFromErr(err) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestParseEssenceWhy_ignoresForeignKeys(t *testing.T) {
+	t.Parallel()
+	raw := "WHY1: a\nTAGS: billing\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: about\nKIND: notification > billing > payment-failure\n"
+	out, err := parseEssenceWhy(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if out.Why[0] != "a" {
+		t.Fatalf("why1 polluted: %q", out.Why[0])
+	}
+	if out.Why[1] != "b" || out.About != "about" {
+		t.Fatalf("out %+v", out)
+	}
+}
+
+func TestParseEssenceTags_emptyMessage(t *testing.T) {
+	t.Parallel()
+	_, err := parseEssenceTags("WHY1: a\n", nil)
+	if err == nil {
+		t.Fatal("expected tags empty")
+	}
+	if !strings.Contains(err.Error(), EssenceErrTagsEmpty) {
+		t.Fatalf("err %v", err)
+	}
+	missing, _ := essenceKeysFromErr(err)
+	if len(missing) != 1 || missing[0] != essenceKeyTags {
+		t.Fatalf("missing %v", missing)
+	}
+}
+
+func TestBuildEssencePrompts_threeSlaves(t *testing.T) {
+	t.Parallel()
+	p := BuildEssencePrompts([]string{"fyi", "billing"})
+	if !strings.Contains(p.Why, "WHY1:") || strings.Contains(p.Why, "TAGS:") {
+		t.Fatalf("why prompt: %s", p.Why)
+	}
+	if !strings.Contains(p.Tags, "TAGS:") || !strings.Contains(p.Tags, "fyi") {
+		t.Fatalf("tags prompt: %s", p.Tags)
+	}
+	if !strings.Contains(p.Kind, "KIND:") || strings.Contains(p.Kind, "changelog") {
+		t.Fatalf("kind prompt: %s", p.Kind)
+	}
+	if EssencePromptsHash(p) == EssencePromptHash(DefaultEssenceSystemPrompt()) {
+		t.Fatal("triple hash must differ from legacy single prompt hash")
 	}
 }

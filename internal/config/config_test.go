@@ -132,6 +132,32 @@ polypus:
 	}
 }
 
+func TestLoadEssenceModel(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	body := `
+polypus:
+  base_url: "http://127.0.0.1:1320"
+  essence_model: "openrouter/mistralai/mistral-nemo"
+`
+	if err := os.WriteFile(cfgFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load("/repo", cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "openrouter/mistralai/mistral-nemo"
+	if cfg.PolypusEssenceModel != want {
+		t.Fatalf("loaded: %q", cfg.PolypusEssenceModel)
+	}
+	red := cfg.Redacted()
+	pol, ok := red["polypus"].(map[string]string)
+	if !ok || pol["essence_model"] != "(set)" {
+		t.Fatalf("redacted polypus: %v", red["polypus"])
+	}
+}
+
 func TestLoadEssenceEscalateModel(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "config.yaml")

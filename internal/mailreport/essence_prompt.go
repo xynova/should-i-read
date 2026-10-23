@@ -36,8 +36,16 @@ const (
 	EssenceErrWhyEmpty = "why empty"
 	// EssenceErrAboutOrShape is the validate message when ABOUT or TAGS is missing.
 	EssenceErrAboutOrShape = "about or shape empty"
+	// EssenceErrTagsEmpty is the validate message when the TAGS slave has no valid tags.
+	EssenceErrTagsEmpty = "tags empty"
 	// EssenceErrKindShort is the validate message when KIND has fewer than 3 segments.
 	EssenceErrKindShort = "kind needs 3+ segments"
+	// EssenceErrKindAncestor is the validate message when a KIND segment repeats its parent as a prefix.
+	EssenceErrKindAncestor = "kind segment repeats parent"
+	// AssignmentErrPathShort is the persist message when catalog path is shorter than a 3-segment KIND.
+	AssignmentErrPathShort = "catalog path shorter than kind"
+	// AssignmentErrPathAncestor is the persist message when a catalog path segment repeats its parent prefix.
+	AssignmentErrPathAncestor = "catalog path repeats parent"
 )
 
 var essenceWhyKeys = []string{
@@ -80,7 +88,18 @@ var (
 
 func init() {
 	defaultEssenceSystemPrompt = BuildEssenceSystemPrompt(nil)
-	essenceKeyRE = regexp.MustCompile(`^(` + strings.Join(essenceParseKeys, "|") + `):\s*(.*)$`)
+	essenceKeyRE = regexp.MustCompile(`^[\s*_]*((?:` + strings.Join(essenceParseKeys, "|") + `))[\s*_]*:\s*(.*)$`)
+}
+
+func matchEssenceKeyLine(line string) (key, rest string, ok bool) {
+	m := essenceKeyRE.FindStringSubmatch(strings.TrimSpace(line))
+	if m == nil {
+		return "", "", false
+	}
+	rest = strings.TrimSpace(m[2])
+	rest = strings.TrimLeft(rest, "*_`")
+	rest = strings.TrimSpace(rest)
+	return m[1], rest, true
 }
 
 // DefaultEssenceSystemPrompt returns the static prompt without active tag ids (tests).
@@ -149,7 +168,7 @@ func essenceIntegrityCompleteNote(err error) string {
 		return b.String()
 	}
 	if essenceKindShortFromErr(err) {
-		return "Continue your previous reply. Keep WHY, ABOUT, and TAGS. Expand KIND to 3 to 5 kebab-case segments joined by \" > \". Do not leave a trailing \" > \". Example: notification > software-release > changelog."
+		return essenceKindIntegrityCompleteNote(err)
 	}
 	if essenceTagInvalidFromErr(err) {
 		return "Continue your previous reply. Fix TAGS: use kebab-case tag ids only (no geometry words, no KIND paths). Prefer listed Active tags or mint a new kebab tag."
@@ -220,10 +239,10 @@ func parseEssenceResponseWithCatalog(raw string, cat *tags.Catalog) (harness.Ess
 		pendingVal = nil
 	}
 	for _, line := range lines {
-		if m := essenceKeyRE.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+		if key, rest, ok := matchEssenceKeyLine(line); ok {
 			flush()
-			pendingKey = m[1]
-			if rest := strings.TrimSpace(m[2]); rest != "" {
+			pendingKey = key
+			if rest != "" {
 				pendingVal = []string{rest}
 			}
 			continue
@@ -326,6 +345,9 @@ func validateParsedEssence(e harness.EssenceOut) error {
 	}
 	if kindShort {
 		return sirerr.New(sirerr.CodeAI, op, EssenceErrKindShort).With(essenceFieldKindShort, essenceFieldKindShortYes)
+	}
+	if kindOrPathRepeatsParent(catalog.ParseKindSegments(e.Kind)) {
+		return sirerr.New(sirerr.CodeAI, op, EssenceErrKindAncestor)
 	}
 	return nil
 }

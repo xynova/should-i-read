@@ -22,7 +22,7 @@ func TestEssenceDumperWriteLast(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 	d := CreateEssenceDumper(EssenceDumpConfig{Dir: dir, Now: now})
-	path, err := d.writeLast("att3", "granite", "Subject: hi\n", "WHY1: a\nABOUT:\n", 3, errAboutOrShape())
+	path, err := d.writeLast("att3", "granite", "Subject: hi\n", "WHY1: a\nABOUT:\n", essenceSlaveWhy, 3, errAboutOrShape())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestEssenceDumperWriteLast(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.ObjectHash != "att3" || got.Attempt != 3 || got.Raw != "WHY1: a\nABOUT:\n" {
+	if got.ObjectHash != "att3" || got.Attempt != 3 || got.Slave != essenceSlaveWhy || got.Raw != "WHY1: a\nABOUT:\n" {
 		t.Fatalf("got %+v", got)
 	}
 	if got.WrittenAt != "2026-10-13T12:00:00Z" {
@@ -42,6 +42,27 @@ func TestEssenceDumperWriteLast(t *testing.T) {
 	}
 	if !strings.Contains(got.ParseError, EssenceErrAboutOrShape) {
 		t.Fatalf("parse_error %q", got.ParseError)
+	}
+}
+
+func TestEssenceDumperZeroNowOmitsWrittenAt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	d := CreateEssenceDumper(EssenceDumpConfig{Dir: dir})
+	path, err := d.writeLast("znow", "granite", "Subject: hi\n", "WHY1: a\n", essenceSlaveWhy, 3, errAboutOrShape())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got EssenceParseDump
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.WrittenAt != "" {
+		t.Fatalf("written_at %q", got.WrittenAt)
 	}
 }
 
@@ -67,10 +88,10 @@ func TestEssenceDumperOverwriteLastAttempt(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	d := CreateEssenceDumper(EssenceDumpConfig{Dir: dir, Now: time.Now().UTC()})
-	if _, err := d.writeLast("h1", "m", "", "first", 1, errAboutOrShape()); err != nil {
+	if _, err := d.writeLast("h1", "m", "", "first", essenceSlaveKind, 1, errAboutOrShape()); err != nil {
 		t.Fatal(err)
 	}
-	path, err := d.writeLast("h1", "m", "", "last", 3, errAboutOrShape())
+	path, err := d.writeLast("h1", "m", "", "last", essenceSlaveTags, 3, errAboutOrShape())
 	if err != nil {
 		t.Fatal(err)
 	}

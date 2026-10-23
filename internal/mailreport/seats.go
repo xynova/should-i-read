@@ -58,9 +58,12 @@ type polypusEssencer struct {
 	client        *polypus.Client
 	model         string
 	escalateModel string
-	systemPrompt  string
+	prompts       EssencePrompts
 	dump          *essenceDumper
-	shell         *integrity.Shell
+	whyShell      *integrity.Shell
+	tagsShell     *integrity.Shell
+	kindShell     *integrity.Shell
+	tagCatalog    *tags.Catalog
 }
 
 func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (harness.EssenceOut, error) {
@@ -72,43 +75,84 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 	var out harness.EssenceOut
 	var retErr error
 	defer func() { endSeatSpan(span, retErr) }()
-	if e.shell == nil {
+	if e.whyShell == nil || e.tagsShell == nil || e.kindShell == nil {
 		retErr = sirerr.New(sirerr.CodeInvalid, op, "nil essence integrity shell")
 		return harness.EssenceOut{}, retErr
 	}
 	messageText := AuthorMessageBody(in.Text)
-	prompt := strings.TrimSpace(in.WorldContext) + "\n\nMessage:\n" + messageText
-	sys := strings.TrimSpace(e.systemPrompt)
-	if sys == "" {
-		sys = DefaultEssenceSystemPrompt()
+	mailPrefix := strings.TrimSpace(in.WorldContext) + "\n\nMessage:\n" + messageText
+	prompts := e.prompts
+	if strings.TrimSpace(prompts.Why) == "" {
+		prompts = BuildEssencePrompts(nil)
 	}
-	raw, runErr := e.shell.Run(ctx, sys, prompt)
-	if runErr == nil {
-		parsed, parseErr := parseEssenceResponse(raw)
-		if parseErr != nil {
-			retErr = sirerr.Wrap(parseErr, sirerr.CodeAI, op, "essence parse")
-			return harness.EssenceOut{}, retErr
-		}
-		out = parsed
-		return out, nil
-	}
-	if errors.Is(runErr, integrity.ErrInvalid) {
-		retErr = sirerr.Wrap(runErr, sirerr.CodeInvalid, op, "essence integrity")
+
+	whyRaw, whyErr := e.whyShell.Run(ctx, prompts.Why, mailPrefix)
+	if whyErr != nil {
+		_, retErr = e.failSlave(ctx, op, essenceSlaveWhy, messageText, whyRaw, whyErr)
 		return harness.EssenceOut{}, retErr
+	}
+	whyOut, parseErr := parseEssenceWhy(whyRaw)
+	if parseErr != nil {
+		retErr = sirerr.Wrap(parseErr, sirerr.CodeAI, op, "essence parse")
+		return harness.EssenceOut{}, retErr
+	}
+	if err := ctx.Err(); err != nil {
+		retErr = sirerr.Wrap(err, sirerr.CodeFailed, op, "context canceled after why")
+		return harness.EssenceOut{}, retErr
+	}
+
+	tagsUser := mailPrefix + "\n\n" + formatEssenceWhyBlock(whyOut)
+	tagsRaw, tagsErr := e.tagsShell.Run(ctx, prompts.Tags, tagsUser)
+	if tagsErr != nil {
+		_, retErr = e.failSlave(ctx, op, essenceSlaveTags, messageText, tagsRaw, tagsErr)
+		return harness.EssenceOut{}, retErr
+	}
+	shape, parseErr := parseEssenceTags(tagsRaw, e.tagCatalog)
+	if parseErr != nil {
+		retErr = sirerr.Wrap(parseErr, sirerr.CodeAI, op, "essence parse")
+		return harness.EssenceOut{}, retErr
+	}
+	if err := ctx.Err(); err != nil {
+		retErr = sirerr.Wrap(err, sirerr.CodeFailed, op, "context canceled after tags")
+		return harness.EssenceOut{}, retErr
+	}
+
+	kindUser := tagsUser + "\nTAGS: " + shape
+	kindRaw, kindErr := e.kindShell.Run(ctx, prompts.Kind, kindUser)
+	if kindErr != nil {
+		_, retErr = e.failSlave(ctx, op, essenceSlaveKind, messageText, kindRaw, kindErr)
+		return harness.EssenceOut{}, retErr
+	}
+	kind, parseErr := parseEssenceKind(kindRaw)
+	if parseErr != nil {
+		retErr = sirerr.Wrap(parseErr, sirerr.CodeAI, op, "essence parse")
+		return harness.EssenceOut{}, retErr
+	}
+
+	out = harness.EssenceOut{Why: whyOut.Why, About: whyOut.About, Shape: shape, Kind: kind}
+	if err := validateParsedEssence(out); err != nil {
+		retErr = sirerr.Wrap(err, sirerr.CodeAI, op, "essence parse")
+		return harness.EssenceOut{}, retErr
+	}
+	return out, nil
+}
+
+func (e *polypusEssencer) failSlave(ctx context.Context, op, slave, messageText, raw string, runErr error) (harness.EssenceOut, error) {
+	if errors.Is(runErr, integrity.ErrInvalid) {
+		return harness.EssenceOut{}, sirerr.Wrap(runErr, sirerr.CodeInvalid, op, "essence integrity")
 	}
 	if !errors.Is(runErr, integrity.ErrExhausted) {
 		code := sirerr.CodeAI
 		if c, ok := sirerr.AsCode(runErr); ok && c == sirerr.CodeUnavailable {
 			code = sirerr.CodeUnavailable
 		}
-		retErr = sirerr.Wrap(runErr, code, op, "essence chat")
-		return harness.EssenceOut{}, retErr
+		return harness.EssenceOut{}, sirerr.Wrap(runErr, code, op, "essence chat")
 	}
 	lastErr := integrity.ValidationError(runErr)
 	if lastErr == nil {
 		lastErr = runErr
 	}
-	retErr = sirerr.Wrap(lastErr, sirerr.CodeAI, op, "essence parse after retries")
+	var retErr error = sirerr.Wrap(lastErr, sirerr.CodeAI, op, "essence parse after retries")
 	if e.dump != nil && strings.TrimSpace(raw) != "" {
 		id := essenceDumpIDFromCtx(ctx)
 		dumpModel := e.model
@@ -117,7 +161,7 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 			dumpModel = e.escalateModel
 			attempt = essenceParseMaxAttempts * 2
 		}
-		path, dumpErr := e.dump.writeLast(id, dumpModel, messageText, raw, attempt, lastErr)
+		path, dumpErr := e.dump.writeLast(id, dumpModel, messageText, raw, slave, attempt, lastErr)
 		retErr = attachEssenceDump(retErr, path, dumpErr)
 	}
 	return harness.EssenceOut{}, retErr
@@ -131,7 +175,7 @@ type SeatsConfig struct {
 	EssenceModel         string
 	EssenceEscalateModel string
 	EssenceDumpDir       string
-	EssenceSystemPrompt  string
+	EssencePrompts       EssencePrompts
 	TagCatalog           *tags.Catalog
 	Now                  time.Time
 	Embedder             harness.Embedder
@@ -164,21 +208,36 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 	if essenceModel != "" {
 		escalateModel := EffectiveEssenceEscalateModel(essenceModel, cfg.EssenceEscalateModel)
 		SetEssenceTagCatalog(cfg.TagCatalog)
-		shell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, cfg.TagCatalog)
-		if err != nil {
-			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence integrity shell")
+		prompts := cfg.EssencePrompts
+		if strings.TrimSpace(prompts.Why) == "" {
+			active := []string{}
+			if cfg.TagCatalog != nil {
+				active = cfg.TagCatalog.ActiveIDs()
+			}
+			prompts = BuildEssencePrompts(active)
 		}
-		sysPrompt := strings.TrimSpace(cfg.EssenceSystemPrompt)
-		if sysPrompt == "" {
-			sysPrompt = DefaultEssenceSystemPrompt()
+		whyShell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, essenceWhyShellHooks(cfg.TagCatalog))
+		if err != nil {
+			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence why shell")
+		}
+		tagsShell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, essenceTagsShellHooks(cfg.TagCatalog))
+		if err != nil {
+			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence tags shell")
+		}
+		kindShell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, essenceKindShellHooks(cfg.TagCatalog))
+		if err != nil {
+			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence kind shell")
 		}
 		out.Essencer = &polypusEssencer{
 			client:        cfg.Client,
 			model:         essenceModel,
 			escalateModel: escalateModel,
-			systemPrompt:  sysPrompt,
+			prompts:       prompts,
 			dump:          CreateEssenceDumper(EssenceDumpConfig{Dir: cfg.EssenceDumpDir, Now: cfg.Now}),
-			shell:         shell,
+			whyShell:      whyShell,
+			tagsShell:     tagsShell,
+			kindShell:     kindShell,
+			tagCatalog:    cfg.TagCatalog,
 		}
 	}
 	out.Embedder = cfg.Embedder

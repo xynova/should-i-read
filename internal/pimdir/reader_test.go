@@ -310,3 +310,19 @@ func TestDecodeMessagePreview(t *testing.T) {
 		t.Fatalf("body: %q", prev.Body)
 	}
 }
+
+func TestDecodeMessagePreview_dropsHTMLStyleMetadata(t *testing.T) {
+	raw := []byte("From: a@b.com\r\nSubject: T\r\nContent-Type: text/html\r\n\r\n" +
+		"<style>@font-face { font-family: 'Glassdoor Sans'; }</style>" +
+		"<p>Apparently, I gave the wrong answer.</p>\r\n")
+	prev, err := DecodeMessagePreview(raw, 8192)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(prev.Body), "font-family") {
+		t.Fatalf("style leaked: %q", prev.Body)
+	}
+	if !strings.Contains(prev.Body, "wrong answer") {
+		t.Fatalf("want visible text: %q", prev.Body)
+	}
+}

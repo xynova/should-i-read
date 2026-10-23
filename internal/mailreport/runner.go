@@ -49,7 +49,6 @@ type RunnerConfig struct {
 	Attention            AttentionClient
 	AttentionTrueMin     float64
 	EssenceDumpDir       string
-	EssenceSystemPrompt  string
 	TagCatalog           *tags.Catalog
 	TagCurator           *TagCurator
 	AliasJudge           harness.Judge
@@ -89,7 +88,6 @@ type Runner struct {
 	attention            AttentionClient
 	attentionTrueMin     float64
 	essenceDumpDir       string
-	essenceSystemPrompt  string
 	tagCatalog           *tags.Catalog
 	tagCurator           *TagCurator
 	aliasJudge           harness.Judge
@@ -159,7 +157,6 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		attention:            cfg.Attention,
 		attentionTrueMin:     cfg.AttentionTrueMin,
 		essenceDumpDir:       strings.TrimSpace(cfg.EssenceDumpDir),
-		essenceSystemPrompt:  strings.TrimSpace(cfg.EssenceSystemPrompt),
 		tagCatalog:           cfg.TagCatalog,
 		tagCurator:           cfg.TagCurator,
 		aliasJudge:           cfg.AliasJudge,
@@ -202,6 +199,7 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	art.AttachMinCosine = r.attachMinCosine
 	art.WalkReinforceMin = r.walkReinforceMin
 	art.EssenceDumpDir = r.essenceDumpDir
+	art.EssenceModel = r.essenceModel
 	art.EssenceEscalateModel = r.essenceEscalateModel
 	r.appendResumeCompleteRows(ctx, items, &art)
 	pending := r.pendingClassifyItems(ctx, items)
@@ -406,6 +404,16 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 	}
 	fillMessageRowFromOperate(&row, r.strategy, res)
 	r.applyAcceptedDraft(opCtx, art, &row, res)
+	syncRowPathFromCatalog(r.cat, &row)
+	alignAssignmentPathWithKind(&row)
+	if pathErr := validateAssignmentPath(row); pathErr != nil {
+		row.Error = formatRowError(pathErr)
+		art.Messages = append(art.Messages, row)
+		if failErr := r.store.Fail(storeCtx, hash, token, row.Error); failErr != nil {
+			return failErr
+		}
+		return nil
+	}
 	if !assignmentComplete(row) {
 		if row.Error == "" {
 			row.Error = "empty assignment"
