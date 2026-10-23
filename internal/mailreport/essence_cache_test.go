@@ -20,7 +20,8 @@ func TestEssenceCacheAdapter_roundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	defer st.Close()
-	sys := DefaultEssenceSystemPrompt()
+	prompts := BuildEssencePrompts(nil)
+	sys := JoinEssencePrompts(prompts)
 	cache, err := CreateEssenceCache(st, sys, "m", "")
 	if err != nil {
 		t.Fatal(err)

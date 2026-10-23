@@ -40,6 +40,48 @@ func TestValidateAuthorDraft_rejectsUnknownLeaf(t *testing.T) {
 	}
 }
 
+func TestValidateAuthorDraft_rejectsRectangularDescription(t *testing.T) {
+	cat := testInboxCatalog(t)
+	err := validateAuthorDraft(cat, []harness.PackedOption{{ParentID: "unwanted", Label: "Unwanted"}}, authorJSON{
+		Kind:        harness.DraftKindNewLeaf,
+		ID:          "font",
+		Parent:      "unwanted",
+		Label:       "Font",
+		Description: "Rectangular",
+	})
+	if err == nil {
+		t.Fatal("want description error")
+	}
+}
+
+func TestValidateAuthorDraft_rejectsParentPrefixedID(t *testing.T) {
+	cat := testInboxCatalog(t)
+	err := validateAuthorDraft(cat, []harness.PackedOption{{ParentID: "notification", Label: "Notification"}}, authorJSON{
+		Kind:        harness.DraftKindNewLeaf,
+		ID:          "notification-ci",
+		Parent:      "notification",
+		Label:       "CI",
+		Description: "GitHub Actions workflow failure notifications for a repository.",
+	})
+	if err == nil {
+		t.Fatal("want parent-prefix id error")
+	}
+}
+
+func TestValidateAuthorDraft_acceptsGroundedNewLeaf(t *testing.T) {
+	cat := testInboxCatalog(t)
+	err := validateAuthorDraft(cat, []harness.PackedOption{{ParentID: "unwanted", Label: "Unwanted"}}, authorJSON{
+		Kind:        harness.DraftKindNewLeaf,
+		ID:          "receipt",
+		Parent:      "unwanted",
+		Label:       "Receipt",
+		Description: "A payment receipt for a completed subscription charge.",
+	})
+	if err != nil {
+		t.Fatalf("want valid new_leaf: %v", err)
+	}
+}
+
 func TestValidateAuthorDraft_acceptsAlias(t *testing.T) {
 	cat := testInboxCatalog(t)
 	err := validateAuthorDraft(cat, []harness.PackedOption{{ParentID: "unwanted", Label: "Unwanted"}}, authorJSON{

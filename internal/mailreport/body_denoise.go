@@ -95,6 +95,29 @@ func shouldDropNoiseLine(line string) bool {
 		// Residual HTML line; drop rather than pass tags to the model.
 		return true
 	}
+	if isCSSMetadataLine(trim) {
+		return true
+	}
+	return false
+}
+
+func isCSSMetadataLine(trim string) bool {
+	low := strings.ToLower(strings.TrimSpace(trim))
+	if low == "{" || low == "}" {
+		return true
+	}
+	if strings.HasPrefix(low, "@font-face") || strings.HasPrefix(low, "@media") || strings.HasPrefix(low, "@import") {
+		return true
+	}
+	if strings.Contains(low, "mso-") {
+		return true
+	}
+	if strings.HasPrefix(low, "font-family:") || strings.HasPrefix(low, "font-style:") || strings.HasPrefix(low, "font-weight:") {
+		return true
+	}
+	if strings.Contains(low, "src:") && strings.Contains(low, "url(") {
+		return true
+	}
 	return false
 }
 

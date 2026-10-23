@@ -31,7 +31,7 @@ should-i-read mail report
 → hoststore classify_state + embeddings + attention nouls + clusters (fingerprint resume)
 ```
 
-Essence skim resume uses `essence_cache` keyed by `object_hash` plus essence/escalate model ids plus essence prompt hash (not classify_state). The host adapter implements taxonomy `harness.EssenceCache`; `PrefetchEssence` on the harness fills attach ops before Operate.
+Essence skim resume uses `essence_cache` keyed by `object_hash` plus essence/escalate model ids plus SHA-256 of the joined WHY, TAGS, and KIND system prompts (`why + "\n---\n" + tags + "\n---\n" + kind`; not classify_state). The host adapter implements taxonomy `harness.EssenceCache`; `PrefetchEssence` on the harness fills attach ops before Operate.
 
 After kind classify, `mail report` scores attention per complete message (Jev `/v1/systemone`), rolls up `clusters[].attention`, and sorts clusters by urgency in human output. Date-window reports set `window_from` / `window_to` on the artifact; per-message rows still key off `object_hash` in `classify_state`. Rerun the same `--from`/`--to` while `omitted` or `attention_omitted` is non-zero when `taxonomy.classify_max` caps a busy week.
 

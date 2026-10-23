@@ -233,7 +233,9 @@ func TestCreateSeats_emptyJudge(t *testing.T) {
 
 func TestPolypusEssencerSuccessOnAttempt2(t *testing.T) {
 	whyOnly := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\n"
-	full := whyOnly + "ABOUT: about\nTAGS: fyi\nKIND: notification > software-release > changelog\n"
+	whyFull := whyOnly + "ABOUT: about\n"
+	tagsBody := "TAGS: fyi\n"
+	kindBody := "KIND: notification > billing > payment-failure\n"
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -242,8 +244,9 @@ func TestPolypusEssencerSuccessOnAttempt2(t *testing.T) {
 		}
 		n := calls.Add(1)
 		content := whyOnly
-		if n >= 2 {
-			content = full
+		switch n {
+		case 2:
+			content = whyFull
 			var body struct {
 				Messages []polypus.ChatMessage `json:"messages"`
 			}
@@ -255,6 +258,10 @@ func TestPolypusEssencerSuccessOnAttempt2(t *testing.T) {
 					t.Errorf("complete user turn: %+v", body.Messages[3])
 				}
 			}
+		case 3:
+			content = tagsBody
+		case 4:
+			content = kindBody
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
@@ -285,31 +292,39 @@ func TestPolypusEssencerSuccessOnAttempt2(t *testing.T) {
 	if len(catalog.ParseKindSegments(out.Kind)) < 3 {
 		t.Fatalf("kind %q", out.Kind)
 	}
-	if calls.Load() != 2 {
+	if calls.Load() != 4 {
 		t.Fatalf("chat calls=%d", calls.Load())
 	}
 }
 
 func TestPolypusEssencerCompensateAfterMicroExhaust(t *testing.T) {
 	whyOnly := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\n"
-	full := whyOnly + "ABOUT: about\nTAGS: fyi\nKIND: notification > software-release > changelog\n"
+	whyFull := whyOnly + "ABOUT: about\n"
+	tagsBody := "TAGS: fyi\n"
+	kindBody := "KIND: notification > billing > payment-failure\n"
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			http.NotFound(w, r)
 			return
 		}
-		calls.Add(1)
+		n := calls.Add(1)
 		var body struct {
 			Model    string                `json:"model"`
 			Messages []polypus.ChatMessage `json:"messages"`
 		}
 		content := whyOnly
-		if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.Model == "granite-8b" {
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.Model == "granite-8b" && n <= 4 {
 			if len(body.Messages) != 2 {
 				t.Errorf("escalate restart expected 2 messages, got %d: %+v", len(body.Messages), body.Messages)
 			}
-			content = full
+			content = whyFull
+		}
+		if n == 5 {
+			content = tagsBody
+		}
+		if n == 6 {
+			content = kindBody
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
@@ -341,14 +356,16 @@ func TestPolypusEssencerCompensateAfterMicroExhaust(t *testing.T) {
 	if out.Kind == "" {
 		t.Fatal("expected kind")
 	}
-	if calls.Load() != 4 {
+	if calls.Load() != 6 {
 		t.Fatalf("chat calls=%d", calls.Load())
 	}
 }
 
 func TestPolypusEssencerWhy4RestartDoesNotContinueTranscript(t *testing.T) {
-	why4First := "WHY4: delivered promptly\nWHY5: short layout\nTAGS: job-alert\nKIND: notification > job-alert > software-engineering\n"
-	full := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: about\nTAGS: fyi\nKIND: notification > software-release > changelog\n"
+	why4First := "WHY4: delivered promptly\nWHY5: short layout\n"
+	whyFull := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: about\n"
+	tagsBody := "TAGS: fyi\n"
+	kindBody := "KIND: notification > job-alert > software-engineering\n"
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -360,11 +377,18 @@ func TestPolypusEssencerWhy4RestartDoesNotContinueTranscript(t *testing.T) {
 			Messages []polypus.ChatMessage `json:"messages"`
 		}
 		content := why4First
-		if err := json.NewDecoder(r.Body).Decode(&body); err == nil && n == 2 {
-			if len(body.Messages) != 2 {
-				t.Errorf("second granite chat expected 2 messages after restart, got %d", len(body.Messages))
+		switch n {
+		case 2:
+			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+				if len(body.Messages) != 2 {
+					t.Errorf("second why chat expected 2 messages after restart, got %d", len(body.Messages))
+				}
 			}
-			content = full
+			content = whyFull
+		case 3:
+			content = tagsBody
+		case 4:
+			content = kindBody
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
@@ -395,13 +419,13 @@ func TestPolypusEssencerWhy4RestartDoesNotContinueTranscript(t *testing.T) {
 	if out.Kind == "" {
 		t.Fatal("expected kind")
 	}
-	if calls.Load() != 2 {
+	if calls.Load() != 4 {
 		t.Fatalf("chat calls=%d", calls.Load())
 	}
 }
 
 func TestPolypusEssencerDumpsLastParseFailure(t *testing.T) {
-	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nKIND: gitlab > pipeline\n"
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			http.NotFound(w, r)
@@ -451,10 +475,13 @@ func TestPolypusEssencerDumpsLastParseFailure(t *testing.T) {
 	if !strings.Contains(string(got), "about or shape empty") {
 		t.Fatalf("dump missing parse_error: %s", got)
 	}
+	if !strings.Contains(string(got), `"slave": "why"`) {
+		t.Fatalf("dump missing slave: %s", got)
+	}
 }
 
 func TestPolypusEssencerDumpsAfterEscalateStillInvalid(t *testing.T) {
-	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nKIND: gitlab > pipeline\n"
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\n"
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {

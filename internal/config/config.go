@@ -56,6 +56,7 @@ type PolypusFile struct {
 	AliasJudgeModel      string `yaml:"alias_judge_model"`
 	EmbedModel           string `yaml:"embed_model"`
 	TldrModel            string `yaml:"tldr_model"`
+	EssenceModel         string `yaml:"essence_model"`
 	EssenceEscalateModel string `yaml:"essence_escalate_model"`
 }
 
@@ -86,6 +87,7 @@ type Config struct {
 	PolypusAliasJudgeModel      string
 	PolypusEmbedModel           string
 	PolypusTldrModel            string
+	PolypusEssenceModel         string
 	PolypusEssenceEscalateModel string
 	GmailClientID               string
 	GmailClientSecret           string
@@ -134,6 +136,7 @@ func (c Config) Redacted() map[string]any {
 			"judge_model":            setUnset(c.PolypusJudgeModel),
 			"alias_judge_model":      setUnset(c.PolypusAliasJudgeModel),
 			"tldr_model":             setUnset(c.PolypusTldrModel),
+			"essence_model":          setUnset(c.PolypusEssenceModel),
 			"essence_escalate_model": setUnset(c.PolypusEssenceEscalateModel),
 		},
 		"cluster": map[string]string{
@@ -346,6 +349,7 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	aliasJudgeModel := strings.TrimSpace(file.Polypus.AliasJudgeModel)
 	embedModel := strings.TrimSpace(file.Polypus.EmbedModel)
 	tldrModel := strings.TrimSpace(file.Polypus.TldrModel)
+	essenceModel := strings.TrimSpace(file.Polypus.EssenceModel)
 	essenceEscalateModel := strings.TrimSpace(file.Polypus.EssenceEscalateModel)
 	taxonomyCfg, err := resolveTaxonomy(file.Taxonomy)
 	if err != nil {
@@ -377,6 +381,7 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 		PolypusAliasJudgeModel:      aliasJudgeModel,
 		PolypusEmbedModel:           embedModel,
 		PolypusTldrModel:            tldrModel,
+		PolypusEssenceModel:         essenceModel,
 		PolypusEssenceEscalateModel: essenceEscalateModel,
 		GmailClientID:               gmailID,
 		GmailClientSecret:           gmailSecret,

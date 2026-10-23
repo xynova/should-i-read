@@ -115,6 +115,7 @@ type Artifact struct {
 	LeavesAdded          int               `json:"leaves_added"`
 	ReportPath           string            `json:"report_path,omitempty"`
 	TldrModel            string            `json:"tldr_model,omitempty"`
+	EssenceModel         string            `json:"essence_model,omitempty"`
 	EssenceEscalateModel string            `json:"essence_escalate_model,omitempty"`
 	AttentionTrueMin     float64           `json:"attention_true_min,omitempty"`
 	AttentionScored      int               `json:"attention_scored,omitempty"`

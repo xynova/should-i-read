@@ -38,7 +38,7 @@ flowchart TD
    - **Hop cap:** `taxonomy.classify_max` limits new Operate and attention calls per run. Rerun the same `--from`/`--to` while `omitted` or `attention_omitted` is non-zero.
    - **Example (September 2026, one week each):** `go tool task mail:report -- --from 2026-09-01 --to 2026-09-08`, then `2026-09-08`/`2026-09-15`, `2026-09-15`/`2026-09-22`, `2026-09-22`/`2026-10-01`. Day `2026-09-08` belongs only to the second window.
    - **Artifacts:** each run writes `tmp/unwanted-report-<ts>.json` with optional `window_from` / `window_to`. Per-message ledger rows accumulate by `object_hash`. The live cluster cache is overwritten for each `cluster_id` on the latest processed window (weekly JSON files are the snapshots).
-3. For each message, taxonomy `Operate` runs **walk** (default) or **attach** (`taxonomy.strategy: attach`). Walk: Judge SystemOne noul per sibling at each hop, then optional Author + gate via Polypus chat. Attach: Five Whys Essence chat, embeddings, cosine alias or Walk reinforce or breadcrumb create on `inbox-kind`. Report rows include `path`, and attach rows add `kind`, `about`, `shape`, `cosine`, `canonical_term_id`, `reinforced`. Accepted drafts update the active catalog YAML unless `--no-apply`.
+3. For each message, taxonomy `Operate` runs **walk** (default) or **attach** (`taxonomy.strategy: attach`). Walk: Judge SystemOne noul per sibling at each hop, then optional Author + gate via Polypus chat. Attach: Essence is three Polypus chat hops (WHY slave, TAGS slave, KIND slave), then embeddings, cosine alias or Walk reinforce or breadcrumb create on `inbox-kind`. Report rows include `path`, and attach rows add `kind`, `about`, `shape`, `cosine`, `canonical_term_id`, `reinforced`. Accepted drafts update the active catalog YAML unless `--no-apply`.
 4. Cluster messages in the report by `canonical_term_id` / `term_id`, then sender domain; optional embedding attach via `cluster.min_cosine`. One TLDR per cluster via Polypus chat (cached in host SQLite by fingerprint).
 5. Write `tmp/unwanted-report-<timestamp>.json` with `cluster_id` on each message and `clusters[]` summaries. **No mailbox trash/spam/delete API calls.**
 
@@ -99,7 +99,7 @@ flowchart TD
 
 - Post-sync classify on fetch hunks; `mail report` for resume/backfill.
 - INBOX (or `taxonomy.collections`) item pick, then taxonomy `Operate` per message (walk on `inbox-mail`, attach on `inbox-kind`).
-- `taxonomy.strategy`: `attach` (default; legacy `walk` is normalized to attach). Requires `polypus.embed_model` and Essence chat; Operate timeout 180s. Thresholds: `attach_min_cosine` (0.80), `walk_reinforce_min` (0.70).
+- `taxonomy.strategy`: `attach` (default; legacy `walk` is normalized to attach). Requires `polypus.embed_model` and Essence chat (`polypus.essence_model` or classify author); Operate timeout is `operateTimeoutAttach` (5 minutes). Thresholds: `attach_min_cosine` (0.80), `walk_reinforce_min` (0.70).
 - `taxonomy.classify_max` caps Operate (Polypus) calls per run.
 - `taxonomy.author_on_skip: false` (default) skips Author chat on Judge skip; set `true` to restore draft proposals. When Author runs, the host cleans the latest body (reply parser + line denoise + extractive cap) before Granite sees it.
 - Strop `JobRunner` generator `mail_classify` wraps taxonomy `Operate`; Polypus HTTP only inside Judge/Author/Essence/Embed seats.

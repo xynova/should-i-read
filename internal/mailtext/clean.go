@@ -2,10 +2,12 @@ package mailtext
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
+	"mime/quotedprintable"
 	"net/mail"
 	"strings"
 	"unicode/utf8"
@@ -25,10 +27,19 @@ func DefaultOptions() Options {
 
 // ExcerptFromRFC822 extracts plain text (or stripped HTML) from a raw message.
 func ExcerptFromRFC822(raw []byte, opt Options) (string, error) {
-	const op = "mailtext.ExcerptFromRFC822"
 	if opt.MaxRunes <= 0 {
 		opt = DefaultOptions()
 	}
+	text, err := PlainFromRFC822(raw)
+	if err != nil {
+		return "", err
+	}
+	return truncateRunes(strings.TrimSpace(text), opt.MaxRunes), nil
+}
+
+// PlainFromRFC822 returns decoded visible body text. Multipart prefers text/plain.
+func PlainFromRFC822(raw []byte) (string, error) {
+	const op = "mailtext.PlainFromRFC822"
 	msg, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
 		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "parse message")
@@ -41,11 +52,12 @@ func ExcerptFromRFC822(raw []byte, opt Options) (string, error) {
 	if err != nil {
 		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "read body")
 	}
+	body = decodeMIMEBody(msg.Header.Get("Content-Transfer-Encoding"), body)
 	text, err := extractBody(mediaType, params, body)
 	if err != nil {
 		return "", err
 	}
-	return truncateRunes(strings.TrimSpace(text), opt.MaxRunes), nil
+	return strings.TrimSpace(text), nil
 }
 
 func extractBody(mediaType string, params map[string]string, body []byte) (string, error) {
@@ -60,13 +72,13 @@ func extractBody(mediaType string, params map[string]string, body []byte) (strin
 		if err != nil {
 			return "", err
 		}
-		if plain != "" {
-			return plain, nil
+		if strings.TrimSpace(plain) != "" {
+			return strings.TrimSpace(plain), nil
 		}
-		return stripHTML(html), nil
+		return StripHTML(html), nil
 	}
 	if strings.HasPrefix(mediaType, "text/html") {
-		return stripHTML(string(body)), nil
+		return StripHTML(string(body)), nil
 	}
 	return string(body), nil
 }
@@ -88,6 +100,7 @@ func walkMultipart(boundary string, body []byte) (plain, html string, err error)
 		if err != nil {
 			return "", "", sirerr.Wrap(err, sirerr.CodeFailed, op, "read part body")
 		}
+		partBody = decodeMIMEBody(p.Header.Get("Content-Transfer-Encoding"), partBody)
 		switch {
 		case strings.HasPrefix(partType, "text/plain") && plain == "":
 			plain = string(partBody)
@@ -110,20 +123,23 @@ func walkMultipart(boundary string, body []byte) (plain, html string, err error)
 	return plain, html, nil
 }
 
-func stripHTML(s string) string {
-	var b strings.Builder
-	inTag := false
-	for _, r := range s {
-		switch {
-		case r == '<':
-			inTag = true
-		case r == '>':
-			inTag = false
-		case !inTag:
-			b.WriteRune(r)
+func decodeMIMEBody(enc string, body []byte) []byte {
+	switch strings.ToLower(strings.TrimSpace(enc)) {
+	case "quoted-printable":
+		out, err := io.ReadAll(quotedprintable.NewReader(bytes.NewReader(body)))
+		if err != nil {
+			return body
 		}
+		return out
+	case "base64":
+		out, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, bytes.NewReader(bytes.TrimSpace(body))))
+		if err != nil {
+			return body
+		}
+		return out
+	default:
+		return body
 	}
-	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 func truncateRunes(s string, max int) string {

@@ -351,6 +351,9 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	essenceModel := ""
 	if config.IsAttachStrategy(cfg.Taxonomy.Strategy) {
 		essenceModel = author
+		if em := strings.TrimSpace(cfg.PolypusEssenceModel); em != "" {
+			essenceModel = em
+		}
 		embedFac := mailreport.NewStropEmbedFactory()
 		embedModel, err = mailreport.ResolveEmbedModel(resolveCtx, embedFac, cfg.PolypusBaseURL, health.ModelIDs, cfg.PolypusEmbedModel)
 		if err != nil {
@@ -361,6 +364,16 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 			return nil, unavail(err, "create embedder")
 		}
 		stropEmbedInner = mailreport.NewStropEmbedSeat(stropEmb, embedModel)
+	}
+	if essenceModel != "" {
+		if probeErr := client.ProbeChat(resolveCtx, essenceModel); probeErr != nil {
+			code := sirerr.CodeUnavailable
+			if c, ok := sirerr.AsCode(probeErr); ok {
+				code = c
+			}
+			return nil, sirerr.Wrap(probeErr, code, op, "configured essence model failed chat probe").
+				With("model", essenceModel)
+		}
 	}
 	essenceEscalate := mailreport.EffectiveEssenceEscalateModel(essenceModel, cfg.PolypusEssenceEscalateModel)
 	if essenceEscalate != "" {
@@ -383,7 +396,8 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	now := time.Now().UTC()
 	essenceDumpDir := filepath.Join(repoRoot, "tmp", "essence-parse")
 	var tagCatalog *tags.Catalog
-	essencePrompt := mailreport.DefaultEssenceSystemPrompt()
+	var essencePrompts mailreport.EssencePrompts
+	essencePromptJoined := ""
 	if essenceModel != "" {
 		registerPath, err := config.DefaultTagRegisterPath()
 		if err != nil {
@@ -401,7 +415,8 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		if err != nil {
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "load tag catalog")
 		}
-		essencePrompt = mailreport.BuildEssenceSystemPrompt(tagCatalog.ActiveIDs())
+		essencePrompts = mailreport.BuildEssencePrompts(tagCatalog.ActiveIDs())
+		essencePromptJoined = mailreport.JoinEssencePrompts(essencePrompts)
 	}
 	store, err := hoststore.CreateStore(hoststore.StoreConfig{Path: cfg.StorePath, Now: now})
 	if err != nil {
@@ -418,7 +433,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	}
 	var essenceCache harness.EssenceCache
 	if config.IsAttachStrategy(cfg.Taxonomy.Strategy) {
-		essenceCache, err = mailreport.CreateEssenceCache(store, essencePrompt, essenceModel, essenceEscalate)
+		essenceCache, err = mailreport.CreateEssenceCache(store, essencePromptJoined, essenceModel, essenceEscalate)
 		if err != nil {
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "essence cache")
 		}
@@ -441,7 +456,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		EssenceModel:         essenceModel,
 		EssenceEscalateModel: cfg.PolypusEssenceEscalateModel,
 		EssenceDumpDir:       essenceDumpDir,
-		EssenceSystemPrompt:  essencePrompt,
+		EssencePrompts:       essencePrompts,
 		TagCatalog:           tagCatalog,
 		Now:                  now,
 		Embedder:             embedSeat,
@@ -543,7 +558,6 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		Attention:            attention,
 		AttentionTrueMin:     cfg.Cluster.AttentionTrueMin,
 		EssenceDumpDir:       essenceDumpDir,
-		EssenceSystemPrompt:  essencePrompt,
 		TagCatalog:           tagCatalog,
 		TagCurator:           tagCurator,
 		AliasJudge:           aliasJudge,
@@ -788,6 +802,12 @@ func glossClassifyMsgErr(errMsg string) string {
 	switch {
 	case strings.Contains(lower, "not kebab-case"):
 		return "kind not kebab-case"
+	case strings.Contains(lower, mailreport.EssenceErrKindAncestor):
+		return "kind repeats parent"
+	case strings.Contains(lower, mailreport.AssignmentErrPathShort):
+		return "path shorter than kind"
+	case strings.Contains(lower, mailreport.AssignmentErrPathAncestor):
+		return "path repeats parent"
 	case strings.Contains(lower, mailreport.EssenceErrWhy1Empty):
 		return "essence why1 empty"
 	case strings.Contains(lower, mailreport.EssenceErrWhyEmpty):

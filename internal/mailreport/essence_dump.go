@@ -27,6 +27,7 @@ type EssenceDumpConfig struct {
 type EssenceParseDump struct {
 	ObjectHash string `json:"object_hash,omitempty"`
 	Model      string `json:"model,omitempty"`
+	Slave      string `json:"slave,omitempty"`
 	Attempt    int    `json:"attempt"`
 	ParseError string `json:"parse_error,omitempty"`
 	Message    string `json:"message,omitempty"`
@@ -46,11 +47,7 @@ func CreateEssenceDumper(cfg EssenceDumpConfig) *essenceDumper {
 	if dir == "" {
 		return nil
 	}
-	now := cfg.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	return &essenceDumper{dir: dir, now: now}
+	return &essenceDumper{dir: dir, now: cfg.Now}
 }
 
 func withEssenceDumpID(ctx context.Context, id string) context.Context {
@@ -72,7 +69,7 @@ func essenceDumpIDFromCtx(ctx context.Context) string {
 	return strings.TrimSpace(id)
 }
 
-func (d *essenceDumper) writeLast(id, model, message, raw string, attempt int, parseErr error) (string, error) {
+func (d *essenceDumper) writeLast(id, model, message, raw, slave string, attempt int, parseErr error) (string, error) {
 	const op = "mailreport.essenceDumper.writeLast"
 	if d == nil {
 		return "", nil
@@ -87,10 +84,13 @@ func (d *essenceDumper) writeLast(id, model, message, raw string, attempt int, p
 	rec := EssenceParseDump{
 		ObjectHash: id,
 		Model:      strings.TrimSpace(model),
+		Slave:      strings.TrimSpace(slave),
 		Attempt:    attempt,
 		Message:    message,
 		Raw:        raw,
-		WrittenAt:  d.now.UTC().Format(time.RFC3339),
+	}
+	if !d.now.IsZero() {
+		rec.WrittenAt = d.now.UTC().Format(time.RFC3339)
 	}
 	if parseErr != nil {
 		rec.ParseError = parseErr.Error()
