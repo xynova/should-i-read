@@ -185,6 +185,20 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 	return out, nil
 }
 
+// CreatePolypusJudge builds a SystemOne Judge for a specific model id (for example alias-owner Mercury).
+func CreatePolypusJudge(client *polypus.Client, model string) (harness.Judge, error) {
+	const op = "mailreport.CreatePolypusJudge"
+	if client == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil polypus client")
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "judge model id is empty")
+	}
+	jevClient := jev.NewClient(client.BaseURL, client.HTTPClient, "")
+	return &polypusJudge{jev: jevClient, model: model}, nil
+}
+
 func (j *polypusJudge) Decide(ctx context.Context, in harness.DecideIn) (harness.DecideOut, error) {
 	const op = "mailreport.polypusJudge.Decide"
 	outs, err := j.BatchDecide(ctx, []JudgeBatchItem{{RowID: classifyRowID, In: in}})

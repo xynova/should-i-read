@@ -509,3 +509,28 @@ func TestPolypusEssencerDumpsAfterEscalateStillInvalid(t *testing.T) {
 		t.Fatalf("dump attempt: %s", body)
 	}
 }
+
+func TestCreatePolypusJudge_nilClient(t *testing.T) {
+	_, err := CreatePolypusJudge(nil, "openrouter/inception/mercury-decide")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestCreatePolypusJudge_success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	client, err := polypus.Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := CreatePolypusJudge(client, "openrouter/inception/mercury-decide")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j == nil {
+		t.Fatal("nil judge")
+	}
+}

@@ -367,6 +367,18 @@ func newPolypusCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 				result.JudgeSource = string(src)
 				result.AuthorModel = author
 				result.AuthorSource = string(authorSrc)
+				aliasID := strings.TrimSpace(cfg.PolypusAliasJudgeModel)
+				if aliasID != "" {
+					if probeErr := client.ProbeSystemOne(resolveCtx, aliasID); probeErr != nil {
+						code := sirerr.CodeUnavailable
+						if c, ok := sirerr.AsCode(probeErr); ok {
+							code = c
+						}
+						return sirerr.Wrap(probeErr, code, "polypus check", "configured alias judge model failed systemone probe").
+							With("model", aliasID)
+					}
+					result.AliasJudgeModel = aliasID
+				}
 			}
 			if wantJSON(cmd) {
 				return printJSON(cmd.OutOrStdout(), result)

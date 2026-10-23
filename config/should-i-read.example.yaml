@@ -24,8 +24,10 @@ polypus:
   otlp_endpoint: "${POLYPUS_OTLP_ENDPOINT}"
   # Classify Author (chat). On routed Polypus homelabs prefer cf_local/@cf/... over bare @cf/... ids.
   classify_model: "cf_local/@cf/ibm-granite/granite-4.0-h-micro"
-  # Classify Judge (SystemOne). Empty enables catalog + probe discovery.
-  judge_model: "cf_local/typesafe/jev"
+  # Classify Judge (SystemOne walk). Empty enables catalog + probe discovery.
+  judge_model: "openrouter/perplexity/pplx-decider-v1.2"
+  # Alias-owner Judge (SystemOne). Empty skips Mercury on Apply alias collisions.
+  alias_judge_model: "openrouter/inception/mercury-decide"
   # Attach embeddings (default cf_local/@cf/baai/bge-m3 when listed)
   embed_model: "cf_local/@cf/baai/bge-m3"
   # Optional cluster TLDR chat model; empty uses classify_model

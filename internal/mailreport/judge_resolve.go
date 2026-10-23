@@ -24,6 +24,7 @@ type SystemOneProber interface {
 // DefaultSystemOneJudgeCandidates returns off-catalog ids when JEV is missing from merged discovery.
 func DefaultSystemOneJudgeCandidates() []string {
 	return []string{
+		"openrouter/perplexity/pplx-decider-v1.2",
 		"cf_local/typesafe/jev",
 		"typesafe/jev",
 	}
@@ -57,7 +58,7 @@ func ResolveJudgeModel(ctx context.Context, prober SystemOneProber, catalogIDs [
 
 	tried := map[string]struct{}{}
 	for _, id := range catalogIDs {
-		if !isJevModelID(id) {
+		if !isSystemOneJudgeID(id) {
 			continue
 		}
 		tried[id] = struct{}{}

@@ -326,6 +326,22 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 	if err != nil {
 		return nil, unavail(err, "resolve judge model")
 	}
+	var aliasJudge harness.Judge
+	aliasID := strings.TrimSpace(cfg.PolypusAliasJudgeModel)
+	if aliasID != "" {
+		if probeErr := client.ProbeSystemOne(resolveCtx, aliasID); probeErr != nil {
+			code := sirerr.CodeUnavailable
+			if c, ok := sirerr.AsCode(probeErr); ok {
+				code = c
+			}
+			return nil, sirerr.Wrap(probeErr, code, op, "configured alias judge model failed systemone probe").
+				With("model", aliasID)
+		}
+		aliasJudge, err = mailreport.CreatePolypusJudge(client, aliasID)
+		if err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create alias judge")
+		}
+	}
 	author, _, err := mailreport.ResolveAuthorModel(resolveCtx, client, health.ModelIDs, cfg.PolypusClassifyModel)
 	if err != nil {
 		return nil, unavail(err, "resolve author model")
@@ -530,6 +546,8 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		EssenceSystemPrompt:  essencePrompt,
 		TagCatalog:           tagCatalog,
 		TagCurator:           tagCurator,
+		AliasJudge:           aliasJudge,
+		MinJudgeScore:        cfg.Taxonomy.MinJudgeScore,
 		Now:                  now,
 	}, vocab, cat)
 	if err != nil {
