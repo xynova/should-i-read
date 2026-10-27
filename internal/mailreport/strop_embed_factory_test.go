@@ -7,11 +7,17 @@ import (
 
 func TestStropEmbedHTTPTimeout_underOperateAttachBudget(t *testing.T) {
 	t.Parallel()
-	if polypusEmbedHopTimeout != 240*time.Second {
+	if polypusEmbedHopTimeout != 60*time.Second {
 		t.Fatalf("polypus hop %s", polypusEmbedHopTimeout)
 	}
-	if stropEmbedHTTPTimeout != 270*time.Second {
+	if stropEmbedHTTPTimeout != 75*time.Second {
 		t.Fatalf("timeout %s", stropEmbedHTTPTimeout)
+	}
+	if embedRequestTimeout(embedChunkSize) >= stropEmbedHTTPTimeout {
+		t.Fatalf("chunk deadline %s must stay below HTTP cap %s", embedRequestTimeout(embedChunkSize), stropEmbedHTTPTimeout)
+	}
+	if embedTimeoutMax >= polypusEmbedHopTimeout {
+		t.Fatalf("max chunk hop %s must stay under default embed hop %s", embedTimeoutMax, polypusEmbedHopTimeout)
 	}
 	if stropEmbedHTTPTimeout <= polypusEmbedHopTimeout {
 		t.Fatalf("host timeout %s must stay above Polypus embed hop %s", stropEmbedHTTPTimeout, polypusEmbedHopTimeout)

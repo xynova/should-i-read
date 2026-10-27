@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	// One attempt: stropEmbedHTTPTimeout is minutes-long for catalog batches.
-	// Extra retries would exceed operateTimeoutAttach.
+	// One attempt per chunk: catalog misses are split in chunkingEmbedder; retries
+	// would multiply chunk work and risk operateTimeoutAttach.
 	embedRetryMax        = 0
 	embedRetryBackoff    = 4 * time.Second
 	embedRetryBackoffMax = 8 * time.Second
@@ -31,8 +31,8 @@ type RetryingEmbedderConfig struct {
 	Breaker circuitbreaker.CircuitBreaker[[][]float64]
 }
 
-// CreateRetryingEmbedder wraps inner with a breaker. Default retry count is zero
-// (catalog batches already use a minutes-long HTTP budget). Tests may inject retries.
+// CreateRetryingEmbedder wraps inner with a breaker. Default retry count is zero.
+// Tests may inject retries.
 func CreateRetryingEmbedder(cfg RetryingEmbedderConfig) (harness.Embedder, error) {
 	const op = "mailreport.CreateRetryingEmbedder"
 	if cfg.Inner == nil {

@@ -359,11 +359,10 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		if err != nil {
 			return nil, unavail(err, "resolve embed model")
 		}
-		stropEmb, err := embedFac.CreateEmbedder(resolveCtx, cfg.PolypusBaseURL, embedModel)
+		stropEmbedInner, err = newAttachEmbedInner(resolveCtx, embedFac, cfg.PolypusBaseURL, embedModel)
 		if err != nil {
-			return nil, unavail(err, "create embedder")
+			return nil, err
 		}
-		stropEmbedInner = mailreport.NewStropEmbedSeat(stropEmb, embedModel)
 	}
 	if essenceModel != "" {
 		if probeErr := client.ProbeChat(resolveCtx, essenceModel); probeErr != nil {
