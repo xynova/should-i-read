@@ -19,7 +19,7 @@ golang-quality **C24** (golang-migrate) and **C26** (modernc). Product usage: [`
 
 ## Constraints
 
-**CONSTRAINT:** MUST use `modernc.org/sqlite` and `sql.Open("sqlite", dsn)` with `_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)`. MUST `SetMaxOpenConns(1)` on the writer pool. NEVER add `github.com/mattn/go-sqlite3`, driver name `sqlite3`, or `CGO_ENABLED=1` for this store.
+**CONSTRAINT:** MUST use `modernc.org/sqlite` and `sql.Open("sqlite", dsn)` with `_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(30000)`. MUST `SetMaxOpenConns(1)` on the writer pool. NEVER add `github.com/mattn/go-sqlite3`, driver name `sqlite3`, or `CGO_ENABLED=1` for this store.
 
 - Enforcement: `CGO_ENABLED=0 go test ./internal/hoststore/...`; grep `mattn` / `sqlite3`
 - Violation: STOP, switch to modernc DSN, re-test with CGO off
@@ -27,7 +27,7 @@ golang-quality **C24** (golang-migrate) and **C26** (modernc). Product usage: [`
 CORRECT:
 ```go
 import _ "modernc.org/sqlite"
-sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(30000)")
 ```
 
 PROHIBITED:

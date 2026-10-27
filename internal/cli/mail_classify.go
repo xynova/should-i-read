@@ -32,9 +32,11 @@ const (
 )
 
 type classifyOpts struct {
-	catalogPath string
-	noApply     bool
-	maxBody     int
+	catalogPath     string
+	noApply         bool
+	maxBody         int
+	skipAuthorProbe bool
+	skipEmbedProbe  bool
 }
 
 func newMailReportCmd(opts *rootOptions, repoRoot string) *cobra.Command {
@@ -342,7 +344,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create alias judge")
 		}
 	}
-	author, _, err := mailreport.ResolveAuthorModel(resolveCtx, client, health.ModelIDs, cfg.PolypusClassifyModel)
+	author, err := classifyAuthorModel(resolveCtx, client, health.ModelIDs, cfg.PolypusClassifyModel, cOpts.skipAuthorProbe)
 	if err != nil {
 		return nil, unavail(err, "resolve author model")
 	}
@@ -355,7 +357,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 			essenceModel = em
 		}
 		embedFac := mailreport.NewStropEmbedFactory()
-		embedModel, err = mailreport.ResolveEmbedModel(resolveCtx, embedFac, cfg.PolypusBaseURL, health.ModelIDs, cfg.PolypusEmbedModel)
+		embedModel, err = classifyEmbedModel(resolveCtx, embedFac, cfg.PolypusBaseURL, health.ModelIDs, cfg.PolypusEmbedModel, cOpts.skipEmbedProbe)
 		if err != nil {
 			return nil, unavail(err, "resolve embed model")
 		}
@@ -448,17 +450,25 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "caching embedder")
 		}
 	}
+	if cfg.Taxonomy.DescriptionCosineMode == config.DescriptionCosineModeRepair {
+		if embedSeat == nil || strings.TrimSpace(embedModel) == "" {
+			return nil, sirerr.New(sirerr.CodeInvalid, op, "description_cosine_mode repair requires polypus embed_model and embedder")
+		}
+	}
 	seats, err := mailreport.CreateSeats(mailreport.SeatsConfig{
-		Client:               client,
-		JudgeModel:           judge,
-		AuthorModel:          author,
-		EssenceModel:         essenceModel,
-		EssenceEscalateModel: cfg.PolypusEssenceEscalateModel,
-		EssenceDumpDir:       essenceDumpDir,
-		EssencePrompts:       essencePrompts,
-		TagCatalog:           tagCatalog,
-		Now:                  now,
-		Embedder:             embedSeat,
+		Client:                     client,
+		JudgeModel:                 judge,
+		AuthorModel:                author,
+		EssenceModel:               essenceModel,
+		EssenceEscalateModel:       cfg.PolypusEssenceEscalateModel,
+		EssenceDumpDir:             essenceDumpDir,
+		EssencePrompts:             essencePrompts,
+		TagCatalog:                 tagCatalog,
+		Now:                        now,
+		Embedder:                   embedSeat,
+		DescriptionCosineMin:       cfg.Taxonomy.DescriptionCosineMin,
+		DescriptionCosineMode:      cfg.Taxonomy.DescriptionCosineMode,
+		EssenceSemanticMaxAttempts: cfg.Taxonomy.EssenceSemanticMaxAttempts,
 	})
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create seats")
@@ -531,37 +541,40 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		}
 	}
 	runner, err := mailreport.CreateRunner(mailreport.RunnerConfig{
-		Harness:              h,
-		Seats:                seats,
-		Pipeline:             pipe,
-		CatalogPath:          catalogPath,
-		ApplyCatalog:         !cOpts.noApply,
-		Store:                store,
-		ClassifyMax:          cfg.Taxonomy.ClassifyMax,
-		PolypusURL:           cfg.PolypusBaseURL,
-		JudgeModel:           judge,
-		AuthorModel:          author,
-		EmbedModel:           embedModel,
-		Strategy:             cfg.Taxonomy.Strategy,
-		AttachMinCosine:      cfg.Taxonomy.AttachMinCosine,
-		WalkReinforceMin:     cfg.Taxonomy.WalkReinforceMin,
-		AuthorOnSkip:         cfg.Taxonomy.AuthorOnSkip,
-		EssenceBatch:         essenceBatch,
-		EssenceModel:         essenceModel,
-		EssenceEscalateModel: cfg.PolypusEssenceEscalateModel,
-		EssenceBatchSize:     cfg.Taxonomy.EssenceBatchSize,
-		TldrBatch:            tldrBatch,
-		TldrModel:            tldrModel,
-		ClusterMinCosine:     cfg.Cluster.MinCosine,
-		QuarantineTerms:      cfg.Cluster.QuarantineTerms,
-		Attention:            attention,
-		AttentionTrueMin:     cfg.Cluster.AttentionTrueMin,
-		EssenceDumpDir:       essenceDumpDir,
-		TagCatalog:           tagCatalog,
-		TagCurator:           tagCurator,
-		AliasJudge:           aliasJudge,
-		MinJudgeScore:        cfg.Taxonomy.MinJudgeScore,
-		Now:                  now,
+		Harness:                    h,
+		Seats:                      seats,
+		Pipeline:                   pipe,
+		CatalogPath:                catalogPath,
+		ApplyCatalog:               !cOpts.noApply,
+		Store:                      store,
+		ClassifyMax:                cfg.Taxonomy.ClassifyMax,
+		PolypusURL:                 cfg.PolypusBaseURL,
+		JudgeModel:                 judge,
+		AuthorModel:                author,
+		EmbedModel:                 embedModel,
+		Strategy:                   cfg.Taxonomy.Strategy,
+		AttachMinCosine:            cfg.Taxonomy.AttachMinCosine,
+		WalkReinforceMin:           cfg.Taxonomy.WalkReinforceMin,
+		AuthorOnSkip:               cfg.Taxonomy.AuthorOnSkip,
+		EssenceBatch:               essenceBatch,
+		EssenceModel:               essenceModel,
+		EssenceEscalateModel:       cfg.PolypusEssenceEscalateModel,
+		EssenceBatchSize:           cfg.Taxonomy.EssenceBatchSize,
+		TldrBatch:                  tldrBatch,
+		TldrModel:                  tldrModel,
+		ClusterMinCosine:           cfg.Cluster.MinCosine,
+		QuarantineTerms:            cfg.Cluster.QuarantineTerms,
+		Attention:                  attention,
+		AttentionTrueMin:           cfg.Cluster.AttentionTrueMin,
+		EssenceDumpDir:             essenceDumpDir,
+		TagCatalog:                 tagCatalog,
+		TagCurator:                 tagCurator,
+		AliasJudge:                 aliasJudge,
+		MinJudgeScore:              cfg.Taxonomy.MinJudgeScore,
+		DescriptionCosineMin:       cfg.Taxonomy.DescriptionCosineMin,
+		DescriptionCosineMode:      cfg.Taxonomy.DescriptionCosineMode,
+		EssenceSemanticMaxAttempts: cfg.Taxonomy.EssenceSemanticMaxAttempts,
+		Now:                        now,
 	}, vocab, cat)
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create runner")
@@ -635,15 +648,28 @@ func itemFromSummary(reader *pimdir.Reader, sum pimdir.EmailSummary, maxBody int
 	if hash == "" {
 		return item
 	}
-	if blob, err := reader.ReadBlob(hash); err == nil {
-		if prev, err := pimdir.DecodeMessagePreview(blob, maxBody); err == nil {
-			item.Body = prev.Body
-		}
-		if hdr, err := pimdir.ParseMailHeaders(blob); err == nil {
-			item.Headers = hdr
+	if reader != nil {
+		if blob, err := reader.ReadBlob(hash); err == nil {
+			if prev, err := pimdir.DecodeMessagePreview(blob, maxBody); err == nil {
+				item.Body = prev.Body
+			}
+			if hdr, err := pimdir.ParseMailHeaders(blob); err == nil {
+				item.Headers = hdr
+			}
 		}
 	}
+	if strings.TrimSpace(item.Body) == "" {
+		item.Body = truncateExportBody(sum.Body, maxBody)
+	}
 	return item
+}
+
+func truncateExportBody(body string, maxBody int) string {
+	body = strings.TrimSpace(body)
+	if maxBody > 0 && len(body) > maxBody {
+		return body[:maxBody]
+	}
+	return body
 }
 
 func validateMailReportWindow(inPath, fromDate, toDate string) (pimdir.DateWindow, error) {
@@ -792,31 +818,23 @@ func classifyFailedMessages(art mailreport.Artifact) []mailreport.MessageRow {
 	return failed
 }
 
+func classifyEmbedModel(ctx context.Context, fac mailreport.StropEmbedFactory, baseURL string, catalogIDs []string, embedYAML string, skipProbe bool) (string, error) {
+	if skipProbe {
+		return mailreport.PickEmbedModel(catalogIDs, embedYAML)
+	}
+	return mailreport.ResolveEmbedModel(ctx, fac, baseURL, catalogIDs, embedYAML)
+}
+
+func classifyAuthorModel(ctx context.Context, prober mailreport.ChatProber, catalogIDs []string, authorYAML string, skipProbe bool) (string, error) {
+	if skipProbe {
+		return mailreport.PickAuthorModel(catalogIDs, authorYAML)
+	}
+	model, _, err := mailreport.ResolveAuthorModel(ctx, prober, catalogIDs, authorYAML)
+	return model, err
+}
+
 func glossClassifyMsgErr(errMsg string) string {
-	s := strings.TrimSpace(errMsg)
-	if s == "" {
-		return ""
-	}
-	lower := strings.ToLower(s)
-	switch {
-	case strings.Contains(lower, "not kebab-case"):
-		return "kind not kebab-case"
-	case strings.Contains(lower, mailreport.EssenceErrKindAncestor):
-		return "kind repeats parent"
-	case strings.Contains(lower, mailreport.AssignmentErrPathShort):
-		return "path shorter than kind"
-	case strings.Contains(lower, mailreport.AssignmentErrPathAncestor):
-		return "path repeats parent"
-	case strings.Contains(lower, mailreport.EssenceErrWhy1Empty):
-		return "essence why1 empty"
-	case strings.Contains(lower, mailreport.EssenceErrWhyEmpty):
-		return "essence why empty"
-	case strings.Contains(lower, mailreport.EssenceErrAboutOrShape):
-		return "essence about/shape empty"
-	case strings.Contains(lower, tags.ErrTokenInvalid):
-		return "essence tag invalid"
-	}
-	return truncateRunes(s, 60)
+	return mailreport.ClassifyFailureCause(errMsg)
 }
 
 func truncateClassifySubject(subject string, max int) string {

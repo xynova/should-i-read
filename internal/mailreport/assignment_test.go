@@ -36,6 +36,17 @@ func TestValidateAssignmentPath_rejectsParentPrefix(t *testing.T) {
 	}
 }
 
+func TestValidateAssignmentPath_rejectsDeepCatalogPath(t *testing.T) {
+	t.Parallel()
+	err := validateAssignmentPath(MessageRow{
+		Kind: "notification > ci > pull-request",
+		Path: []string{"notification", "ci", "pull-request", "preview-removal"},
+	})
+	if err == nil || !strings.Contains(err.Error(), AssignmentErrPathDeep) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestValidateAssignmentPath_acceptsSemanticPath(t *testing.T) {
 	t.Parallel()
 	err := validateAssignmentPath(MessageRow{
@@ -83,6 +94,57 @@ func TestAlignAssignmentPathWithKind_breadcrumbPrefix(t *testing.T) {
 	}
 	alignAssignmentPathWithKind(&row)
 	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestAlignAssignmentPathWithKind_hyphenatedClass(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "aws",
+		Kind:   "notification > job-alert > aws",
+		Path:   []string{"notification", "notification-job-alert"},
+	}
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	want := []string{"notification", "job-alert", "aws"}
+	if len(row.Path) != 3 || row.Path[0] != want[0] || row.Path[1] != want[1] || row.Path[2] != want[2] {
+		t.Fatalf("path=%v want %v", row.Path, want)
+	}
+}
+
+func TestAlignAssignmentPathWithKind_hyphenatedClassAlreadyThree(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "aws",
+		Kind:   "notification > job-alert > aws",
+		Path:   []string{"notification", "notification-job-alert", "aws"},
+	}
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if row.Path[1] != "job-alert" {
+		t.Fatalf("path=%v", row.Path)
+	}
+}
+
+func TestAlignAssignmentPathWithKind_classMismatchUnchanged(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "aws",
+		Kind:   "notification > job-alert > aws",
+		Path:   []string{"notification", "billing"},
+	}
+	before := append([]string{}, row.Path...)
+	alignAssignmentPathWithKind(&row)
+	if row.Path[0] != before[0] || row.Path[1] != before[1] {
+		t.Fatalf("path changed: %v", row.Path)
+	}
+	err := validateAssignmentPath(row)
+	if err == nil || !strings.Contains(err.Error(), AssignmentErrPathShort) {
 		t.Fatalf("got %v", err)
 	}
 }

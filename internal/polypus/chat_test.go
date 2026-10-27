@@ -70,3 +70,39 @@ func TestChat_success(t *testing.T) {
 		t.Fatal("expected content")
 	}
 }
+
+func TestChat_reasoning(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Reasoning *ChatReasoning `json:"reasoning"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Reasoning == nil || body.Reasoning.Effort != ReasoningEffortHigh {
+			t.Fatalf("reasoning=%+v, want high effort", body.Reasoning)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]string{"content": "ok"}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c, err := Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.Chat(context.Background(), ChatRequest{
+		Model:     "test-model",
+		Messages:  []ChatMessage{{Role: RoleUser, Content: "hello"}},
+		Reasoning: &ChatReasoning{Effort: ReasoningEffortHigh},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "ok" {
+		t.Fatalf("content=%q, want ok", out)
+	}
+}

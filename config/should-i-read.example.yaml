@@ -67,6 +67,10 @@ taxonomy:
   walk_reinforce_min: 0.70
   # Attach essence prefetch batch size (default 8, max 16)
   essence_batch_size: 8
+  # Email vs Essence ABOUT cosine (report-only by default; repair needs PhaseWalk)
+  description_cosine_min: 0.55
+  description_cosine_mode: report
+  essence_semantic_max_attempts: 2
 
 pimalaya:
   # Empty: resolve neverest from PATH or ~/.cargo/bin

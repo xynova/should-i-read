@@ -54,6 +54,29 @@ func TestResolveTaxonomyEssenceBatchSizeDefault(t *testing.T) {
 	}
 }
 
+func TestResolveTaxonomyDescriptionCosineDefaults(t *testing.T) {
+	cfg, err := resolveTaxonomy(TaxonomyFile{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DescriptionCosineMin != defaultDescriptionCosineMin {
+		t.Fatalf("min %v", cfg.DescriptionCosineMin)
+	}
+	if cfg.DescriptionCosineMode != DescriptionCosineModeReport {
+		t.Fatalf("mode %q", cfg.DescriptionCosineMode)
+	}
+	if cfg.EssenceSemanticMaxAttempts != defaultEssenceSemanticMaxAttempts {
+		t.Fatalf("attempts %d", cfg.EssenceSemanticMaxAttempts)
+	}
+}
+
+func TestNormalizeDescriptionCosineModeInvalid(t *testing.T) {
+	_, err := NormalizeDescriptionCosineMode("bogus")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestResolveTaxonomyUnknownStrategy(t *testing.T) {
 	_, err := resolveTaxonomy(TaxonomyFile{Strategy: "fly"})
 	if err == nil {

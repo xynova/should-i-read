@@ -47,6 +47,28 @@ func ResolveEmbedModel(ctx context.Context, fac StropEmbedFactory, baseURL strin
 	return "", sirerr.New(sirerr.CodeUnavailable, op, "no embed model resolved; set polypus.embed_model")
 }
 
+// PickEmbedModel chooses an embedding model id from config or catalog (no HTTP smoke).
+func PickEmbedModel(catalogIDs []string, embedYAML string) (string, error) {
+	const op = "mailreport.PickEmbedModel"
+	embedYAML = strings.TrimSpace(embedYAML)
+	if embedYAML != "" {
+		return embedYAML, nil
+	}
+	if containsModel(catalogIDs, defaultEmbedModel) {
+		return defaultEmbedModel, nil
+	}
+	for _, id := range catalogIDs {
+		if isJevModelID(id) || isNonChatModelID(id) {
+			continue
+		}
+		lower := strings.ToLower(id)
+		if strings.Contains(lower, "bge") || strings.Contains(lower, "embed") {
+			return id, nil
+		}
+	}
+	return "", sirerr.New(sirerr.CodeUnavailable, op, "no embed model resolved; set polypus.embed_model")
+}
+
 func probeEmbedModel(ctx context.Context, fac StropEmbedFactory, baseURL, modelID string) error {
 	const op = "mailreport.probeEmbedModel"
 	emb, err := fac.CreateEmbedder(ctx, baseURL, modelID)

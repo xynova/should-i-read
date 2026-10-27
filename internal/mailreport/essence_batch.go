@@ -23,6 +23,10 @@ type ChatLineRunner interface {
 	RunChatLines(ctx context.Context, lines []openaibatch.ChatLine) (map[string]openaibatch.LineResult, error)
 }
 
+type escalationChatLineRunner interface {
+	runEscalationChatLines(ctx context.Context, lines []openaibatch.ChatLine) (map[string]openaibatch.LineResult, error)
+}
+
 type essenceChatClient interface {
 	Chat(ctx context.Context, req polypus.ChatRequest) (string, error)
 }
@@ -50,6 +54,19 @@ func NewParallelChatRunner(client essenceChatClient, model string, limit int) (C
 }
 
 func (r *parallelChatRunner) RunChatLines(ctx context.Context, lines []openaibatch.ChatLine) (map[string]openaibatch.LineResult, error) {
+	return r.runChatLines(ctx, lines, nil)
+}
+
+func (r *parallelChatRunner) runEscalationChatLines(ctx context.Context, lines []openaibatch.ChatLine) (map[string]openaibatch.LineResult, error) {
+	const op = "mailreport.parallelChatRunner.runEscalationChatLines"
+	reasoning, err := essenceEscalationReasoning()
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "bench reasoning knob")
+	}
+	return r.runChatLines(ctx, lines, reasoning)
+}
+
+func (r *parallelChatRunner) runChatLines(ctx context.Context, lines []openaibatch.ChatLine, reasoning *polypus.ChatReasoning) (map[string]openaibatch.LineResult, error) {
 	const op = "mailreport.parallelChatRunner.RunChatLines"
 	if r == nil || r.client == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil runner")
@@ -84,7 +101,7 @@ func (r *parallelChatRunner) RunChatLines(ctx context.Context, lines []openaibat
 				mu.Unlock()
 				return
 			}
-			content, err := r.client.Chat(ctx, chatRequestFromLine(ln, r.model))
+			content, err := r.client.Chat(ctx, chatRequestFromLine(ln, r.model, reasoning))
 			res := openaibatch.LineResult{Content: content}
 			if err != nil {
 				res.ErrMessage = err.Error()
@@ -98,7 +115,7 @@ func (r *parallelChatRunner) RunChatLines(ctx context.Context, lines []openaibat
 	return out, nil
 }
 
-func chatRequestFromLine(ln openaibatch.ChatLine, fallbackModel string) polypus.ChatRequest {
+func chatRequestFromLine(ln openaibatch.ChatLine, fallbackModel string, reasoning *polypus.ChatReasoning) polypus.ChatRequest {
 	model := strings.TrimSpace(ln.Model)
 	if model == "" {
 		model = fallbackModel
@@ -107,7 +124,14 @@ func chatRequestFromLine(ln openaibatch.ChatLine, fallbackModel string) polypus.
 	for _, m := range ln.Messages {
 		msgs = append(msgs, polypus.ChatMessage{Role: m[chatRoleKey], Content: m[chatContentKey]})
 	}
-	return polypus.ChatRequest{Model: model, Temperature: 0, Messages: msgs}
+	return polypus.ChatRequest{Model: model, Temperature: 0, Messages: msgs, Reasoning: reasoning}
+}
+
+func runEssenceEscalationChatLines(ctx context.Context, runner ChatLineRunner, lines []openaibatch.ChatLine) (map[string]openaibatch.LineResult, error) {
+	if escalator, ok := runner.(escalationChatLineRunner); ok {
+		return escalator.runEscalationChatLines(ctx, lines)
+	}
+	return runner.RunChatLines(ctx, lines)
 }
 
 func prefetchOneEssence(ctx context.Context, runner ChatLineRunner, ln openaibatch.ChatLine, firstContent string, escalateModel string) (harness.EssenceOut, error) {

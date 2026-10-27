@@ -10,13 +10,22 @@ import (
 )
 
 type countingEmbedder struct {
-	calls int
-	vecs  [][]float64
-	err   error
+	calls   int
+	failN   int
+	failErr error
+	vecs    [][]float64
+	err     error
 }
 
 func (c *countingEmbedder) Embed(_ context.Context, texts []string) ([][]float64, error) {
 	c.calls++
+	if c.failN > 0 {
+		c.failN--
+		if c.failErr != nil {
+			return nil, c.failErr
+		}
+		return nil, errors.New("transient")
+	}
 	if c.err != nil {
 		return nil, c.err
 	}

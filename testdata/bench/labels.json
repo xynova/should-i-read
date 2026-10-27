@@ -1,0 +1,53 @@
+{
+  "revision": "fixture testdata/bench v1",
+  "labels": [
+    {
+      "object_hash": "fix_pipeline_failure_01",
+      "subject_hint": "acme-api | Failed pipeline for feat/login | abc1234",
+      "expected_leaf": "pipeline-failure",
+      "required_terms": ["acme-api", "failed pipeline", "feat/login"]
+    },
+    {
+      "object_hash": "fix_job_posting_02",
+      "subject_hint": "Acme is hiring a backend engineer",
+      "expected_leaf": "job-posting",
+      "required_terms": ["acme", "hiring", "backend"]
+    },
+    {
+      "object_hash": "fix_pull_request_03",
+      "subject_hint": "[acme/api] feat: add health check (PR #12)",
+      "expected_leaf": "pull-request",
+      "required_terms": ["acme/api", "health check", "pr #12"]
+    },
+    {
+      "object_hash": "fix_payment_failure_04",
+      "subject_hint": "Invoice overdue for Acme Cloud",
+      "expected_leaf": "payment-failure",
+      "required_terms": ["invoice", "overdue", "acme cloud"]
+    },
+    {
+      "object_hash": "fix_newsletter_05",
+      "subject_hint": "This week in Go: three conference talks",
+      "expected_leaf": "newsletter",
+      "required_terms": ["go", "conference", "digest"]
+    },
+    {
+      "object_hash": "fix_meeting_06",
+      "subject_hint": "Invitation: design review Thursday",
+      "expected_leaf": "meeting-invite",
+      "required_terms": ["design review", "thursday", "invitation"]
+    },
+    {
+      "object_hash": "fix_password_reset_07",
+      "subject_hint": "Reset your Acme account password",
+      "expected_leaf": "password-reset",
+      "required_terms": ["password", "reset", "acme"]
+    },
+    {
+      "object_hash": "fix_thread_reply_08",
+      "subject_hint": "Re: warehouse inventory spreadsheet",
+      "expected_leaf": "human-reply",
+      "required_terms": ["inventory", "spreadsheet", "bin"]
+    }
+  ]
+}

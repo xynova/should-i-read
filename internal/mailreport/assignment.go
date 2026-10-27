@@ -31,22 +31,65 @@ func syncRowPathFromCatalog(cat *catalog.Catalog, row *MessageRow) {
 	}
 }
 
-// alignAssignmentPathWithKind extends a prefix-only attach path to match Essence KIND segments.
+// alignAssignmentPathWithKind rewrites attach PATH to the three Essence KIND segments when the
+// catalog path uses a hyphenated class id (notification-job-alert) or a semantic prefix.
 func alignAssignmentPathWithKind(row *MessageRow) {
 	if row == nil {
 		return
 	}
 	kindSegs := catalog.ParseKindSegments(row.Kind)
-	if len(kindSegs) < 3 || strings.TrimSpace(row.TermID) == "" {
+	if len(kindSegs) != essenceKindLevels || strings.TrimSpace(row.TermID) == "" {
 		return
 	}
-	if len(row.Path) >= len(kindSegs) {
+	if len(row.Path) == 0 {
 		return
 	}
-	if !pathIsPrefixOf(row.Path, kindSegs) {
+	if pathEqualSegments(row.Path, kindSegs) {
+		return
+	}
+	if !kindClassSlotMatches(row.Path, kindSegs) {
 		return
 	}
 	row.Path = append([]string{}, kindSegs...)
+}
+
+func pathEqualSegments(path, kind []string) bool {
+	if len(path) != len(kind) {
+		return false
+	}
+	for i := range path {
+		if strings.TrimSpace(path[i]) != strings.TrimSpace(kind[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// kindClassSlotMatches reports whether path is a KIND prefix, including family-class class ids.
+func kindClassSlotMatches(path, kind []string) bool {
+	if len(kind) != essenceKindLevels || len(path) < 1 || len(path) > essenceKindLevels {
+		return false
+	}
+	family := strings.TrimSpace(kind[0])
+	class := strings.TrimSpace(kind[1])
+	leaf := strings.TrimSpace(kind[2])
+	if family == "" || class == "" || leaf == "" {
+		return false
+	}
+	if strings.TrimSpace(path[0]) != family {
+		return false
+	}
+	if len(path) == 1 {
+		return true
+	}
+	p1 := strings.TrimSpace(path[1])
+	if p1 != class && p1 != family+"-"+class {
+		return false
+	}
+	if len(path) == 2 {
+		return true
+	}
+	return strings.TrimSpace(path[2]) == leaf
 }
 
 func pathIsPrefixOf(path, full []string) bool {
@@ -67,14 +110,20 @@ func validateAssignmentPath(row MessageRow) error {
 	if len(kindSegs) == 0 {
 		return nil
 	}
-	if len(kindSegs) < 3 {
+	if len(kindSegs) < essenceKindLevels {
 		return sirerr.New(sirerr.CodeFailed, op, EssenceErrKindShort)
+	}
+	if len(kindSegs) > essenceKindLevels {
+		return sirerr.New(sirerr.CodeFailed, op, EssenceErrKindLong)
 	}
 	if kindOrPathRepeatsParent(kindSegs) {
 		return sirerr.New(sirerr.CodeFailed, op, EssenceErrKindAncestor)
 	}
-	if len(row.Path) < 3 {
+	if len(row.Path) < essenceKindLevels {
 		return sirerr.New(sirerr.CodeFailed, op, AssignmentErrPathShort)
+	}
+	if len(row.Path) > essenceKindLevels {
+		return sirerr.New(sirerr.CodeFailed, op, AssignmentErrPathDeep)
 	}
 	if kindOrPathRepeatsParent(row.Path) {
 		return sirerr.New(sirerr.CodeFailed, op, AssignmentErrPathAncestor)

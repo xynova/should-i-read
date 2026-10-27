@@ -60,7 +60,9 @@ WHY5:
 ABOUT:
 
 WHY1 is the surface fact this mail presents. Each later WHY answers why the previous WHY is true, using only this mail. If the mail does not support another cause, emit a short grounded restatement, not motive and not what the sender wants. Never start at WHY4. WHY4 and WHY5 continue the same chain; they are not a second summary.
-ABOUT is one sentence of what this message is. Not a path. Not a tag list. Not a KIND.`
+ABOUT is one sentence of what this message is. Include the event, the subject or source, and one concrete fact from the message when available, such as a version, PR number, amount, named service, requested action, or stated cause.
+Prefer concrete facts over generic wording such as "this is a notification" or "someone left a comment." Preserve names, numbers, versions, amounts, and causes exactly as stated. If the message does not state a cause, do not infer one. Do not omit the event just to add a detail.
+Not a path. Not a tag list. Not a KIND.`
 }
 
 func buildEssenceTagsSystemPrompt(activeTags []string) string {
@@ -88,9 +90,8 @@ Fill the KIND key only. Do not add other keys. Do not invent facts that are not 
 Reply with this key only:
 KIND:
 
-KIND is the catalog type path the WHY chain reached: 3 to 5 kebab-case segments joined by " > ". No trailing " > ". No single root.
-Coarse trunk, then class, then leaf. Start with the mail type (often notification). Then the honest class (billing, ci, job-alert, or another class this mail really is). Then one or two specific leaves.
-If the honest class is ci, the second segment is ci, not ci-failure. Do not paraphrase WHY1 as KIND. Do not copy TAGS into KIND. Do not copy a path from these instructions.`
+` + essenceKindContractText() + `
+If the honest class is ci, the second level is ci, not ci-failure. Do not paraphrase WHY1 as KIND. Do not copy TAGS into KIND. Do not copy a path from these instructions.`
 }
 
 // formatEssenceWhyBlock formats WHY1-5 and ABOUT for TAGS and KIND user turns.
@@ -239,8 +240,11 @@ func parseEssenceKind(raw string) (string, error) {
 	flush()
 	kind = normalizeKindString(kind)
 	segs := catalog.ParseKindSegments(kind)
-	if len(segs) < 3 {
+	if len(segs) < essenceKindLevels {
 		return "", sirerr.New(sirerr.CodeAI, op, EssenceErrKindShort).With(essenceFieldKindShort, essenceFieldKindShortYes)
+	}
+	if len(segs) > essenceKindLevels {
+		return "", sirerr.New(sirerr.CodeAI, op, EssenceErrKindLong).With(essenceFieldKindLong, essenceFieldKindShortYes)
 	}
 	if kindOrPathRepeatsParent(segs) {
 		return "", sirerr.New(sirerr.CodeAI, op, EssenceErrKindAncestor)
@@ -341,12 +345,15 @@ func essenceTagsIntegrityCompleteNote(err error) string {
 
 func essenceKindIntegrityCompleteNote(err error) string {
 	if essenceKindShortFromErr(err) {
-		return `Continue your previous reply. Expand KIND to 3 to 5 kebab-case segments joined by " > ". Do not leave a trailing " > ".`
+		return `Continue your previous reply. Expand KIND to ` + essenceKindRetryContract() + `. Do not leave a trailing " > ".`
+	}
+	if essenceKindLongFromErr(err) {
+		return `Continue your previous reply. Drop extra KIND levels. Use ` + essenceKindRetryContract() + `. Do not add a 4th level.`
 	}
 	if essenceKindAncestorFromErr(err) {
 		return `Continue your previous reply. Rewrite KIND so no segment repeats its parent as a prefix (use ci not notification-ci; use failure not ci-failure when the parent is already ci).`
 	}
-	return `Continue your previous reply. Emit KIND with 3 to 5 kebab-case segments joined by " > ".`
+	return `Continue your previous reply. Emit KIND with ` + essenceKindRetryContract() + `.`
 }
 
 func essenceWhyIntegrityAfterMiss(err error) integrity.MissAction {

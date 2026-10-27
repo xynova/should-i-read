@@ -11,6 +11,7 @@ require (
 	github.com/behaviorengineering/taxonomy v0.4.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/failsafe-go/failsafe-go v0.9.8
 	github.com/golang-migrate/migrate/v4 v4.18.3
 	github.com/mitchellh/go-wordwrap v1.0.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
@@ -163,7 +164,6 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
-	github.com/failsafe-go/failsafe-go v0.9.8 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect

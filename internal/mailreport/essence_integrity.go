@@ -52,6 +52,9 @@ func createEssenceIntegrityShellPolypus(client *polypus.Client, essenceModel, es
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil essence shell hooks")
 	}
 	escalateModel = EffectiveEssenceEscalateModel(essenceModel, escalateModel)
+	if _, err := essenceEscalationReasoning(); err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "bench reasoning knob")
+	}
 	cfg := integrity.ShellConfig{
 		Chat: func(ctx context.Context, messages []integrity.Message) (string, error) {
 			return client.Chat(ctx, polypus.ChatRequest{
@@ -77,6 +80,9 @@ func createEssenceIntegrityShellChatLines(runner ChatLineRunner, ln openaibatch.
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil runner")
 	}
 	escalateModel = EffectiveEssenceEscalateModel(ln.Model, escalateModel)
+	if _, err := essenceEscalationReasoning(); err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "bench reasoning knob")
+	}
 	hooks := essenceFullFormShellHooks(tagCatalog)
 	cfg := integrity.ShellConfig{
 		Chat: func(ctx context.Context, messages []integrity.Message) (string, error) {
@@ -111,10 +117,15 @@ func createEssenceIntegrityShellChatLines(runner ChatLineRunner, ln openaibatch.
 
 func essenceCompensateSteerPolypus(client *polypus.Client, escalateModel string) integrity.CompensateFunc {
 	escalateChat := func(ctx context.Context, messages []integrity.Message) (string, error) {
+		reasoning, err := essenceEscalationReasoning()
+		if err != nil {
+			return "", err
+		}
 		return client.Chat(ctx, polypus.ChatRequest{
 			Model:       escalateModel,
 			Temperature: 0,
 			Messages:    integrityMessagesToPolypus(messages),
+			Reasoning:   reasoning,
 		})
 	}
 	return func(ctx context.Context, messages []integrity.Message, lastRaw string, lastErr error) (integrity.Steer, error) {
@@ -138,7 +149,7 @@ func essenceCompensateSteerChatLines(runner ChatLineRunner, ln openaibatch.ChatL
 			Model:    escalateModel,
 			Messages: integrityMessagesToMaps(messages),
 		}
-		results, err := runner.RunChatLines(ctx, []openaibatch.ChatLine{line})
+		results, err := runEssenceEscalationChatLines(ctx, runner, []openaibatch.ChatLine{line})
 		if err != nil {
 			return "", err
 		}

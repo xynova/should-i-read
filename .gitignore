@@ -7,6 +7,8 @@ config/polypus-operator.env
 
 # Host-local working dirs
 tmp/
+# Live mailbox freeze dumps. Committed fixtures live under testdata/bench/.
+/bench/
 logs/
 data/
 bin/*

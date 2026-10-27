@@ -38,7 +38,7 @@ flowchart TD
    - **Hop cap:** `taxonomy.classify_max` limits new Operate and attention calls per run. Rerun the same `--from`/`--to` while `omitted` or `attention_omitted` is non-zero.
    - **Example (September 2026, one week each):** `go tool task mail:report -- --from 2026-09-01 --to 2026-09-08`, then `2026-09-08`/`2026-09-15`, `2026-09-15`/`2026-09-22`, `2026-09-22`/`2026-10-01`. Day `2026-09-08` belongs only to the second window.
    - **Artifacts:** each run writes `tmp/unwanted-report-<ts>.json` with optional `window_from` / `window_to`. Per-message ledger rows accumulate by `object_hash`. The live cluster cache is overwritten for each `cluster_id` on the latest processed window (weekly JSON files are the snapshots).
-3. For each message, taxonomy `Operate` runs **walk** (default) or **attach** (`taxonomy.strategy: attach`). Walk: Judge SystemOne noul per sibling at each hop, then optional Author + gate via Polypus chat. Attach: Essence is three Polypus chat hops (WHY slave, TAGS slave, KIND slave), then embeddings, cosine alias or Walk reinforce or breadcrumb create on `inbox-kind`. Report rows include `path`, and attach rows add `kind`, `about`, `shape`, `cosine`, `canonical_term_id`, `reinforced`. Accepted drafts update the active catalog YAML unless `--no-apply`.
+3. For each message, taxonomy `Operate` runs **walk** (default) or **attach** (`taxonomy.strategy: attach`). Walk: Judge SystemOne noul per sibling at each hop, then optional Author + gate via Polypus chat. Attach: Essence is three Polypus chat hops (WHY slave, TAGS slave, KIND slave), then embeddings, cosine alias or Walk reinforce or breadcrumb create on `inbox-kind`. Report rows include `path`, and attach rows add `kind`, `about`, `shape`, `cosine` (leaf attach match), `description_cosine` (email vs ABOUT when `taxonomy.description_cosine_mode` is `report` or `repair`), `canonical_term_id`, `reinforced`. Breadcrumb ABOUT/SHAPE must pass host layout/length gates before catalog apply. Accepted drafts update the active catalog YAML unless `--no-apply`.
 4. Cluster messages in the report by `canonical_term_id` / `term_id`, then sender domain; optional embedding attach via `cluster.min_cosine`. One TLDR per cluster via Polypus chat (cached in host SQLite by fingerprint).
 5. Write `tmp/unwanted-report-<timestamp>.json` with `cluster_id` on each message and `clusters[]` summaries. **No mailbox trash/spam/delete API calls.**
 
@@ -105,6 +105,18 @@ flowchart TD
 - Strop `JobRunner` generator `mail_classify` wraps taxonomy `Operate`; Polypus HTTP only inside Judge/Author/Essence/Embed seats.
 - Artifacts: `tmp/unwanted-report-*.json` (snapshot) with `clusters[]`, per-message `cluster_id`, `suggested_action` (`review` or `quarantine_candidate` when `cluster.quarantine_terms` matches), and nested `attention` on messages and clusters (`urgency`, `needs_reply`, `involves_decision` from Jev SystemOne via Polypus; report-only). When Essence parse fails after retries, the last chat completion is written to `tmp/essence-parse/<object_hash>.json` (`essence_dump_dir` on the report). Live classify state, embeddings, attention nouls, and cluster TLDR cache: host SQLite (`store.path`; tables `classify_state`, `embeddings`, `clusters`, `cluster_members`). `tmp/mail-classify-progress.json` is import-only when the ledger is empty.
 - Config: `cluster.min_cosine`, `cluster.quarantine_terms`, `cluster.attention_true_min` (default 0.50), optional `polypus.tldr_model`.
+
+## Essence benchmark (frozen input)
+
+Compare Essence prompt variants on the **same** 100 messages (live Polypus, report-only, fresh ledger per chunk):
+
+1. `go tool task mail:export -- --limit 500 --out bench/input-export.json` (needs at least 100 unique `object_hash` values).
+2. `./bin/should-i-read mail bench freeze --in bench/input-export.json` writes `bench/input-100.json`, `bench/chunks/c1.json`…`c5.json`, and `bench/input-rev.txt`.
+3. Edit `bench/labels-20.json` (`expected_leaf`, `required_terms`) after `mail bench labels-stub` if needed.
+4. `go tool task polypus-check -- --classify`, then smoke on committed fixtures (no live pimdir): `./bin/should-i-read mail bench --variant checklist --chunks testdata/bench/chunks --labels testdata/bench/labels.json --input-rev testdata/bench/input-rev.txt`.
+5. Full matrix (sequential, live freeze under gitignored `bench/`): `mail bench --variant baseline|thinking|checklist --chunks bench/chunks` → `tmp/bench/<variant>-artifact.json` and `tmp/bench/<variant>-score.json`.
+
+Bench-only env (unset in normal classify): `SHOULD_I_READ_BENCH_REASONING` (`high`|`off`), `SHOULD_I_READ_BENCH_FEEDBACK` (`checklist`|`short`). Variants: baseline (`off`+`short`), thinking (`high`+`short`), checklist (`high`+`checklist`). Each chunk probes Essence (`polypus.essence_model`) and does not smoke Author (`polypus.classify_model`) or embeddings (`polypus.embed_model`). Operator classify still fail-closes on those probes. Gateway is `polypus.base_url` / `POLYPUS_BASE_URL` (homelab: `https://polypus.manticore-powan.ts.net`).
 
 ## Next implementation slice
 

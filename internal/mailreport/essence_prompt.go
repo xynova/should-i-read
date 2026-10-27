@@ -28,7 +28,11 @@ const (
 	essenceFieldMissing      = "missing"
 	essenceFieldPresent      = "present"
 	essenceFieldKindShort    = "kind_short"
+	essenceFieldKindLong     = "kind_long"
 	essenceFieldKindShortYes = "1"
+
+	// essenceKindLevels is the required KIND / catalog PATH depth.
+	essenceKindLevels = 3
 
 	// EssenceErrWhy1Empty is the validate message when WHY1 is missing (stable for dumps and CLI gloss).
 	EssenceErrWhy1Empty = "why1 empty"
@@ -38,12 +42,16 @@ const (
 	EssenceErrAboutOrShape = "about or shape empty"
 	// EssenceErrTagsEmpty is the validate message when the TAGS slave has no valid tags.
 	EssenceErrTagsEmpty = "tags empty"
-	// EssenceErrKindShort is the validate message when KIND has fewer than 3 segments.
-	EssenceErrKindShort = "kind needs 3+ segments"
+	// EssenceErrKindShort is the validate message when KIND has fewer than 3 levels.
+	EssenceErrKindShort = "kind needs exactly 3 levels"
+	// EssenceErrKindLong is the validate message when KIND has more than 3 levels.
+	EssenceErrKindLong = "kind has more than 3 levels"
 	// EssenceErrKindAncestor is the validate message when a KIND segment repeats its parent as a prefix.
 	EssenceErrKindAncestor = "kind segment repeats parent"
-	// AssignmentErrPathShort is the persist message when catalog path is shorter than a 3-segment KIND.
+	// AssignmentErrPathShort is the persist message when catalog path is shorter than a 3-level KIND.
 	AssignmentErrPathShort = "catalog path shorter than kind"
+	// AssignmentErrPathDeep is the persist message when catalog path has more than 3 levels.
+	AssignmentErrPathDeep = "catalog path deeper than 3 levels"
 	// AssignmentErrPathAncestor is the persist message when a catalog path segment repeats its parent prefix.
 	AssignmentErrPathAncestor = "catalog path repeats parent"
 )
@@ -131,7 +139,7 @@ Reply with these keys (one per line). Values may continue on the next line after
 WHY1, WHY2, and WHY3 are required first. Never start at WHY4. WHY4 and WHY5 are extra reasons after WHY3, not replacements for WHY1.
 
 ` + tagHint.String() + `
-KIND must be 3 to 5 kebab-case segments joined by " > " (example: notification > software-release > changelog). Do not emit a trailing " > " or a single root such as "ci >".`
+` + essenceKindContractText()
 }
 
 // SetEssenceTagCatalog sets the catalog used for tag validation during classify runs.
@@ -167,13 +175,13 @@ func essenceIntegrityCompleteNote(err error) string {
 		b.WriteString(" Add the missing keys with non-empty values.")
 		return b.String()
 	}
-	if essenceKindShortFromErr(err) {
+	if essenceKindShortFromErr(err) || essenceKindLongFromErr(err) {
 		return essenceKindIntegrityCompleteNote(err)
 	}
 	if essenceTagInvalidFromErr(err) {
 		return "Continue your previous reply. Fix TAGS: use kebab-case tag ids only (no geometry words, no KIND paths). Prefer listed Active tags or mint a new kebab tag."
 	}
-	return "Continue your previous reply. Emit WHY1 through WHY5, ABOUT, TAGS, and KIND (3 to 5 kebab-case segments joined by \" > \"). Do not start over."
+	return "Continue your previous reply. Emit WHY1 through WHY5, ABOUT, TAGS, and KIND (" + essenceKindRetryContract() + "). Do not start over."
 }
 
 func essenceTagInvalidFromErr(err error) bool {
@@ -198,6 +206,26 @@ func essenceKindShortFromErr(err error) bool {
 		return false
 	}
 	return typed.Fields[essenceFieldKindShort] == essenceFieldKindShortYes
+}
+
+func essenceKindLongFromErr(err error) bool {
+	var typed *sirerr.Error
+	if !errors.As(err, &typed) || typed == nil || typed.Fields == nil {
+		return false
+	}
+	return typed.Fields[essenceFieldKindLong] == essenceFieldKindShortYes
+}
+
+func essenceKindContractText() string {
+	return `KIND is exactly 3 kebab-case levels joined by " > ". Fill this template:
+KIND: family > class > leaf
+Example: notification > ci > pull-request
+family is the mail type (often notification). class is the honest class (ci, billing, job-alert, legal). leaf is the kind of this mail (pull-request, payment-failure, job-posting), not a topic from ABOUT.
+Do not add a 4th level. Do not emit a trailing " > " or a single root such as "ci >".`
+}
+
+func essenceKindRetryContract() string {
+	return `exactly 3 kebab-case levels joined by " > " (template: family > class > leaf)`
 }
 
 func splitEssenceKeyList(s string) []string {
@@ -325,7 +353,7 @@ func essenceAssignParsedKey(why *[5]string, about, tagsRaw, kind *string, key, v
 
 func validateParsedEssence(e harness.EssenceOut) error {
 	const op = "mailreport.validateParsedEssence"
-	missing, present, kindShort := essenceKeyInventory(e)
+	missing, present, kindShort, kindLong := essenceKeyInventory(e)
 	if len(missing) > 0 {
 		msg := strings.Join(missing, ", ") + " empty"
 		if essenceHasWhyMissing(missing) {
@@ -346,13 +374,16 @@ func validateParsedEssence(e harness.EssenceOut) error {
 	if kindShort {
 		return sirerr.New(sirerr.CodeAI, op, EssenceErrKindShort).With(essenceFieldKindShort, essenceFieldKindShortYes)
 	}
+	if kindLong {
+		return sirerr.New(sirerr.CodeAI, op, EssenceErrKindLong).With(essenceFieldKindLong, essenceFieldKindShortYes)
+	}
 	if kindOrPathRepeatsParent(catalog.ParseKindSegments(e.Kind)) {
 		return sirerr.New(sirerr.CodeAI, op, EssenceErrKindAncestor)
 	}
 	return nil
 }
 
-func essenceKeyInventory(e harness.EssenceOut) (missing, present []string, kindShort bool) {
+func essenceKeyInventory(e harness.EssenceOut) (missing, present []string, kindShort, kindLong bool) {
 	for i, w := range e.Why {
 		key := essenceWhyKeys[i]
 		if strings.TrimSpace(w) == "" {
@@ -374,10 +405,11 @@ func essenceKeyInventory(e harness.EssenceOut) (missing, present []string, kindS
 	kind := strings.TrimSpace(e.Kind)
 	if kind == "" {
 		missing = append(missing, essenceKeyKind)
-		return missing, present, false
+		return missing, present, false, false
 	}
 	present = append(present, essenceKeyKind)
-	return missing, present, len(catalog.ParseKindSegments(kind)) < 3
+	n := len(catalog.ParseKindSegments(kind))
+	return missing, present, n < essenceKindLevels, n > essenceKindLevels
 }
 
 func essenceStartedAtLaterWhy(missing, present []string) bool {
