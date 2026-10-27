@@ -1,5 +1,5 @@
 {
-  "revision": "fixture testdata/bench v1",
+  "revision": "fixture testdata/bench v2",
   "labels": [
     {
       "object_hash": "fix_pipeline_failure_01",
@@ -10,7 +10,7 @@
     {
       "object_hash": "fix_job_posting_02",
       "subject_hint": "Acme is hiring a backend engineer",
-      "expected_leaf": "job-posting",
+      "expected_leaf": "engineering",
       "required_terms": ["acme", "hiring", "backend"]
     },
     {
@@ -22,19 +22,19 @@
     {
       "object_hash": "fix_payment_failure_04",
       "subject_hint": "Invoice overdue for Acme Cloud",
-      "expected_leaf": "payment-failure",
+      "expected_leaf": "overdue",
       "required_terms": ["invoice", "overdue", "acme cloud"]
     },
     {
       "object_hash": "fix_newsletter_05",
       "subject_hint": "This week in Go: three conference talks",
-      "expected_leaf": "newsletter",
+      "expected_leaf": "digest",
       "required_terms": ["go", "conference", "digest"]
     },
     {
       "object_hash": "fix_meeting_06",
       "subject_hint": "Invitation: design review Thursday",
-      "expected_leaf": "meeting-invite",
+      "expected_leaf": "design-review",
       "required_terms": ["design review", "thursday", "invitation"]
     },
     {
@@ -46,7 +46,7 @@
     {
       "object_hash": "fix_thread_reply_08",
       "subject_hint": "Re: warehouse inventory spreadsheet",
-      "expected_leaf": "human-reply",
+      "expected_leaf": "confirmation-request",
       "required_terms": ["inventory", "spreadsheet", "bin"]
     }
   ]
