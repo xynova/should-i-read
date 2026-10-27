@@ -94,6 +94,7 @@ func (c *Client) embedOnce(ctx context.Context, model string, req EmbedRequest) 
 		return nil, false, sirerr.Wrap(err, sirerr.CodeFailed, op, "request")
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	applyTimeoutHeader(httpReq)
 	client := c.ChatHTTP
 	if client == nil {
 		client = &http.Client{Timeout: 60 * time.Second}
