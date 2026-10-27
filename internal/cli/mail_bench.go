@@ -181,9 +181,9 @@ func runMailBenchVariant(cmd *cobra.Command, opts *rootOptions, repoRoot string,
 	if err := os.MkdirAll(ledgerRoot, 0o750); err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "mkdir ledgers")
 	}
-	reader, err := pimdir.OpenStore(cfg.Pimalaya.PimdirPath)
-	if err != nil {
-		return wrapCLIHop(err, op, "open pimdir")
+	reader, storeErr := pimdir.OpenStore(cfg.Pimalaya.PimdirPath)
+	if storeErr != nil {
+		reader = nil
 	}
 	wallStart := time.Now()
 	merged := mailreport.Artifact{Mode: "report_only", Source: mailreport.SourceBench}
@@ -210,6 +210,11 @@ func runMailBenchVariant(cmd *cobra.Command, opts *rootOptions, repoRoot string,
 			return wrapCLIHop(err, op, "load chunk items "+chunkID)
 		}
 		items = mailreport.DedupeItemsByHash(items)
+		if err := requireItemBodies(items, storeErr); err != nil {
+			_ = runner.Close()
+			cancel()
+			return wrapCLIHop(err, op, "chunk bodies "+chunkID)
+		}
 		sliceArt, err := runner.Classify(chunkCtx, mailreport.SourceBench, items)
 		closeErr := runner.Close()
 		cancel()
@@ -279,4 +284,19 @@ func gitHeadSHA(repoRoot string) string {
 		return "unknown"
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func requireItemBodies(items []mailreport.Item, storeErr error) error {
+	const op = "cli.requireItemBodies"
+	for _, it := range items {
+		if strings.TrimSpace(it.Body) != "" {
+			continue
+		}
+		if storeErr != nil {
+			return sirerr.Wrap(storeErr, sirerr.CodeFailed, op, "pimdir required when export body is empty").
+				With("object_hash", it.ObjectHash)
+		}
+		return sirerr.New(sirerr.CodeInvalid, op, "empty message body").With("object_hash", it.ObjectHash)
+	}
+	return nil
 }

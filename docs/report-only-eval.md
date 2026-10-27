@@ -113,8 +113,8 @@ Compare Essence prompt variants on the **same** 100 messages (live Polypus, repo
 1. `go tool task mail:export -- --limit 500 --out bench/input-export.json` (needs at least 100 unique `object_hash` values).
 2. `./bin/should-i-read mail bench freeze --in bench/input-export.json` writes `bench/input-100.json`, `bench/chunks/c1.json`…`c5.json`, and `bench/input-rev.txt`.
 3. Edit `bench/labels-20.json` (`expected_leaf`, `required_terms`) after `mail bench labels-stub` if needed.
-4. `go tool task polypus-check -- --classify`, then smoke: `./bin/should-i-read mail bench --variant checklist --chunks bench/smoke1`.
-5. Full matrix (sequential): `mail bench --variant baseline|thinking|checklist --chunks bench/chunks` → `tmp/bench/<variant>-artifact.json` and `tmp/bench/<variant>-score.json`.
+4. `go tool task polypus-check -- --classify`, then smoke on committed fixtures (no live pimdir): `./bin/should-i-read mail bench --variant checklist --chunks testdata/bench/chunks --labels testdata/bench/labels.json --input-rev testdata/bench/input-rev.txt`.
+5. Full matrix (sequential, live freeze under gitignored `bench/`): `mail bench --variant baseline|thinking|checklist --chunks bench/chunks` → `tmp/bench/<variant>-artifact.json` and `tmp/bench/<variant>-score.json`.
 
 Bench-only env (unset in normal classify): `SHOULD_I_READ_BENCH_REASONING` (`high`|`off`), `SHOULD_I_READ_BENCH_FEEDBACK` (`checklist`|`short`). Variants: baseline (`off`+`short`), thinking (`high`+`short`), checklist (`high`+`checklist`). Each chunk probes Essence (`polypus.essence_model`) and does not smoke Author (`polypus.classify_model`) or embeddings (`polypus.embed_model`). Operator classify still fail-closes on those probes. Gateway is `polypus.base_url` / `POLYPUS_BASE_URL` (homelab: `https://polypus.manticore-powan.ts.net`).
 

@@ -1,0 +1,105 @@
+{
+  "mode": "report_only",
+  "exported_at": "2026-10-27T00:00:00Z",
+  "store_dir": "testdata/bench",
+  "polypus_base_url": "",
+  "count": 8,
+  "emails": [
+    {
+      "collection": "imap/INBOX",
+      "link_id": "fix-pipeline-1",
+      "seq": 1,
+      "subject": "acme-api | Failed pipeline for feat/login | abc1234",
+      "sender": "bot@gitlab.example",
+      "sender_name": "GitLab",
+      "date": "2026-10-01T10:00:00Z",
+      "message_id": "pipeline-1@gitlab.example",
+      "object_hash": "fix_pipeline_failure_01",
+      "body": "Pipeline failed on feat/login for acme-api. Job test: unit tests exited 1 after assert in login_handler_test.go. Open the pipeline page for logs."
+    },
+    {
+      "collection": "imap/INBOX",
+      "link_id": "fix-job-1",
+      "seq": 2,
+      "subject": "Acme is hiring a backend engineer",
+      "sender": "jobs@boards.example",
+      "sender_name": "Acme Boards",
+      "date": "2026-10-02T10:00:00Z",
+      "message_id": "job-1@boards.example",
+      "object_hash": "fix_job_posting_02",
+      "body": "Acme is hiring a backend engineer in Melbourne. Stack is Go and Postgres. Apply on the careers board if you want this role."
+    },
+    {
+      "collection": "imap/INBOX",
+      "link_id": "fix-pr-1",
+      "seq": 3,
+      "subject": "[acme/api] feat: add health check (PR #12)",
+      "sender": "notifications@github.example",
+      "sender_name": "GitHub",
+      "date": "2026-10-03T10:00:00Z",
+      "message_id": "pr-12@github.example",
+      "object_hash": "fix_pull_request_03",
+      "body": "A pull request was opened on acme/api: feat add health check. Reviewers can comment on PR #12. No merge yet."
+    },
+    {
+      "collection": "imap/INBOX",
+      "link_id": "fix-bill-1",
+      "seq": 4,
+      "subject": "Invoice overdue for Acme Cloud",
+      "sender": "billing@cloud.example",
+      "sender_name": "Acme Cloud Billing",
+      "date": "2026-10-04T10:00:00Z",
+      "message_id": "invoice-1@cloud.example",
+      "object_hash": "fix_payment_failure_04",
+      "body": "Invoice INV-2048 for Acme Cloud is overdue. The last card charge failed. Update the payment method to avoid pause."
+    },
+    {
+      "collection": "imap/INBOX",
+      "link_id": "fix-news-1",
+      "seq": 5,
+      "subject": "This week in Go: three conference talks",
+      "sender": "digest@golang.example",
+      "sender_name": "Go Weekly",
+      "date": "2026-10-05T10:00:00Z",
+      "message_id": "news-1@golang.example",
+      "object_hash": "fix_newsletter_05",
+      "body": "Three talks from GopherCon are linked below. This is a weekly digest. Unsubscribe at the footer if you do not want it."
+    },
+    {
+      "collection": "imap/INBOX",
+      "link_id": "fix-meet-1",
+      "seq": 6,
+      "subject": "Invitation: design review Thursday",
+      "sender": "calendar@work.example",
+      "sender_name": "Calendar",
+      "date": "2026-10-06T10:00:00Z",
+      "message_id": "meet-1@work.example",
+      "object_hash": "fix_meeting_06",
+      "body": "You are invited to a design review on Thursday 10:00. Room is North-2. Accept or decline from the calendar invite."
+    },
+    {
+      "collection": "imap/INBOX",
+      "link_id": "fix-reset-1",
+      "seq": 7,
+      "subject": "Reset your Acme account password",
+      "sender": "noreply@accounts.example",
+      "sender_name": "Acme Accounts",
+      "date": "2026-10-07T10:00:00Z",
+      "message_id": "reset-1@accounts.example",
+      "object_hash": "fix_password_reset_07",
+      "body": "A password reset was requested for demo-user@acme.example. Use the one-time link in this message. Ignore it if you did not ask."
+    },
+    {
+      "collection": "imap/INBOX",
+      "link_id": "fix-reply-1",
+      "seq": 8,
+      "subject": "Re: warehouse inventory spreadsheet",
+      "sender": "alex@ops.example",
+      "sender_name": "Alex Rivera",
+      "date": "2026-10-08T10:00:00Z",
+      "message_id": "reply-1@ops.example",
+      "object_hash": "fix_thread_reply_08",
+      "body": "Thanks for the inventory sheet. Row 14 still shows a zero count for bin A-3. Can you confirm whether that bin was emptied on Monday?"
+    }
+  ]
+}

@@ -648,15 +648,28 @@ func itemFromSummary(reader *pimdir.Reader, sum pimdir.EmailSummary, maxBody int
 	if hash == "" {
 		return item
 	}
-	if blob, err := reader.ReadBlob(hash); err == nil {
-		if prev, err := pimdir.DecodeMessagePreview(blob, maxBody); err == nil {
-			item.Body = prev.Body
-		}
-		if hdr, err := pimdir.ParseMailHeaders(blob); err == nil {
-			item.Headers = hdr
+	if reader != nil {
+		if blob, err := reader.ReadBlob(hash); err == nil {
+			if prev, err := pimdir.DecodeMessagePreview(blob, maxBody); err == nil {
+				item.Body = prev.Body
+			}
+			if hdr, err := pimdir.ParseMailHeaders(blob); err == nil {
+				item.Headers = hdr
+			}
 		}
 	}
+	if strings.TrimSpace(item.Body) == "" {
+		item.Body = truncateExportBody(sum.Body, maxBody)
+	}
 	return item
+}
+
+func truncateExportBody(body string, maxBody int) string {
+	body = strings.TrimSpace(body)
+	if maxBody > 0 && len(body) > maxBody {
+		return body[:maxBody]
+	}
+	return body
 }
 
 func validateMailReportWindow(inPath, fromDate, toDate string) (pimdir.DateWindow, error) {

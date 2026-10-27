@@ -234,3 +234,29 @@ func TestClassifyAuthorModel_probeFailsClosed(t *testing.T) {
 		t.Fatalf("calls %v", p.calls)
 	}
 }
+
+func TestItemsFromExportFile_usesJSONBodyWithoutStore(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join("..", "..", "testdata", "bench", "chunks", "c1.json")
+	items, err := itemsFromExportFile(nil, path, 8192)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 8 {
+		t.Fatalf("len %d", len(items))
+	}
+	byHash := map[string]mailreport.Item{}
+	for _, it := range items {
+		if strings.TrimSpace(it.Body) == "" {
+			t.Fatalf("empty body %s", it.ObjectHash)
+		}
+		byHash[it.ObjectHash] = it
+	}
+	got := byHash["fix_pipeline_failure_01"]
+	if !strings.Contains(got.Body, "Pipeline failed") {
+		t.Fatalf("body %q", got.Body)
+	}
+	if got.Subject == "" {
+		t.Fatal("missing subject")
+	}
+}

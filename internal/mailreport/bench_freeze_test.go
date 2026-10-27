@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/xynova/should-i-read/internal/pimdir"
 )
 
 func TestFreezeBenchInput_deterministicChunks(t *testing.T) {
@@ -106,6 +108,55 @@ func TestFreezeBenchInput_chunkContract(t *testing.T) {
 	}
 	if len(frozen.Emails) != BenchFreezeMessageCount {
 		t.Fatalf("frozen %d", len(frozen.Emails))
+	}
+}
+
+func TestFreezeBenchInput_preservesExportBody(t *testing.T) {
+	dir := t.TempDir()
+	exportPath := filepath.Join(dir, "export.json")
+	env := BenchExportEnvelope{
+		Mode: "export",
+		Emails: []pimdir.EmailSummary{
+			{ObjectHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Subject: "one", Body: "body-one"},
+		},
+	}
+	for i := 1; i < BenchFreezeMessageCount; i++ {
+		env.Emails = append(env.Emails, pimdir.EmailSummary{
+			ObjectHash: fmt.Sprintf("%064x", i),
+			Subject:    fmt.Sprintf("subject-%d", i),
+			Body:       fmt.Sprintf("body-%d", i),
+		})
+	}
+	raw, err := json.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exportPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := FreezeBenchInput(exportPath, filepath.Join(dir, "out"), "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var frozen BenchExportEnvelope
+	got, err := os.ReadFile(res.InputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(got, &frozen); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range frozen.Emails {
+		if e.ObjectHash == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+			found = true
+			if e.Body != "body-one" {
+				t.Fatalf("body %q", e.Body)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing hash")
 	}
 }
 

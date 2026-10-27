@@ -24,6 +24,8 @@ type EmailSummary struct {
 	Date       string `json:"date,omitempty"`
 	MessageID  string `json:"message_id,omitempty"`
 	ObjectHash string `json:"object_hash,omitempty"`
+	// Body is optional export-only preview text. Live pimdir scans leave it empty.
+	Body string `json:"body,omitempty"`
 }
 
 // Reader opens a pimdir store read-only.

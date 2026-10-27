@@ -2,11 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/xynova/should-i-read/internal/mailreport"
 )
+
+var errPimdirMissing = errors.New("pimdir.db not found")
 
 func TestMailBenchHelp_listsVariantFlag(t *testing.T) {
 	opts := &rootOptions{}
@@ -40,6 +45,22 @@ func TestMailBench_invalidVariantBeforePolypus(t *testing.T) {
 	root.SetErr(&buf)
 	root.SetArgs([]string{"mail", "bench", "--variant", "not-a-variant"})
 	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestRequireItemBodies_okWhenInline(t *testing.T) {
+	t.Parallel()
+	err := requireItemBodies([]mailreport.Item{{ObjectHash: "a", Body: "text"}}, errPimdirMissing)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRequireItemBodies_needsStoreWhenEmpty(t *testing.T) {
+	t.Parallel()
+	err := requireItemBodies([]mailreport.Item{{ObjectHash: "a"}}, errPimdirMissing)
 	if err == nil {
 		t.Fatal("expected error")
 	}
