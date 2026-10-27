@@ -147,6 +147,22 @@ tasks:
     cmds:
       - "{{.BIN}} mail bench {{.CLI_ARGS}}"
 
+  mail:bench-matrix:
+    desc: Run baseline, thinking, and checklist on committed testdata fixtures
+    summary: |
+      Wipes each variant ledger (mail bench --fresh) then classifies testdata/bench/chunks.
+      Requires Polypus. Scorecards land under tmp/bench/<variant>-score.json.
+    deps: [build]
+    cmds:
+      - |
+        set -e
+        for v in baseline thinking checklist; do
+          {{.BIN}} mail bench --fresh --variant "$v" \
+            --chunks testdata/bench/chunks \
+            --labels testdata/bench/labels.json \
+            --input-rev testdata/bench/input-rev.txt
+        done
+
   mail:tags:
     desc: Regenerate mail tag register from classify ledger
     summary: |

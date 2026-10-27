@@ -32,6 +32,9 @@ func TestMailBenchHelp_listsVariantFlag(t *testing.T) {
 	if !strings.Contains(out, "--chunks") {
 		t.Fatalf("missing --chunks:\n%s", out)
 	}
+	if !strings.Contains(out, "--fresh") {
+		t.Fatalf("missing --fresh:\n%s", out)
+	}
 }
 
 func TestMailBench_invalidVariantBeforePolypus(t *testing.T) {

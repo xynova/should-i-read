@@ -24,6 +24,7 @@ type mailBenchRunFlags struct {
 	labels    string
 	revPath   string
 	maxBody   int
+	fresh     bool
 }
 
 func newMailBenchCmd(opts *rootOptions, repoRoot string) *cobra.Command {
@@ -53,6 +54,7 @@ func addMailBenchRunFlags(cmd *cobra.Command, run *mailBenchRunFlags) {
 	cmd.Flags().StringVar(&run.labels, "labels", "", "labels-20.json path")
 	cmd.Flags().StringVar(&run.revPath, "input-rev", "", "input-rev.txt path")
 	cmd.Flags().IntVar(&run.maxBody, "max-body", 8192, "Max body bytes per message")
+	cmd.Flags().BoolVar(&run.fresh, "fresh", false, "Remove per-variant ledger under tmp/bench/<variant> before classify")
 }
 
 func newMailBenchFreezeCmd(opts *rootOptions, repoRoot string) *cobra.Command {
@@ -177,6 +179,11 @@ func runMailBenchVariant(cmd *cobra.Command, opts *rootOptions, repoRoot string,
 	ledgerRoot := strings.TrimSpace(run.ledgers)
 	if ledgerRoot == "" {
 		ledgerRoot = filepath.Join(repoRoot, "tmp", "bench", variant)
+	}
+	if run.fresh {
+		if err := os.RemoveAll(ledgerRoot); err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "remove ledger dir").With("path", ledgerRoot)
+		}
 	}
 	if err := os.MkdirAll(ledgerRoot, 0o750); err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "mkdir ledgers")
