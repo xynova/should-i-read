@@ -123,26 +123,93 @@ func parentInAuthorScope(cat *catalog.Catalog, parents []harness.PackedOption, p
 	return !cat.IsLeaf(rt.ID)
 }
 
+const (
+	// CatalogErrDescriptionShort is returned when a catalog description has too few words.
+	CatalogErrDescriptionShort = "catalog description too short"
+	// CatalogErrDescriptionLayout is returned when a description names layout or geometry.
+	CatalogErrDescriptionLayout = "catalog description is layout metadata"
+)
+
 func validateAuthorDescription(desc string) error {
 	const op = "mailreport.validateAuthorDescription"
+	if err := validateCatalogDescription(desc); err != nil {
+		if strings.Contains(err.Error(), CatalogErrDescriptionShort) {
+			return sirerr.New(sirerr.CodeFailed, op, "new_leaf description too short")
+		}
+		if strings.Contains(err.Error(), CatalogErrDescriptionLayout) {
+			return sirerr.New(sirerr.CodeFailed, op, "new_leaf description is layout metadata")
+		}
+		return err
+	}
+	return nil
+}
+
+func validateCatalogDescription(desc string) error {
+	const op = "mailreport.validateCatalogDescription"
 	desc = strings.TrimSpace(desc)
 	if desc == "" {
-		return sirerr.New(sirerr.CodeFailed, op, "new_leaf draft missing description")
+		return sirerr.New(sirerr.CodeFailed, op, "catalog description required")
 	}
 	words := strings.Fields(desc)
 	if len(words) < 4 {
-		return sirerr.New(sirerr.CodeFailed, op, "new_leaf description too short")
+		return sirerr.New(sirerr.CodeFailed, op, CatalogErrDescriptionShort)
 	}
+	if catalogDescriptionIsLayoutMetadata(desc) {
+		return sirerr.New(sirerr.CodeFailed, op, CatalogErrDescriptionLayout)
+	}
+	return nil
+}
+
+func validateCatalogShape(desc string) error {
+	const op = "mailreport.validateCatalogShape"
+	desc = strings.TrimSpace(desc)
+	if desc == "" {
+		return nil
+	}
+	if catalogDescriptionIsLayoutMetadata(desc) {
+		return sirerr.New(sirerr.CodeFailed, op, CatalogErrDescriptionLayout)
+	}
+	words := strings.Fields(desc)
+	if len(words) > 0 {
+		allKebab := true
+		for _, w := range words {
+			if !isKebabID(w) {
+				allKebab = false
+				break
+			}
+		}
+		if allKebab {
+			return nil
+		}
+	}
+	if len(words) < 2 {
+		return sirerr.New(sirerr.CodeFailed, op, CatalogErrDescriptionShort)
+	}
+	return nil
+}
+
+func validateBreadcrumbCatalogInput(about, shape string) error {
+	const op = "mailreport.validateBreadcrumbCatalogInput"
+	if err := validateCatalogDescription(about); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "breadcrumb about")
+	}
+	if err := validateCatalogShape(shape); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "breadcrumb shape")
+	}
+	return nil
+}
+
+func catalogDescriptionIsLayoutMetadata(desc string) bool {
 	low := strings.ToLower(desc)
 	for _, bad := range []string{
 		"rectangular", "square", "circle", "triangle",
 		"structured layout", "css styling", "font-family",
 	} {
 		if strings.Contains(low, bad) {
-			return sirerr.New(sirerr.CodeFailed, op, "new_leaf description is layout metadata")
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 func isKebabID(id string) bool {

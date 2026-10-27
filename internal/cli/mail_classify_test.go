@@ -196,3 +196,41 @@ func TestValidateMailReportWindowWrapsPimdir(t *testing.T) {
 		t.Fatalf("missing CLI op: %v", err)
 	}
 }
+
+type stubAuthorProber struct {
+	calls []string
+}
+
+func (s *stubAuthorProber) ProbeChat(_ context.Context, model string) error {
+	s.calls = append(s.calls, model)
+	return sirerr.New(sirerr.CodeUnavailable, "stub", "author down").With("model", model)
+}
+
+func TestClassifyAuthorModel_skipProbeDoesNotChat(t *testing.T) {
+	t.Parallel()
+	p := &stubAuthorProber{}
+	got, err := classifyAuthorModel(context.Background(), p, nil, "cf_local/@cf/ibm-granite/granite-4.0-h-micro", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "cf_local/@cf/ibm-granite/granite-4.0-h-micro" {
+		t.Fatalf("author %q", got)
+	}
+	if len(p.calls) != 0 {
+		t.Fatalf("probed %v", p.calls)
+	}
+}
+
+func TestClassifyAuthorModel_probeFailsClosed(t *testing.T) {
+	t.Parallel()
+	p := &stubAuthorProber{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := classifyAuthorModel(ctx, p, nil, "cf_local/@cf/ibm-granite/granite-4.0-h-micro", false)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if len(p.calls) != 1 {
+		t.Fatalf("calls %v", p.calls)
+	}
+}

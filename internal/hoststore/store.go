@@ -14,7 +14,10 @@ import (
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
-const classifyLease = 15 * time.Minute
+const (
+	classifyLease     = 15 * time.Minute
+	sqliteBusyTimeout = 30 * time.Second
+)
 
 // Store is the host classify ledger.
 type Store struct {
@@ -41,8 +44,9 @@ func CreateStore(cfg StoreConfig) (*Store, error) {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "mkdir store parent")
 	}
 	dsn := fmt.Sprintf(
-		"file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
+		"file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(%d)",
 		filepath.ToSlash(abs),
+		sqliteBusyTimeout.Milliseconds(),
 	)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

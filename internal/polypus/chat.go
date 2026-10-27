@@ -12,6 +12,9 @@ import (
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
+// ReasoningEffortHigh requests high reasoning effort from compatible models.
+const ReasoningEffortHigh = "high"
+
 // RoleSystem, RoleUser, and RoleAssistant are OpenAI chat message roles.
 const (
 	RoleSystem    = "system"
@@ -25,17 +28,24 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
+// ChatReasoning configures model reasoning for a chat completion.
+type ChatReasoning struct {
+	Effort string `json:"effort,omitempty"`
+}
+
 // ChatRequest is a chat completion call.
 type ChatRequest struct {
 	Model       string
 	Messages    []ChatMessage
 	Temperature float64
+	Reasoning   *ChatReasoning
 }
 
 type chatCompletionBody struct {
-	Model       string        `json:"model"`
-	Messages    []ChatMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
+	Model       string         `json:"model"`
+	Messages    []ChatMessage  `json:"messages"`
+	Temperature float64        `json:"temperature"`
+	Reasoning   *ChatReasoning `json:"reasoning,omitempty"`
 }
 
 type chatCompletionResponse struct {
@@ -123,6 +133,7 @@ func (c *Client) chatOnce(ctx context.Context, model string, req ChatRequest) (c
 		Model:       model,
 		Messages:    req.Messages,
 		Temperature: temp,
+		Reasoning:   req.Reasoning,
 	})
 	if err != nil {
 		return "", false, sirerr.Wrap(err, sirerr.CodeFailed, op, "encode request")

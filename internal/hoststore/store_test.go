@@ -60,3 +60,10 @@ func TestStoreMethodsRequireDeadline(t *testing.T) {
 		t.Fatal("expected missing deadline error")
 	}
 }
+
+func TestSqliteBusyTimeoutIsThirtySeconds(t *testing.T) {
+	t.Parallel()
+	if sqliteBusyTimeout != 30*time.Second {
+		t.Fatalf("sqlite busy timeout %s", sqliteBusyTimeout)
+	}
+}

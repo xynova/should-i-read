@@ -310,15 +310,21 @@ func TestPolypusEssencerCompensateAfterMicroExhaust(t *testing.T) {
 		}
 		n := calls.Add(1)
 		var body struct {
-			Model    string                `json:"model"`
-			Messages []polypus.ChatMessage `json:"messages"`
+			Model     string                 `json:"model"`
+			Messages  []polypus.ChatMessage  `json:"messages"`
+			Reasoning *polypus.ChatReasoning `json:"reasoning"`
 		}
 		content := whyOnly
 		if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.Model == "granite-8b" && n <= 4 {
+			if body.Reasoning == nil || body.Reasoning.Effort != polypus.ReasoningEffortHigh {
+				t.Errorf("escalation reasoning=%+v, want high effort", body.Reasoning)
+			}
 			if len(body.Messages) != 2 {
 				t.Errorf("escalate restart expected 2 messages, got %d: %+v", len(body.Messages), body.Messages)
 			}
 			content = whyFull
+		} else if body.Model == "granite" && body.Reasoning != nil {
+			t.Errorf("baseline reasoning=%+v, want omitted", body.Reasoning)
 		}
 		if n == 5 {
 			content = tagsBody

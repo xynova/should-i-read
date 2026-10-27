@@ -43,6 +43,13 @@ func TestResolveEmbedModel_yamlFirst(t *testing.T) {
 	}
 }
 
+func TestPickEmbedModel_yamlWithoutProbe(t *testing.T) {
+	id, err := PickEmbedModel(nil, "cf_local/@cf/baai/bge-m3")
+	if err != nil || id != "cf_local/@cf/baai/bge-m3" {
+		t.Fatalf("%v %q", err, id)
+	}
+}
+
 func TestResolveEmbedModel_catalogBGE(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

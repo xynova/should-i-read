@@ -307,7 +307,7 @@ func TestRunner_Classify_persistsCanonicalEmbedding(t *testing.T) {
 	}
 }
 
-func TestRunner_Classify_embedPersistDoesNotFailComplete(t *testing.T) {
+func TestRunner_Classify_embedPersistFailsRow(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	vocab := testInboxVocab()
 	cat := testInboxCatalog(t)
@@ -347,20 +347,23 @@ func TestRunner_Classify_embedPersistDoesNotFailComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if art.Classified != 1 {
+	if art.Classified != 0 {
 		t.Fatalf("classified=%d", art.Classified)
 	}
-	if len(art.Messages) != 1 || strings.TrimSpace(art.Messages[0].EmbedPersist) == "" {
-		t.Fatalf("embed_persist: %+v", art.Messages)
+	if len(art.Messages) != 1 {
+		t.Fatalf("messages=%d", len(art.Messages))
 	}
-	if art.Messages[0].Error != "" {
-		t.Fatalf("classify error: %q", art.Messages[0].Error)
+	if !strings.Contains(art.Messages[0].Error, "polypus embed down") {
+		t.Fatalf("error=%q", art.Messages[0].Error)
+	}
+	if strings.TrimSpace(art.Messages[0].EmbedPersist) != "" {
+		t.Fatalf("embed_persist should be empty: %q", art.Messages[0].EmbedPersist)
 	}
 	got, err := store.Get(ctx, "abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != "complete" {
+	if got.Status != "error" {
 		t.Fatalf("status=%q", got.Status)
 	}
 	_, err = store.GetEmbedding(ctx, "abc123", "test-embed")
@@ -374,6 +377,13 @@ func TestOperateTimeoutAttachIsFiveMinutes(t *testing.T) {
 	t.Parallel()
 	if operateTimeoutAttach != 5*time.Minute {
 		t.Fatalf("attach operate timeout %s", operateTimeoutAttach)
+	}
+}
+
+func TestStoreWriteTimeoutIsThirtySeconds(t *testing.T) {
+	t.Parallel()
+	if storeWriteTimeout != 30*time.Second {
+		t.Fatalf("store write timeout %s", storeWriteTimeout)
 	}
 }
 

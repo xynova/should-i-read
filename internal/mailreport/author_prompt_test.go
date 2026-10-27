@@ -68,6 +68,49 @@ func TestValidateAuthorDraft_rejectsParentPrefixedID(t *testing.T) {
 	}
 }
 
+func TestValidateBreadcrumbCatalogInput_rejectsLayoutAbout(t *testing.T) {
+	t.Parallel()
+	err := validateBreadcrumbCatalogInput("Rectangular", "notification ci")
+	if err == nil {
+		t.Fatal("want error for layout about")
+	}
+}
+
+func TestValidateBreadcrumbCatalogInput_kebabShape(t *testing.T) {
+	t.Parallel()
+	about := "Bridget Shelton sent the executed agreement for the commission case."
+	if err := validateBreadcrumbCatalogInput(about, "legal-notice"); err != nil {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestValidateCatalogShape_layoutBeforeKebab(t *testing.T) {
+	t.Parallel()
+	err := validateCatalogShape("rectangular")
+	if err == nil || !strings.Contains(err.Error(), CatalogErrDescriptionLayout) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestValidateBreadcrumbCatalogInput_aboutStillNeedsFourWords(t *testing.T) {
+	t.Parallel()
+	err := validateBreadcrumbCatalogInput("too few words", "legal-notice")
+	if err == nil || !strings.Contains(err.Error(), CatalogErrDescriptionShort) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestValidateBreadcrumbCatalogInput_acceptsShapeTagLine(t *testing.T) {
+	t.Parallel()
+	err := validateBreadcrumbCatalogInput(
+		"This message is a notification about a failed GitHub Actions workflow run.",
+		"notification ci",
+	)
+	if err != nil {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestValidateAuthorDraft_acceptsGroundedNewLeaf(t *testing.T) {
 	cat := testInboxCatalog(t)
 	err := validateAuthorDraft(cat, []harness.PackedOption{{ParentID: "unwanted", Label: "Unwanted"}}, authorJSON{

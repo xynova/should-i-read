@@ -14,6 +14,7 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
 	"github.com/behaviorengineering/taxonomy/pkg/tags"
+	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -55,15 +56,22 @@ type authorJSON struct {
 }
 
 type polypusEssencer struct {
-	client        *polypus.Client
-	model         string
-	escalateModel string
-	prompts       EssencePrompts
-	dump          *essenceDumper
-	whyShell      *integrity.Shell
-	tagsShell     *integrity.Shell
-	kindShell     *integrity.Shell
-	tagCatalog    *tags.Catalog
+	client                     *polypus.Client
+	model                      string
+	escalateModel              string
+	prompts                    EssencePrompts
+	dump                       *essenceDumper
+	whyShell                   *integrity.Shell
+	tagsShell                  *integrity.Shell
+	kindShell                  *integrity.Shell
+	whyEscalateShell           *integrity.Shell
+	tagsEscalateShell          *integrity.Shell
+	kindEscalateShell          *integrity.Shell
+	tagCatalog                 *tags.Catalog
+	embedder                   harness.Embedder
+	descriptionCosineMin       float64
+	descriptionCosineMode      config.DescriptionCosineMode
+	essenceSemanticMaxAttempts int
 }
 
 func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (harness.EssenceOut, error) {
@@ -84,6 +92,9 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 	prompts := e.prompts
 	if strings.TrimSpace(prompts.Why) == "" {
 		prompts = BuildEssencePrompts(nil)
+	}
+	if e.descriptionCosineMode == config.DescriptionCosineModeRepair {
+		return e.essencePhaseWalk(ctx, messageText, mailPrefix, prompts)
 	}
 
 	whyRaw, whyErr := e.whyShell.Run(ctx, prompts.Why, mailPrefix)
@@ -169,17 +180,20 @@ func (e *polypusEssencer) failSlave(ctx context.Context, op, slave, messageText,
 
 // SeatsConfig wires Polypus models for taxonomy seats.
 type SeatsConfig struct {
-	Client               *polypus.Client
-	JudgeModel           string
-	AuthorModel          string
-	EssenceModel         string
-	EssenceEscalateModel string
-	EssenceDumpDir       string
-	EssencePrompts       EssencePrompts
-	TagCatalog           *tags.Catalog
-	Now                  time.Time
-	Embedder             harness.Embedder
-	JEVClient            *jev.Client
+	Client                     *polypus.Client
+	JudgeModel                 string
+	AuthorModel                string
+	EssenceModel               string
+	EssenceEscalateModel       string
+	EssenceDumpDir             string
+	EssencePrompts             EssencePrompts
+	TagCatalog                 *tags.Catalog
+	Now                        time.Time
+	Embedder                   harness.Embedder
+	JEVClient                  *jev.Client
+	DescriptionCosineMin       float64
+	DescriptionCosineMode      config.DescriptionCosineMode
+	EssenceSemanticMaxAttempts int
 }
 
 // CreateSeats wires Polypus SystemOne Judge and chat Author (optional Essencer/Embedder).
@@ -206,6 +220,9 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 		Author: &polypusAuthor{client: cfg.Client, model: authorModel},
 	}
 	if essenceModel != "" {
+		if err := validateBenchFeedbackEnv(); err != nil {
+			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "bench feedback knob")
+		}
 		escalateModel := EffectiveEssenceEscalateModel(essenceModel, cfg.EssenceEscalateModel)
 		SetEssenceTagCatalog(cfg.TagCatalog)
 		prompts := cfg.EssencePrompts
@@ -228,16 +245,38 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 		if err != nil {
 			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence kind shell")
 		}
+		var whyEscalateShell, tagsEscalateShell, kindEscalateShell *integrity.Shell
+		if escalateModel != "" {
+			whyEscalateShell, err = createEssenceIntegrityShellPolypus(cfg.Client, escalateModel, "", essenceWhyShellHooks(cfg.TagCatalog))
+			if err != nil {
+				return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence why escalation shell")
+			}
+			tagsEscalateShell, err = createEssenceIntegrityShellPolypus(cfg.Client, escalateModel, "", essenceTagsShellHooks(cfg.TagCatalog))
+			if err != nil {
+				return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence tags escalation shell")
+			}
+			kindEscalateShell, err = createEssenceIntegrityShellPolypus(cfg.Client, escalateModel, "", essenceKindShellHooks(cfg.TagCatalog))
+			if err != nil {
+				return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence kind escalation shell")
+			}
+		}
 		out.Essencer = &polypusEssencer{
-			client:        cfg.Client,
-			model:         essenceModel,
-			escalateModel: escalateModel,
-			prompts:       prompts,
-			dump:          CreateEssenceDumper(EssenceDumpConfig{Dir: cfg.EssenceDumpDir, Now: cfg.Now}),
-			whyShell:      whyShell,
-			tagsShell:     tagsShell,
-			kindShell:     kindShell,
-			tagCatalog:    cfg.TagCatalog,
+			client:                     cfg.Client,
+			model:                      essenceModel,
+			escalateModel:              escalateModel,
+			prompts:                    prompts,
+			dump:                       CreateEssenceDumper(EssenceDumpConfig{Dir: cfg.EssenceDumpDir, Now: cfg.Now}),
+			whyShell:                   whyShell,
+			tagsShell:                  tagsShell,
+			kindShell:                  kindShell,
+			whyEscalateShell:           whyEscalateShell,
+			tagsEscalateShell:          tagsEscalateShell,
+			kindEscalateShell:          kindEscalateShell,
+			tagCatalog:                 cfg.TagCatalog,
+			embedder:                   cfg.Embedder,
+			descriptionCosineMin:       cfg.DescriptionCosineMin,
+			descriptionCosineMode:      cfg.DescriptionCosineMode,
+			essenceSemanticMaxAttempts: cfg.EssenceSemanticMaxAttempts,
 		}
 	}
 	out.Embedder = cfg.Embedder

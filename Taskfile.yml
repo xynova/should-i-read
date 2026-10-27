@@ -138,6 +138,15 @@ tasks:
     cmds:
       - "{{.BIN}} mail report {{.CLI_ARGS}}"
 
+  mail:bench:
+    desc: Essence benchmark freeze or variant run
+    summary: |
+      Subcommands: bench freeze, bench labels-stub, or bench --variant baseline|thinking|checklist.
+      Requires Polypus for variant runs. See docs/report-only-eval.md (Essence benchmark).
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail bench {{.CLI_ARGS}}"
+
   mail:tags:
     desc: Regenerate mail tag register from classify ledger
     summary: |

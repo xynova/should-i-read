@@ -8,38 +8,56 @@ import (
 )
 
 const (
-	defaultClassifyMax      = 50
-	defaultCollectionINBOX  = "imap/INBOX"
-	defaultAttachMinCosine  = 0.80
-	defaultWalkReinforce    = 0.70
-	defaultEssenceBatchSize = 8
-	maxEssenceBatchSize     = 16
+	defaultClassifyMax                = 50
+	defaultCollectionINBOX            = "imap/INBOX"
+	defaultAttachMinCosine            = 0.80
+	defaultWalkReinforce              = 0.70
+	defaultEssenceBatchSize           = 8
+	maxEssenceBatchSize               = 16
+	defaultDescriptionCosineMin       = 0.55
+	defaultDescriptionCosineMode      = DescriptionCosineModeReport
+	defaultEssenceSemanticMaxAttempts = 2
+)
+
+// DescriptionCosineMode controls Essence ABOUT fit-to-email scoring and repair.
+type DescriptionCosineMode string
+
+const (
+	DescriptionCosineModeOff    DescriptionCosineMode = "off"
+	DescriptionCosineModeReport DescriptionCosineMode = "report"
+	DescriptionCosineModeRepair DescriptionCosineMode = "repair"
 )
 
 // TaxonomyFile is the taxonomy YAML section.
 type TaxonomyFile struct {
-	CatalogPath      string   `yaml:"catalog_path"`
-	ClassifyMax      int      `yaml:"classify_max"`
-	Collections      []string `yaml:"collections"`
-	AuthorOnSkip     *bool    `yaml:"author_on_skip"`
-	Strategy         string   `yaml:"strategy"`
-	MinJudgeScore    float64  `yaml:"min_judge_score"`
-	AttachMinCosine  float64  `yaml:"attach_min_cosine"`
-	WalkReinforceMin float64  `yaml:"walk_reinforce_min"`
-	EssenceBatchSize int      `yaml:"essence_batch_size"`
+	CatalogPath                string   `yaml:"catalog_path"`
+	ClassifyMax                int      `yaml:"classify_max"`
+	Collections                []string `yaml:"collections"`
+	AuthorOnSkip               *bool    `yaml:"author_on_skip"`
+	Strategy                   string   `yaml:"strategy"`
+	MinJudgeScore              float64  `yaml:"min_judge_score"`
+	AttachMinCosine            float64  `yaml:"attach_min_cosine"`
+	WalkReinforceMin           float64  `yaml:"walk_reinforce_min"`
+	EssenceBatchSize           int      `yaml:"essence_batch_size"`
+	DescriptionCosineMin       float64  `yaml:"description_cosine_min"`
+	DescriptionCosineMode      string   `yaml:"description_cosine_mode"`
+	EssenceSemanticMaxAttempts int      `yaml:"essence_semantic_max_attempts"`
 }
 
 // TaxonomyConfig is resolved taxonomy settings.
 type TaxonomyConfig struct {
-	CatalogPath      string
-	ClassifyMax      int
-	Collections      []string
-	AuthorOnSkip     bool
-	Strategy         string
-	MinJudgeScore    float64
-	AttachMinCosine  float64
-	WalkReinforceMin float64
-	EssenceBatchSize int
+	CatalogPath                string
+	ClassifyMax                int
+	Collections                []string
+	AuthorOnSkip               bool
+	Strategy                   string
+	MinJudgeScore              float64
+	AttachMinCosine            float64
+	WalkReinforceMin           float64
+	EssenceBatchSize           int
+	DescriptionCosineMin       float64
+	DescriptionCosineMode      DescriptionCosineMode
+	EssenceSemanticMaxAttempts int
 }
 
 // SeedCatalogPath returns the repo seed vocabulary path.
@@ -144,17 +162,47 @@ func resolveTaxonomy(file TaxonomyFile) (TaxonomyConfig, error) {
 	if essenceBatch > maxEssenceBatchSize {
 		essenceBatch = maxEssenceBatchSize
 	}
+	descMode, err := NormalizeDescriptionCosineMode(file.DescriptionCosineMode)
+	if err != nil {
+		return TaxonomyConfig{}, err
+	}
+	descMin := file.DescriptionCosineMin
+	if descMin == 0 {
+		descMin = defaultDescriptionCosineMin
+	}
+	semanticAttempts := file.EssenceSemanticMaxAttempts
+	if semanticAttempts <= 0 {
+		semanticAttempts = defaultEssenceSemanticMaxAttempts
+	}
 	return TaxonomyConfig{
-		CatalogPath:      path,
-		ClassifyMax:      max,
-		Collections:      collections,
-		AuthorOnSkip:     authorOnSkip,
-		Strategy:         strategy,
-		MinJudgeScore:    file.MinJudgeScore,
-		AttachMinCosine:  attachMin,
-		WalkReinforceMin: walkMin,
-		EssenceBatchSize: essenceBatch,
+		CatalogPath:                path,
+		ClassifyMax:                max,
+		Collections:                collections,
+		AuthorOnSkip:               authorOnSkip,
+		Strategy:                   strategy,
+		MinJudgeScore:              file.MinJudgeScore,
+		AttachMinCosine:            attachMin,
+		WalkReinforceMin:           walkMin,
+		EssenceBatchSize:           essenceBatch,
+		DescriptionCosineMin:       descMin,
+		DescriptionCosineMode:      descMode,
+		EssenceSemanticMaxAttempts: semanticAttempts,
 	}, nil
+}
+
+// NormalizeDescriptionCosineMode parses taxonomy description_cosine_mode.
+func NormalizeDescriptionCosineMode(raw string) (DescriptionCosineMode, error) {
+	const op = "config.NormalizeDescriptionCosineMode"
+	s := strings.TrimSpace(strings.ToLower(raw))
+	if s == "" {
+		return defaultDescriptionCosineMode, nil
+	}
+	switch DescriptionCosineMode(s) {
+	case DescriptionCosineModeOff, DescriptionCosineModeReport, DescriptionCosineModeRepair:
+		return DescriptionCosineMode(s), nil
+	default:
+		return "", sirerr.New(sirerr.CodeInvalid, op, "unknown description_cosine_mode")
+	}
 }
 
 func uniqueNonEmptyStrings(in []string) []string {

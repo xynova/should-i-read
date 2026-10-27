@@ -63,7 +63,7 @@ func TestParseEssenceResponse_rejectsRectangular(t *testing.T) {
 
 func TestParseEssenceResponse_kindPathTagsDropsDeny(t *testing.T) {
 	cat := testTagCatalog(t)
-	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: Google security alert\nTAGS: security > alert > google > notification > email\nKIND: security > alert > notification > email\n"
+	raw := "WHY1: a\nWHY2: b\nWHY3: c\nWHY4: d\nWHY5: e\nABOUT: Google security alert\nTAGS: security > alert > google > notification > email\nKIND: security > alert > notification\n"
 	out, err := parseEssenceResponseWithCatalog(raw, cat)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -184,6 +184,15 @@ func TestDefaultEssenceSystemPrompt_whyOrderAndKind(t *testing.T) {
 	if !strings.Contains(p, `trailing " > "`) {
 		t.Fatalf("prompt missing KIND trailing rule: %s", p)
 	}
+	if !strings.Contains(p, "KIND: family > class > leaf") {
+		t.Fatalf("prompt missing KIND template: %s", p)
+	}
+	if !strings.Contains(p, "exactly 3 kebab-case levels") {
+		t.Fatalf("prompt missing 3-level contract: %s", p)
+	}
+	if strings.Contains(p, "3 to 5") {
+		t.Fatalf("prompt still allows 3 to 5: %s", p)
+	}
 }
 
 func TestEssenceIntegrityCompleteNote_kindSegments(t *testing.T) {
@@ -223,6 +232,24 @@ func TestParseEssenceWhy_acceptsMarkdownKeys(t *testing.T) {
 	}
 	if !strings.Contains(out.About, "Substack") {
 		t.Fatalf("about: %q", out.About)
+	}
+}
+
+func TestParseEssenceKind_rejectsFourLevels(t *testing.T) {
+	t.Parallel()
+	_, err := parseEssenceKind("KIND: notification > ci > pull-request > preview-removal\n")
+	if err == nil {
+		t.Fatal("expected kind long")
+	}
+	if !essenceKindLongFromErr(err) {
+		t.Fatalf("got %v", err)
+	}
+	note := essenceKindIntegrityCompleteNote(err)
+	if !strings.Contains(note, "4th level") {
+		t.Fatalf("note %q", note)
+	}
+	if strings.Contains(note, "software-release") || strings.Contains(note, "changelog") {
+		t.Fatalf("note must not leak example path: %q", note)
 	}
 }
 
@@ -273,11 +300,19 @@ func TestBuildEssencePrompts_threeSlaves(t *testing.T) {
 	if !strings.Contains(p.Why, "WHY1:") || strings.Contains(p.Why, "TAGS:") {
 		t.Fatalf("why prompt: %s", p.Why)
 	}
+	for _, want := range []string{"event", "concrete fact", "Preserve names", "do not infer"} {
+		if !strings.Contains(p.Why, want) {
+			t.Fatalf("why prompt missing %q: %s", want, p.Why)
+		}
+	}
 	if !strings.Contains(p.Tags, "TAGS:") || !strings.Contains(p.Tags, "fyi") {
 		t.Fatalf("tags prompt: %s", p.Tags)
 	}
-	if !strings.Contains(p.Kind, "KIND:") || strings.Contains(p.Kind, "changelog") {
+	if !strings.Contains(p.Kind, "KIND: family > class > leaf") || strings.Contains(p.Kind, "changelog") {
 		t.Fatalf("kind prompt: %s", p.Kind)
+	}
+	if strings.Contains(p.Kind, "3 to 5") || strings.Contains(p.Kind, "one or two specific leaves") {
+		t.Fatalf("kind prompt still allows extra levels: %s", p.Kind)
 	}
 	if EssencePromptsHash(p) == EssencePromptHash(DefaultEssenceSystemPrompt()) {
 		t.Fatal("triple hash must differ from legacy single prompt hash")

@@ -69,6 +69,33 @@ func TestParallelChatRunnerConcurrent(t *testing.T) {
 	}
 }
 
+type captureEssenceChat struct {
+	requests chan polypus.ChatRequest
+}
+
+func (s *captureEssenceChat) Chat(_ context.Context, req polypus.ChatRequest) (string, error) {
+	s.requests <- req
+	return "WHY1: w\nWHY2: w\nWHY3: w\nWHY4: w\nWHY5: w\nABOUT: a\nTAGS: fyi\nKIND: notification > software-release > changelog", nil
+}
+
+func TestParallelChatRunner_escalationReasoning(t *testing.T) {
+	stub := &captureEssenceChat{requests: make(chan polypus.ChatRequest, 1)}
+	runner, err := NewParallelChatRunner(stub, "m", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = runEssenceEscalationChatLines(ctx, runner, []openaibatch.ChatLine{{CustomID: "h1", Model: "escalate"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := <-stub.requests
+	if req.Reasoning == nil || req.Reasoning.Effort != polypus.ReasoningEffortHigh {
+		t.Fatalf("reasoning=%+v, want high effort", req.Reasoning)
+	}
+}
+
 type resumeChatLinesStub struct {
 	calls atomic.Int32
 }
