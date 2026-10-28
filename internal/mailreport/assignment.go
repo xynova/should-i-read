@@ -32,25 +32,95 @@ func syncRowPathFromCatalog(cat *catalog.Catalog, row *MessageRow) {
 }
 
 // alignAssignmentPathWithKind rewrites attach PATH to the three Essence KIND segments when the
-// catalog path uses a hyphenated class id (notification-job-alert) or a semantic prefix.
+// catalog path uses a hyphenated class id (notification-job-alert), is a KIND prefix, is empty
+// (breadcrumb), or is a fourth-level catalog leaf under KIND.
 func alignAssignmentPathWithKind(row *MessageRow) {
 	if row == nil {
 		return
 	}
 	kindSegs := catalog.ParseKindSegments(row.Kind)
-	if len(kindSegs) != essenceKindLevels || strings.TrimSpace(row.TermID) == "" {
+	if len(kindSegs) != essenceKindLevels {
 		return
 	}
-	if len(row.Path) == 0 {
+	if strings.TrimSpace(row.TermID) == "" && len(row.Path) == 0 {
 		return
 	}
 	if pathEqualSegments(row.Path, kindSegs) {
 		return
 	}
-	if !kindClassSlotMatches(row.Path, kindSegs) {
+	if len(row.Path) > essenceKindLevels && pathIsPrefixOf(kindSegs, row.Path) {
+		row.Path = append([]string{}, kindSegs...)
 		return
 	}
-	row.Path = append([]string{}, kindSegs...)
+	if len(row.Path) == 0 {
+		row.Path = append([]string{}, kindSegs...)
+		return
+	}
+	if pathIsPrefixOf(row.Path, kindSegs) || kindClassSlotMatches(row.Path, kindSegs) {
+		row.Path = append([]string{}, kindSegs...)
+		return
+	}
+	if strings.TrimSpace(row.Path[len(row.Path)-1]) == strings.TrimSpace(kindSegs[len(kindSegs)-1]) {
+		row.Path = append([]string{}, kindSegs...)
+	}
+}
+
+// clipCatalogTermToKindDepth walks a too-deep catalog leaf up to a 3-level ancestor that matches KIND.
+func clipCatalogTermToKindDepth(cat *catalog.Catalog, row *MessageRow) {
+	if cat == nil || row == nil {
+		return
+	}
+	id := strings.TrimSpace(row.TermID)
+	if id == "" {
+		return
+	}
+	rt, ok := cat.PreferLeaf(id)
+	if !ok || rt == nil {
+		return
+	}
+	deepSegs := resolvedPathSegments(rt)
+	if len(deepSegs) <= essenceKindLevels {
+		return
+	}
+	kindSegs := catalog.ParseKindSegments(row.Kind)
+	cur := rt
+	for i := 0; i < 8; i++ {
+		parentID := strings.TrimSpace(cur.Parent)
+		if parentID == "" {
+			return
+		}
+		next, nextOK := cat.PreferLeaf(parentID)
+		if !nextOK || next == nil {
+			return
+		}
+		cur = next
+		parentSegs := resolvedPathSegments(cur)
+		if len(parentSegs) > essenceKindLevels {
+			continue
+		}
+		if len(kindSegs) == essenceKindLevels &&
+			!pathEqualSegments(parentSegs, kindSegs) &&
+			!pathIsPrefixOf(kindSegs, deepSegs) {
+			return
+		}
+		row.TermID = strings.TrimSpace(cur.ID)
+		if len(kindSegs) == essenceKindLevels {
+			row.Path = append([]string{}, kindSegs...)
+		} else if len(parentSegs) > 0 {
+			row.Path = append([]string{}, parentSegs...)
+		}
+		return
+	}
+}
+
+func resolvedPathSegments(rt *catalog.ResolvedTerm) []string {
+	if rt == nil {
+		return nil
+	}
+	if len(rt.Segments) > 0 {
+		return rt.Segments
+	}
+	return rt.Path
 }
 
 func pathEqualSegments(path, kind []string) bool {
