@@ -102,11 +102,12 @@ func semanticChecklistRestartFeedback(field string, score, min float64) string {
 
 Before writing the final fields, silently validate the candidate:
 
-1. Identify the event the email actually states.
+1. Identify the specific event the email actually states (the noun KIND will use as leaf).
 2. Check every name, amount, version, service, and cause against the email.
 3. Remove any claim that the email does not support.
 4. Prefer a short grounded restatement over an inferred explanation.
 5. Preserve concrete facts that are explicitly stated.
+6. Keep ABOUT to one sentence; do not invent a motive or a fourth KIND level.
 
 Do not output this checklist or your reasoning.
 

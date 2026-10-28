@@ -190,6 +190,9 @@ func TestDefaultEssenceSystemPrompt_whyOrderAndKind(t *testing.T) {
 	if !strings.Contains(p, "exactly 3 kebab-case levels") {
 		t.Fatalf("prompt missing 3-level contract: %s", p)
 	}
+	if !strings.Contains(p, "specific event") {
+		t.Fatalf("prompt missing specific-event leaf rule: %s", p)
+	}
 	if strings.Contains(p, "3 to 5") {
 		t.Fatalf("prompt still allows 3 to 5: %s", p)
 	}
@@ -310,6 +313,9 @@ func TestBuildEssencePrompts_threeSlaves(t *testing.T) {
 	}
 	if !strings.Contains(p.Kind, "KIND: family > class > leaf") || strings.Contains(p.Kind, "changelog") {
 		t.Fatalf("kind prompt: %s", p.Kind)
+	}
+	if !strings.Contains(p.Kind, "specific event") {
+		t.Fatalf("kind prompt missing specific-event leaf: %s", p.Kind)
 	}
 	if strings.Contains(p.Kind, "3 to 5") || strings.Contains(p.Kind, "one or two specific leaves") {
 		t.Fatalf("kind prompt still allows extra levels: %s", p.Kind)
