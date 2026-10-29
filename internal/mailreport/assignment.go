@@ -52,6 +52,12 @@ func alignAssignmentPathWithKind(row *MessageRow) {
 		row.Path = append([]string{}, kindSegs...)
 		return
 	}
+	if len(row.Path) > essenceKindLevels &&
+		len(kindSegs) == essenceKindLevels &&
+		!kindOrPathRepeatsParent(kindSegs) {
+		row.Path = append([]string{}, kindSegs...)
+		return
+	}
 	if len(row.Path) == 0 {
 		row.Path = append([]string{}, kindSegs...)
 		return

@@ -228,6 +228,23 @@ func TestAlignAssignmentPathWithKind_catalogPathRepeatsParentUsesKind(t *testing
 	}
 }
 
+func TestAlignAssignmentPathWithKind_deepCatalogPathUsesKind(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "notification-ci-ci-failure-pull-request",
+		Kind:   "pull-request > ci > feat",
+		Path:   []string{"notification", "ci", "ci-failure", "pull-request"},
+	}
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	want := []string{"pull-request", "ci", "feat"}
+	if !pathEqualSegments(row.Path, want) {
+		t.Fatalf("path=%v want %v", row.Path, want)
+	}
+}
+
 func TestAlignAssignmentPathWithKind_classMismatchUnchanged(t *testing.T) {
 	t.Parallel()
 	row := MessageRow{

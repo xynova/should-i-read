@@ -205,6 +205,9 @@ func TestDefaultEssenceSystemPrompt_whyOrderAndKind(t *testing.T) {
 	if !strings.Contains(p, "inventory > update > confirmation-request") {
 		t.Fatalf("prompt missing thread confirmation leaf example: %s", p)
 	}
+	if !strings.Contains(p, "notification > ci > pull-request") {
+		t.Fatalf("prompt missing PR leaf example: %s", p)
+	}
 	if strings.Contains(p, "3 to 5") {
 		t.Fatalf("prompt still allows 3 to 5: %s", p)
 	}

@@ -225,6 +225,7 @@ Wrong: newsletter > digest > go. Right: newsletter > go > digest.
 Wrong: invitation > calendar > event. Right: event > meeting > design-review.
 Wrong: job > hiring > engineer. Right: job > hiring > engineering.
 Wrong: inventory > update > request. Right: inventory > update > confirmation-request.
+Wrong: pull-request > ci > feat. Right: notification > ci > pull-request.
 Do not copy a unique ABOUT detail into the leaf. Do not add a 4th level. Do not emit a trailing " > " or a single root such as "ci >".`
 }
 
