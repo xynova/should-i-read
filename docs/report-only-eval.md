@@ -108,12 +108,14 @@ flowchart TD
 
 ## Essence benchmark (frozen input)
 
+Operator classify uses the **checklist** repair contract by default (high-effort Essence escalation plus the silent validation checklist on ABOUT rewind). Bench `baseline` and `thinking` only exist as ablations (`SHOULD_I_READ_BENCH_*`); iterate prompt copy against **checklist**, then compare ablations if needed.
+
 Compare Essence prompt variants on the **same** 100 messages (live Polypus, report-only, fresh ledger per chunk):
 
 1. `go tool task mail:export -- --limit 500 --out bench/input-export.json` (needs at least 100 unique `object_hash` values).
 2. `./bin/should-i-read mail bench freeze --in bench/input-export.json` writes `bench/input-100.json`, `bench/chunks/c1.json`…`c5.json`, and `bench/input-rev.txt`.
 3. Edit `bench/labels-20.json` (`expected_leaf`, `required_terms`) after `mail bench labels-stub` if needed. `expected_leaf` is the **last segment of Essence `kind`** (catalog leaf), not a free-form category name; committed smoke labels live in `testdata/bench/labels.json` (revision in `input-rev.txt`).
-4. `go tool task polypus-check -- --classify`, then smoke on committed fixtures (no live pimdir): `./bin/should-i-read mail bench --variant checklist --chunks testdata/bench/chunks --labels testdata/bench/labels.json --input-rev testdata/bench/input-rev.txt`.
+4. `go tool task polypus-check -- --classify`, then smoke the production-like variant on committed fixtures (no live pimdir): `./bin/should-i-read mail bench --fresh --variant checklist --chunks testdata/bench/chunks --labels testdata/bench/labels.json --input-rev testdata/bench/input-rev.txt`.
 5. Full matrix (sequential, live freeze under gitignored `bench/`): run each variant with `--fresh` so the classify ledger under `tmp/bench/<variant>/` is wiped first (otherwise bench reuses cached classifies and wall time is misleading). Example: `./bin/should-i-read mail bench --fresh --variant baseline --chunks bench/chunks` → `tmp/bench/<variant>-artifact.json` and `tmp/bench/<variant>-score.json`. Or `go tool task mail:bench-matrix` for baseline, thinking, and checklist on `testdata/bench` fixtures.
 
 Bench-only env (unset in normal classify): `SHOULD_I_READ_BENCH_REASONING` (`high`|`off`), `SHOULD_I_READ_BENCH_FEEDBACK` (`checklist`|`short`). Variants: baseline (`off`+`short`), thinking (`high`+`short`), checklist (`high`+`checklist`). Each chunk probes Essence (`polypus.essence_model`) and does not smoke Author (`polypus.classify_model`) or embeddings (`polypus.embed_model`). Operator classify still fail-closes on those probes. Gateway is `polypus.base_url` / `POLYPUS_BASE_URL` (homelab: `https://polypus.manticore-powan.ts.net`).

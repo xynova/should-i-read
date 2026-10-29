@@ -107,6 +107,7 @@ Before writing the final fields, silently validate the candidate:
 3. Remove any claim that the email does not support.
 4. Prefer a short grounded restatement over an inferred explanation.
 5. Preserve concrete facts that are explicitly stated.
+6. Keep ABOUT to one sentence. KIND leaf is a reusable event type, not a unique noun from ABOUT.
 
 Do not output this checklist or your reasoning.
 

@@ -428,6 +428,7 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 	r.applyAcceptedDraft(opCtx, art, &row, res)
 	syncRowPathFromCatalog(r.cat, &row)
 	alignAssignmentPathWithKind(&row)
+	clipCatalogTermToKindDepth(r.cat, &row)
 	if pathErr := validateAssignmentPath(row); pathErr != nil {
 		row.Error = formatRowError(pathErr)
 		art.Messages = append(art.Messages, row)

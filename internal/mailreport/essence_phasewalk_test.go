@@ -76,6 +76,7 @@ func TestSemanticRestartFeedback_includesAboutScore(t *testing.T) {
 	lower := strings.ToLower(got)
 	if !strings.Contains(lower, "silently validate the candidate") ||
 		!strings.Contains(lower, "check every name, amount, version, service, and cause") ||
+		!strings.Contains(lower, "reusable event type") ||
 		!strings.Contains(lower, "do not output this checklist or your reasoning") {
 		t.Fatalf("feedback missing silent validation checklist: %q", got)
 	}

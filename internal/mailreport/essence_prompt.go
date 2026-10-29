@@ -220,8 +220,13 @@ func essenceKindContractText() string {
 	return `KIND is exactly 3 kebab-case levels joined by " > ". Fill this template:
 KIND: family > class > leaf
 Example: notification > ci > pull-request
-family is the mail type (often notification). class is the honest class (ci, billing, job-alert, legal). leaf is the kind of this mail (pull-request, payment-failure, job-posting), not a topic from ABOUT.
-Do not add a 4th level. Do not emit a trailing " > " or a single root such as "ci >".`
+family is the mail type (often notification). class is the channel or topic (ci, newsletter, go, hiring). leaf is the reusable event type and MUST be the last segment (digest not go; engineering not engineer or backend-engineer; confirmation-request not request; password-reset not reset; design-review not invitation or event).
+Wrong: newsletter > digest > go. Right: newsletter > go > digest.
+Wrong: invitation > calendar > event. Right: event > meeting > design-review.
+Wrong: job > hiring > engineer. Right: job > hiring > engineering.
+Wrong: inventory > update > request. Right: inventory > update > confirmation-request.
+Wrong: pull-request > ci > feat. Right: notification > ci > pull-request.
+Do not copy a unique ABOUT detail into the leaf. Do not add a 4th level. Do not emit a trailing " > " or a single root such as "ci >".`
 }
 
 func essenceKindRetryContract() string {

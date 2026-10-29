@@ -131,6 +131,120 @@ func TestAlignAssignmentPathWithKind_hyphenatedClassAlreadyThree(t *testing.T) {
 	}
 }
 
+func TestAlignAssignmentPathWithKind_emptyBreadcrumbUsesKind(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "design-review",
+		Kind:   "event > meeting > design-review",
+	}
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	if len(row.Path) != 3 || row.Path[2] != "design-review" {
+		t.Fatalf("path=%v", row.Path)
+	}
+}
+
+func TestAlignAssignmentPathWithKind_clipsDeepCatalogPrefix(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "notification-ci-pull-request-preview-removal",
+		Kind:   "notification > ci > pull-request",
+		Path:   []string{"notification", "ci", "pull-request", "preview-removal"},
+	}
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	if len(row.Path) != 3 || row.Path[2] != "pull-request" {
+		t.Fatalf("path=%v", row.Path)
+	}
+}
+
+func TestClipCatalogTermToKindDepth_walksToThreeLevelParent(t *testing.T) {
+	t.Parallel()
+	cat, err := catalog.BuildCatalog(catalog.Vocabulary{
+		ID: "test",
+		Terms: []catalog.Term{
+			{ID: "notification", Label: "Notification", Segment: "notification"},
+			{ID: "notification-ci", Label: "CI", Parent: "notification", Segment: "ci"},
+			{ID: "notification-ci-pull-request", Label: "Pull Request", Parent: "notification-ci", Segment: "pull-request"},
+			{ID: "notification-ci-pull-request-preview-removal", Label: "Preview Removal", Parent: "notification-ci-pull-request", Segment: "preview-removal"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := MessageRow{
+		TermID: "notification-ci-pull-request-preview-removal",
+		Kind:   "notification > ci > pull-request",
+		Path:   []string{"notification", "ci", "pull-request", "preview-removal"},
+	}
+	alignAssignmentPathWithKind(&row)
+	clipCatalogTermToKindDepth(cat, &row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	if row.TermID != "notification-ci-pull-request" {
+		t.Fatalf("term %q", row.TermID)
+	}
+	if len(row.Path) != 3 || row.Path[2] != "pull-request" {
+		t.Fatalf("path=%v", row.Path)
+	}
+}
+
+func TestAlignAssignmentPathWithKind_breadcrumbPlaceholderPath(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "design-review",
+		Kind:   "event > meeting > design-review",
+		Path:   []string{"email-2"},
+	}
+	syncRowPathFromCatalog(nil, &row)
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	if len(row.Path) != 3 || row.Path[2] != "design-review" {
+		t.Fatalf("path=%v", row.Path)
+	}
+}
+
+func TestAlignAssignmentPathWithKind_catalogPathRepeatsParentUsesKind(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "pull-request-update",
+		Kind:   "pull-request > feature > add",
+		Path:   []string{"notification", "pull-request", "pull-request-update"},
+	}
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	want := []string{"pull-request", "feature", "add"}
+	if !pathEqualSegments(row.Path, want) {
+		t.Fatalf("path=%v want %v", row.Path, want)
+	}
+}
+
+func TestAlignAssignmentPathWithKind_deepCatalogPathUsesKind(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "notification-ci-ci-failure-pull-request",
+		Kind:   "pull-request > ci > feat",
+		Path:   []string{"notification", "ci", "ci-failure", "pull-request"},
+	}
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	want := []string{"pull-request", "ci", "feat"}
+	if !pathEqualSegments(row.Path, want) {
+		t.Fatalf("path=%v want %v", row.Path, want)
+	}
+}
+
 func TestAlignAssignmentPathWithKind_classMismatchUnchanged(t *testing.T) {
 	t.Parallel()
 	row := MessageRow{

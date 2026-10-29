@@ -190,6 +190,24 @@ func TestDefaultEssenceSystemPrompt_whyOrderAndKind(t *testing.T) {
 	if !strings.Contains(p, "exactly 3 kebab-case levels") {
 		t.Fatalf("prompt missing 3-level contract: %s", p)
 	}
+	if !strings.Contains(p, "reusable event type") {
+		t.Fatalf("prompt missing reusable-event-type leaf rule: %s", p)
+	}
+	if !strings.Contains(p, "MUST be the last segment") || !strings.Contains(p, "newsletter > go > digest") {
+		t.Fatalf("prompt missing class-vs-leaf slot rule: %s", p)
+	}
+	if !strings.Contains(p, "event > meeting > design-review") {
+		t.Fatalf("prompt missing calendar invite leaf example: %s", p)
+	}
+	if !strings.Contains(p, "job > hiring > engineering") {
+		t.Fatalf("prompt missing hiring leaf example: %s", p)
+	}
+	if !strings.Contains(p, "inventory > update > confirmation-request") {
+		t.Fatalf("prompt missing thread confirmation leaf example: %s", p)
+	}
+	if !strings.Contains(p, "notification > ci > pull-request") {
+		t.Fatalf("prompt missing PR leaf example: %s", p)
+	}
 	if strings.Contains(p, "3 to 5") {
 		t.Fatalf("prompt still allows 3 to 5: %s", p)
 	}
@@ -310,6 +328,12 @@ func TestBuildEssencePrompts_threeSlaves(t *testing.T) {
 	}
 	if !strings.Contains(p.Kind, "KIND: family > class > leaf") || strings.Contains(p.Kind, "changelog") {
 		t.Fatalf("kind prompt: %s", p.Kind)
+	}
+	if !strings.Contains(p.Kind, "reusable event type") {
+		t.Fatalf("kind prompt missing reusable-event-type leaf: %s", p.Kind)
+	}
+	if !strings.Contains(p.Kind, "MUST be the last segment") {
+		t.Fatalf("kind prompt missing last-segment leaf rule: %s", p.Kind)
 	}
 	if strings.Contains(p.Kind, "3 to 5") || strings.Contains(p.Kind, "one or two specific leaves") {
 		t.Fatalf("kind prompt still allows extra levels: %s", p.Kind)
