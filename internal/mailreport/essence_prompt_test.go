@@ -199,6 +199,12 @@ func TestDefaultEssenceSystemPrompt_whyOrderAndKind(t *testing.T) {
 	if !strings.Contains(p, "event > meeting > design-review") {
 		t.Fatalf("prompt missing calendar invite leaf example: %s", p)
 	}
+	if !strings.Contains(p, "job > hiring > engineering") {
+		t.Fatalf("prompt missing hiring leaf example: %s", p)
+	}
+	if !strings.Contains(p, "inventory > update > confirmation-request") {
+		t.Fatalf("prompt missing thread confirmation leaf example: %s", p)
+	}
 	if strings.Contains(p, "3 to 5") {
 		t.Fatalf("prompt still allows 3 to 5: %s", p)
 	}
