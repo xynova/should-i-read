@@ -62,6 +62,18 @@ func alignAssignmentPathWithKind(row *MessageRow) {
 	}
 	if strings.TrimSpace(row.Path[len(row.Path)-1]) == strings.TrimSpace(kindSegs[len(kindSegs)-1]) {
 		row.Path = append([]string{}, kindSegs...)
+		return
+	}
+	// Breadcrumb attach can leave a shallow placeholder path (for example email-2) after syncRowPathFromCatalog.
+	if len(row.Path) < essenceKindLevels && strings.TrimSpace(row.Path[0]) != strings.TrimSpace(kindSegs[0]) {
+		row.Path = append([]string{}, kindSegs...)
+		return
+	}
+	// Catalog leaf ids can yield a 3-level PATH that repeats a parent while KIND is a clean 3-level path.
+	if len(row.Path) == essenceKindLevels &&
+		kindOrPathRepeatsParent(row.Path) &&
+		!kindOrPathRepeatsParent(kindSegs) {
+		row.Path = append([]string{}, kindSegs...)
 	}
 }
 

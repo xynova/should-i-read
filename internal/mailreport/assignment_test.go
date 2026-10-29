@@ -194,6 +194,40 @@ func TestClipCatalogTermToKindDepth_walksToThreeLevelParent(t *testing.T) {
 	}
 }
 
+func TestAlignAssignmentPathWithKind_breadcrumbPlaceholderPath(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "design-review",
+		Kind:   "event > meeting > design-review",
+		Path:   []string{"email-2"},
+	}
+	syncRowPathFromCatalog(nil, &row)
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	if len(row.Path) != 3 || row.Path[2] != "design-review" {
+		t.Fatalf("path=%v", row.Path)
+	}
+}
+
+func TestAlignAssignmentPathWithKind_catalogPathRepeatsParentUsesKind(t *testing.T) {
+	t.Parallel()
+	row := MessageRow{
+		TermID: "pull-request-update",
+		Kind:   "pull-request > feature > add",
+		Path:   []string{"notification", "pull-request", "pull-request-update"},
+	}
+	alignAssignmentPathWithKind(&row)
+	if err := validateAssignmentPath(row); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	want := []string{"pull-request", "feature", "add"}
+	if !pathEqualSegments(row.Path, want) {
+		t.Fatalf("path=%v want %v", row.Path, want)
+	}
+}
+
 func TestAlignAssignmentPathWithKind_classMismatchUnchanged(t *testing.T) {
 	t.Parallel()
 	row := MessageRow{
