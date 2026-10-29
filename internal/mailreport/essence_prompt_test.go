@@ -208,6 +208,15 @@ func TestDefaultEssenceSystemPrompt_whyOrderAndKind(t *testing.T) {
 	if !strings.Contains(p, "notification > ci > pull-request") {
 		t.Fatalf("prompt missing PR leaf example: %s", p)
 	}
+	if !strings.Contains(p, "notification > ci > workflow-failure") {
+		t.Fatalf("prompt missing workflow-failure leaf example: %s", p)
+	}
+	if !strings.Contains(p, "notification > ci > pipeline-failure") {
+		t.Fatalf("prompt missing pipeline-failure leaf example: %s", p)
+	}
+	if !strings.Contains(p, "email-verification not email") {
+		t.Fatalf("prompt missing email-verification leaf rule: %s", p)
+	}
 	if strings.Contains(p, "3 to 5") {
 		t.Fatalf("prompt still allows 3 to 5: %s", p)
 	}
