@@ -113,10 +113,30 @@ Operator classify uses the **checklist** repair contract by default (high-effort
 Compare Essence prompt variants on the **same** 100 messages (live Polypus, report-only, fresh ledger per chunk):
 
 1. `go tool task mail:export -- --limit 500 --out bench/input-export.json` (needs at least 100 unique `object_hash` values).
-2. `./bin/should-i-read mail bench freeze --in bench/input-export.json` writes `bench/input-100.json`, `bench/chunks/c1.json`…`c5.json`, and `bench/input-rev.txt`.
-3. Edit `bench/labels-20.json` (`expected_leaf`, `required_terms`) after `mail bench labels-stub` if needed. `expected_leaf` is the **last segment of Essence `kind`** (catalog leaf), not a free-form category name; committed smoke labels live in `testdata/bench/labels.json` (revision in `input-rev.txt`).
+2. `./bin/should-i-read mail bench freeze --in bench/input-export.json` writes `bench/input-100.json`, `bench/chunks/c1.json`…`c5.json`, and `bench/input-rev.txt`. Use `--out-dir bench/eval-100` for a dated freeze that does not overwrite an older dump.
+3. Edit `bench/labels-20.json` (`expected_leaf`, `required_terms`) after `mail bench labels-stub` if needed. Follow **Last-slot gold** below. Committed smoke labels live in `testdata/bench/labels.json` (revision in `input-rev.txt`).
 4. `go tool task polypus-check -- --classify`, then smoke the production-like variant on committed fixtures (no live pimdir): `./bin/should-i-read mail bench --fresh --variant checklist --chunks testdata/bench/chunks --labels testdata/bench/labels.json --input-rev testdata/bench/input-rev.txt`.
 5. Full matrix (sequential, live freeze under gitignored `bench/`): run each variant with `--fresh` so the classify ledger under `tmp/bench/<variant>/` is wiped first (otherwise bench reuses cached classifies and wall time is misleading). Example: `./bin/should-i-read mail bench --fresh --variant baseline --chunks bench/chunks` → `tmp/bench/<variant>-artifact.json` and `tmp/bench/<variant>-score.json`. Or `go tool task mail:bench-matrix` for baseline, thinking, and checklist on `testdata/bench` fixtures.
+
+### Last-slot gold
+
+`expected_leaf` is the **last segment of Essence `KIND`** (`family > class > leaf`). It is the catalog leaf, not a free-form category and not the parent stuffed into the leaf. Bench `leaf_accuracy` compares only that last segment.
+
+KIND is a three-level tree. Put the distinctive word in **one** slot. If class (or family) is already `security`, `meeting`, `event`, or `ci`, the leaf stays the short event type (`alert`, `reminder`, `webinar`, `pull-request`). Hyphenating the parent into the leaf (`security-alert`, `meeting-reminder`, `webinar-invitation`, `pull-request-comment`) fails last-slot score against a legal tree, and `security > … > security-alert` is rejected as a parent-prefix repeat.
+
+| Mail | KIND last slot (gold) | Do not use as gold |
+|------|----------------------|--------------------|
+| LinkedIn “just messaged you” digest | `message` | `new-message` |
+| Google or broker security notice | `alert` under a `security` parent | `security-alert` |
+| Calendar reminder | `reminder` | `meeting-reminder` |
+| Webinar invite | `webinar` | `webinar-invitation` |
+| GitHub Actions run failed | `workflow-failure` | `failure`, `ci-failure` |
+| Bot comment on a pull request | `pull-request` | `pull-request-comment`, `workflow-failure` (even if the comment reports a quality gate) |
+| Published newsletter post | `article` | `personal-communication` as the leaf |
+| Confirm tax residency / similar account confirm | `confirmation-request` | `tax-residency-confirmation` |
+| Sub-processor or support tooling change | `update` | `processor-change` |
+
+Do not copy a unique ABOUT detail into `expected_leaf`. Distinguishing phishing from a Google sign-in lives in the **parent path**, not in two different last-slot names, unless the events are truly different reusable types (for example `workflow-failure` vs `pipeline-failure`).
 
 Bench-only env (unset in normal classify): `SHOULD_I_READ_BENCH_REASONING` (`high`|`off`), `SHOULD_I_READ_BENCH_FEEDBACK` (`checklist`|`short`). Variants: baseline (`off`+`short`), thinking (`high`+`short`), checklist (`high`+`checklist`). Each chunk probes Essence (`polypus.essence_model`) and does not smoke Author (`polypus.classify_model`) or embeddings (`polypus.embed_model`). Operator classify still fail-closes on those probes. Gateway is `polypus.base_url` / `POLYPUS_BASE_URL` (homelab: `https://polypus.manticore-powan.ts.net`).
 
