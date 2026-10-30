@@ -220,7 +220,7 @@ func essenceKindContractText() string {
 	return `KIND is exactly 3 kebab-case levels joined by " > ". Fill this template:
 KIND: family > class > leaf
 Example: notification > ci > pull-request
-family is the mail type (often notification). class is the channel or topic (ci, newsletter, go, hiring). leaf is the reusable event type and MUST be the last segment (digest not go; engineering not engineer or backend-engineer; confirmation-request not request; password-reset not reset; design-review not invitation or event; workflow-failure not failure; pipeline-failure not pipeline; payment-failure not notification; email-verification not email; meeting-reminder not event; purchase-confirmation not confirmation; new-message not message).
+family is the mail type (often notification). class is the channel or topic (ci, newsletter, go, hiring). leaf is the reusable event type and MUST be the last segment (digest not go; engineering not engineer or backend-engineer; confirmation-request not request; password-reset not reset; design-review not invitation or event; workflow-failure not failure; pipeline-failure not pipeline; payment-failure not notification; email-verification not email; meeting-reminder not event; purchase-confirmation not confirmation; new-message not message; article not personal-communication; pull-request not workflow-failure when the mail is a comment on a pull request).
 Wrong: newsletter > digest > go. Right: newsletter > go > digest.
 Wrong: invitation > calendar > event. Right: event > meeting > design-review.
 Wrong: job > hiring > engineer. Right: job > hiring > engineering.
@@ -230,6 +230,8 @@ Wrong: notification > ci > failure. Right: notification > ci > workflow-failure.
 Wrong: notification > ci > pipeline. Right: notification > ci > pipeline-failure.
 Wrong: payment > failure > notification. Right: notification > billing > payment-failure.
 Wrong: account > verification > email. Right: notification > account > email-verification.
+Wrong: notification > report > personal-communication. Right: newsletter > personal-communication > article.
+A failed Actions run is workflow-failure. A bot comment on a pull request is pull-request even if it reports a quality gate.
 Do not copy a unique ABOUT detail into the leaf. Do not add a 4th level. Do not emit a trailing " > " or a single root such as "ci >".`
 }
 

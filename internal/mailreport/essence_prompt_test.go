@@ -217,6 +217,15 @@ func TestDefaultEssenceSystemPrompt_whyOrderAndKind(t *testing.T) {
 	if !strings.Contains(p, "email-verification not email") {
 		t.Fatalf("prompt missing email-verification leaf rule: %s", p)
 	}
+	if !strings.Contains(p, "article not personal-communication") {
+		t.Fatalf("prompt missing article leaf rule: %s", p)
+	}
+	if !strings.Contains(p, "newsletter > personal-communication > article") {
+		t.Fatalf("prompt missing newsletter article leaf example: %s", p)
+	}
+	if !strings.Contains(p, "bot comment on a pull request is pull-request") {
+		t.Fatalf("prompt missing PR-comment vs workflow-failure rule: %s", p)
+	}
 	if strings.Contains(p, "3 to 5") {
 		t.Fatalf("prompt still allows 3 to 5: %s", p)
 	}
