@@ -70,6 +70,41 @@ func TestResolveTaxonomyDescriptionCosineDefaults(t *testing.T) {
 	}
 }
 
+func TestResolveTaxonomyShapeDefaults(t *testing.T) {
+	cfg, err := resolveTaxonomy(TaxonomyFile{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ShapeConfirm {
+		t.Fatal("ShapeConfirm want true")
+	}
+	if cfg.ShapeMinRepeats != defaultShapeMinRepeats {
+		t.Fatalf("min repeats %d", cfg.ShapeMinRepeats)
+	}
+	if cfg.ShapeConfirmMin != defaultShapeConfirmMin {
+		t.Fatalf("confirm min %v", cfg.ShapeConfirmMin)
+	}
+	wantLeaves := DefaultShapeAllowedLeaves()
+	if len(cfg.ShapeAllowedLeaves) != len(wantLeaves) {
+		t.Fatalf("leaves %v", cfg.ShapeAllowedLeaves)
+	}
+}
+
+func TestResolveTaxonomyShapeConfirmFalse(t *testing.T) {
+	falseVal := false
+	cfg, err := resolveTaxonomy(TaxonomyFile{ShapeConfirm: &falseVal})
+	if err != nil || cfg.ShapeConfirm {
+		t.Fatalf("got %v err %v", cfg.ShapeConfirm, err)
+	}
+}
+
+func TestResolveTaxonomyShapeMinRepeatsZero(t *testing.T) {
+	cfg, err := resolveTaxonomy(TaxonomyFile{ShapeMinRepeats: 0})
+	if err != nil || cfg.ShapeMinRepeats != defaultShapeMinRepeats {
+		t.Fatalf("got %d err %v", cfg.ShapeMinRepeats, err)
+	}
+}
+
 func TestNormalizeDescriptionCosineModeInvalid(t *testing.T) {
 	_, err := NormalizeDescriptionCosineMode("bogus")
 	if err == nil {

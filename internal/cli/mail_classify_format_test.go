@@ -8,6 +8,26 @@ import (
 	"github.com/xynova/should-i-read/internal/mailreport"
 )
 
+func TestFormatClassifyArtifactShapeConfirmed(t *testing.T) {
+	art := mailreport.Artifact{
+		Classified:     40,
+		ShapeConfirmed: 19,
+		ShapesPromoted: 1,
+	}
+	out := formatClassifyArtifact(art)
+	if !strings.Contains(out, "shape-confirmed 19 (Jev, skipped Essence)") {
+		t.Fatalf("missing shape line: %s", out)
+	}
+	if !strings.Contains(out, "shapes promoted 1") {
+		t.Fatalf("missing promoted line: %s", out)
+	}
+	art2 := mailreport.Artifact{Classified: 2}
+	out2 := formatClassifyArtifact(art2)
+	if strings.Contains(out2, "shape-confirmed") {
+		t.Fatalf("unexpected shape line: %s", out2)
+	}
+}
+
 func TestFormatClassifyArtifactClusters(t *testing.T) {
 	art := mailreport.Artifact{
 		Classified: 2,
