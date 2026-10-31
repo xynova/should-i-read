@@ -67,6 +67,15 @@ taxonomy:
   walk_reinforce_min: 0.70
   # Attach essence prefetch batch size (default 8, max 16)
   essence_batch_size: 8
+  # Jev shape-confirm skip for repeating CI notification subjects (default on)
+  shape_confirm: true
+  shape_min_repeats: 3
+  shape_confirm_min: 0.90
+  shape_allowed_leaves:
+    - pipeline-failure
+    - workflow-failure
+    - pull-request
+    - release
   # Email vs Essence ABOUT cosine (report-only by default; repair needs PhaseWalk)
   description_cosine_min: 0.55
   description_cosine_mode: report

@@ -574,6 +574,10 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		DescriptionCosineMin:       cfg.Taxonomy.DescriptionCosineMin,
 		DescriptionCosineMode:      cfg.Taxonomy.DescriptionCosineMode,
 		EssenceSemanticMaxAttempts: cfg.Taxonomy.EssenceSemanticMaxAttempts,
+		ShapeConfirm:               cfg.Taxonomy.ShapeConfirm,
+		ShapeMinRepeats:            cfg.Taxonomy.ShapeMinRepeats,
+		ShapeConfirmMin:            cfg.Taxonomy.ShapeConfirmMin,
+		ShapeAllowedLeaves:         cfg.Taxonomy.ShapeAllowedLeaves,
 		Now:                        now,
 	}, vocab, cat)
 	if err != nil {
@@ -957,6 +961,12 @@ func formatClassifyArtifact(art mailreport.Artifact) string {
 		fmt.Fprintf(&b, " · failed %d", len(failed))
 	}
 	b.WriteByte('\n')
+	if art.ShapeConfirmed > 0 {
+		fmt.Fprintf(&b, "shape-confirmed %d (Jev, skipped Essence)\n", art.ShapeConfirmed)
+	}
+	if art.ShapesPromoted > 0 {
+		fmt.Fprintf(&b, "shapes promoted %d\n", art.ShapesPromoted)
+	}
 	if art.Omitted > 0 {
 		b.WriteString(clui.Muted(fmt.Sprintf("%d omitted (cap)\n", art.Omitted)))
 	}

@@ -17,7 +17,14 @@ const (
 	defaultDescriptionCosineMin       = 0.55
 	defaultDescriptionCosineMode      = DescriptionCosineModeReport
 	defaultEssenceSemanticMaxAttempts = 2
+	defaultShapeMinRepeats            = 3
+	defaultShapeConfirmMin            = 0.90
 )
+
+// DefaultShapeAllowedLeaves are last-slot KIND ids eligible for shape auto-promote.
+func DefaultShapeAllowedLeaves() []string {
+	return []string{"pipeline-failure", "workflow-failure", "pull-request", "release"}
+}
 
 // DescriptionCosineMode controls Essence ABOUT fit-to-email scoring and repair.
 type DescriptionCosineMode string
@@ -42,6 +49,10 @@ type TaxonomyFile struct {
 	DescriptionCosineMin       float64  `yaml:"description_cosine_min"`
 	DescriptionCosineMode      string   `yaml:"description_cosine_mode"`
 	EssenceSemanticMaxAttempts int      `yaml:"essence_semantic_max_attempts"`
+	ShapeConfirm               *bool    `yaml:"shape_confirm"`
+	ShapeMinRepeats            int      `yaml:"shape_min_repeats"`
+	ShapeConfirmMin            float64  `yaml:"shape_confirm_min"`
+	ShapeAllowedLeaves         []string `yaml:"shape_allowed_leaves"`
 }
 
 // TaxonomyConfig is resolved taxonomy settings.
@@ -58,6 +69,10 @@ type TaxonomyConfig struct {
 	DescriptionCosineMin       float64
 	DescriptionCosineMode      DescriptionCosineMode
 	EssenceSemanticMaxAttempts int
+	ShapeConfirm               bool
+	ShapeMinRepeats            int
+	ShapeConfirmMin            float64
+	ShapeAllowedLeaves         []string
 }
 
 // SeedCatalogPath returns the repo seed vocabulary path.
@@ -174,6 +189,22 @@ func resolveTaxonomy(file TaxonomyFile) (TaxonomyConfig, error) {
 	if semanticAttempts <= 0 {
 		semanticAttempts = defaultEssenceSemanticMaxAttempts
 	}
+	shapeConfirm := true
+	if file.ShapeConfirm != nil {
+		shapeConfirm = *file.ShapeConfirm
+	}
+	shapeMinRepeats := file.ShapeMinRepeats
+	if shapeMinRepeats <= 0 {
+		shapeMinRepeats = defaultShapeMinRepeats
+	}
+	shapeConfirmMin := file.ShapeConfirmMin
+	if shapeConfirmMin <= 0 {
+		shapeConfirmMin = defaultShapeConfirmMin
+	}
+	shapeLeaves := uniqueNonEmptyStrings(file.ShapeAllowedLeaves)
+	if len(shapeLeaves) == 0 {
+		shapeLeaves = DefaultShapeAllowedLeaves()
+	}
 	return TaxonomyConfig{
 		CatalogPath:                path,
 		ClassifyMax:                max,
@@ -187,6 +218,10 @@ func resolveTaxonomy(file TaxonomyFile) (TaxonomyConfig, error) {
 		DescriptionCosineMin:       descMin,
 		DescriptionCosineMode:      descMode,
 		EssenceSemanticMaxAttempts: semanticAttempts,
+		ShapeConfirm:               shapeConfirm,
+		ShapeMinRepeats:            shapeMinRepeats,
+		ShapeConfirmMin:            shapeConfirmMin,
+		ShapeAllowedLeaves:         shapeLeaves,
 	}, nil
 }
 

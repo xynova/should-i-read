@@ -205,6 +205,7 @@ func runMailBenchVariant(cmd *cobra.Command, opts *rootOptions, repoRoot string,
 		}
 		chunkCfg := cfg
 		chunkCfg.StorePath = filepath.Join(ledgerRoot, fmtChunkLedger(i))
+		chunkCfg.Taxonomy.ShapeConfirm = false
 		runner, err := prepareClassifyRunner(chunkCtx, chunkCfg, repoRoot, cOpts)
 		if err != nil {
 			cancel()

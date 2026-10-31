@@ -56,6 +56,10 @@ type RunnerConfig struct {
 	DescriptionCosineMin       float64
 	DescriptionCosineMode      config.DescriptionCosineMode
 	EssenceSemanticMaxAttempts int
+	ShapeConfirm               bool
+	ShapeMinRepeats            int
+	ShapeConfirmMin            float64
+	ShapeAllowedLeaves         []string
 	Now                        time.Time
 }
 
@@ -98,6 +102,13 @@ type Runner struct {
 	descriptionCosineMin       float64
 	descriptionCosineMode      config.DescriptionCosineMode
 	essenceSemanticMaxAttempts int
+	shapeConfirm               bool
+	shapeMinRepeats            int
+	shapeConfirmMin            float64
+	shapeAllowedLeaves         []string
+	subjectTemplater           *SubjectTemplater
+	currentPromptHash          string
+	shapeSkipByHash            map[string]shapeConfirmDecision
 	aiHops                     int
 	now                        time.Time
 }
@@ -132,6 +143,22 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 	now := cfg.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
+	}
+	templater, err := CreateSubjectTemplater(SubjectTemplaterConfig{})
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create subject templater")
+	}
+	allowedLeaves := append([]string{}, cfg.ShapeAllowedLeaves...)
+	if len(allowedLeaves) == 0 {
+		allowedLeaves = config.DefaultShapeAllowedLeaves()
+	}
+	shapeMinRepeats := cfg.ShapeMinRepeats
+	if shapeMinRepeats <= 0 {
+		shapeMinRepeats = 3
+	}
+	shapeConfirmMin := cfg.ShapeConfirmMin
+	if shapeConfirmMin <= 0 {
+		shapeConfirmMin = 0.90
 	}
 	return &Runner{
 		h:                          cfg.Harness,
@@ -170,6 +197,12 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		descriptionCosineMin:       cfg.DescriptionCosineMin,
 		descriptionCosineMode:      cfg.DescriptionCosineMode,
 		essenceSemanticMaxAttempts: cfg.EssenceSemanticMaxAttempts,
+		shapeConfirm:               cfg.ShapeConfirm,
+		shapeMinRepeats:            shapeMinRepeats,
+		shapeConfirmMin:            shapeConfirmMin,
+		shapeAllowedLeaves:         allowedLeaves,
+		subjectTemplater:           templater,
+		currentPromptHash:          EssencePromptHash(DefaultEssenceSystemPrompt()),
 		now:                        now,
 	}, nil
 }
@@ -215,10 +248,15 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	if len(pending) > r.max {
 		pending = pending[:r.max]
 	}
+	prefetchPending := pending
+	r.shapeSkipByHash = nil
+	if r.shapeConfirmEnabled(source) {
+		prefetchPending, r.shapeSkipByHash = r.planShapeSkips(ctx, pending)
+	}
 	r.prefetchByHash = map[string]*harness.EssenceOut{}
-	if r.h != nil && config.IsAttachStrategy(r.strategy) && len(pending) > 0 {
-		ops := make([]harness.Op, 0, len(pending))
-		for _, item := range pending {
+	if r.h != nil && config.IsAttachStrategy(r.strategy) && len(prefetchPending) > 0 {
+		ops := make([]harness.Op, 0, len(prefetchPending))
+		for _, item := range prefetchPending {
 			hash := strings.TrimSpace(item.ObjectHash)
 			if hash == "" {
 				continue
@@ -361,6 +399,9 @@ func (r *Runner) classifyItem(ctx context.Context, item Item, aiHops *int, art *
 		return nil
 	}
 	*aiHops++
+	if dec, ok := r.shapeSkipByHash[hash]; ok {
+		return r.persistShapeConfirm(ctx, hash, token, item, dec, art)
+	}
 	return r.operateAndPersist(ctx, hash, token, item, art)
 }
 
@@ -397,6 +438,9 @@ func storeWriteContext(parent context.Context) (context.Context, context.CancelF
 
 func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item Item, art *Artifact) error {
 	row := MessageRow{ObjectHash: hash, Subject: item.Subject, Sender: item.Sender}
+	if dec, ok := r.midWaveShapeDecision(ctx, item); ok {
+		return r.persistShapeConfirm(ctx, hash, token, item, dec, art)
+	}
 	opCtx, cancel := context.WithTimeout(ctx, r.operateTimeout())
 	defer cancel()
 	res, opErr := r.runOperate(opCtx, item)
@@ -459,6 +503,7 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 	if err := r.store.Complete(storeCtx, hash, token, stateFromRow(row, r.vocab.ID, r.judgeModel, r.embedModel), emb); err != nil {
 		return err
 	}
+	r.maybePromoteShape(ctx, item, row, art)
 	art.Messages = append(art.Messages, row)
 	art.Classified++
 	art.NewlyClassified++
