@@ -578,6 +578,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		ShapeMinRepeats:            cfg.Taxonomy.ShapeMinRepeats,
 		ShapeConfirmMin:            cfg.Taxonomy.ShapeConfirmMin,
 		ShapeAllowedLeaves:         cfg.Taxonomy.ShapeAllowedLeaves,
+		EssenceSystemPrompt:        essencePromptJoined,
 		Now:                        now,
 	}, vocab, cat)
 	if err != nil {

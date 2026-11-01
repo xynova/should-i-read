@@ -60,7 +60,10 @@ type RunnerConfig struct {
 	ShapeMinRepeats            int
 	ShapeConfirmMin            float64
 	ShapeAllowedLeaves         []string
-	Now                        time.Time
+	// EssenceSystemPrompt is the joined WHY/TAGS/KIND text used by essence_cache.
+	// Empty uses DefaultEssenceSystemPrompt (tests).
+	EssenceSystemPrompt string
+	Now                 time.Time
 }
 
 // Runner classifies items with taxonomy Operate.
@@ -202,7 +205,7 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		shapeConfirmMin:            shapeConfirmMin,
 		shapeAllowedLeaves:         allowedLeaves,
 		subjectTemplater:           templater,
-		currentPromptHash:          EssencePromptHash(DefaultEssenceSystemPrompt()),
+		currentPromptHash:          EssencePromptHash(cfg.EssenceSystemPrompt),
 		now:                        now,
 	}, nil
 }
