@@ -43,6 +43,20 @@ func (r *Runner) currentEssencePromptHash() string {
 	return EssencePromptHash(DefaultEssenceSystemPrompt())
 }
 
+func (r *Runner) currentEssenceFingerprint() hoststore.EssenceFingerprint {
+	model := ""
+	escalate := ""
+	if r != nil {
+		model = r.essenceModel
+		escalate = r.essenceEscalateModel
+	}
+	return hoststore.EssenceFingerprint{
+		EssenceModel:  model,
+		EscalateModel: escalate,
+		PromptHash:    r.currentEssencePromptHash(),
+	}
+}
+
 func (r *Runner) shapeFingerprintForItem(item Item) (domain, template, fingerprint string, ok bool) {
 	if r == nil || r.subjectTemplater == nil {
 		return "", "", "", false
@@ -240,7 +254,7 @@ func (r *Runner) maybePromoteShape(ctx context.Context, item Item, row MessageRo
 	if !r.lastSlotAllowed(lastSlot) {
 		return
 	}
-	fpEssence := essenceFingerprint(r.essenceModel, r.essenceEscalateModel, DefaultEssenceSystemPrompt())
+	fpEssence := r.currentEssenceFingerprint()
 	if _, hit, err := r.store.GetEssence(ctx, item.ObjectHash, fpEssence); err != nil || !hit {
 		return
 	}

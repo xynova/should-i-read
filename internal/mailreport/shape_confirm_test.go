@@ -98,6 +98,68 @@ func TestShapePromoteAfterEssenceComplete(t *testing.T) {
 	}
 }
 
+func TestShapePromoteUsesJoinedEssencePrompt(t *testing.T) {
+	store := testLedger(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	joined := JoinEssencePrompts(BuildEssencePrompts([]string{"github-notification"}))
+	if joined == DefaultEssenceSystemPrompt() {
+		t.Fatal("joined prompt must differ from default system prompt")
+	}
+	vocab := testKindVocab()
+	cat, err := catalog.BuildCatalog(vocab)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := testShapeRunner(t, store, &stubJudge{})
+	runner, err := CreateRunner(RunnerConfig{
+		Harness:             base.h,
+		Seats:               base.seats,
+		CatalogPath:         filepath.Join(t.TempDir(), "kind.yaml"),
+		Store:               store,
+		ClassifyMax:         10,
+		Strategy:            string(harness.StrategyAttach),
+		ShapeConfirm:        true,
+		ShapeMinRepeats:     3,
+		ShapeConfirmMin:     0.90,
+		ShapeAllowedLeaves:  []string{"pipeline-failure"},
+		EmbedModel:          "embed-model",
+		EssenceModel:        "essence-model",
+		PolypusURL:          "http://127.0.0.1:1320",
+		EssenceSystemPrompt: joined,
+	}, vocab, cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpEssence := runner.currentEssenceFingerprint()
+	if fpEssence.PromptHash == EssencePromptHash(DefaultEssenceSystemPrompt()) {
+		t.Fatal("current fingerprint still hashed the default prompt")
+	}
+	art := &Artifact{}
+	subject := "Acme | Failed pipeline for main | deadbeef"
+	sender := "GitLab <notify@gitlab.com>"
+	for i := 1; i <= 3; i++ {
+		hash := fmt.Sprintf("join-%d", i)
+		if err := store.PutEssence(ctx, hash, fpEssence, hoststore.EssenceRow{
+			Kind:         "notification > ci > pipeline-failure",
+			EssenceModel: runner.essenceModel,
+			PromptHash:   fpEssence.PromptHash,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		item := Item{ObjectHash: hash, Subject: subject, Sender: sender}
+		row := MessageRow{
+			Kind:     "notification > ci > pipeline-failure",
+			TermID:   "pipeline-failure",
+			Strategy: string(harness.StrategyAttach),
+		}
+		runner.maybePromoteShape(ctx, item, row, art)
+	}
+	if art.ShapesPromoted != 1 {
+		t.Fatalf("ShapesPromoted=%d", art.ShapesPromoted)
+	}
+}
+
 func TestShapePromoteSkipsStalePromptHash(t *testing.T) {
 	store := testLedger(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
