@@ -28,7 +28,7 @@ Operator CLI stdout is human-first by default; use `should-i-read --json <cmd>` 
 | `go tool task configure` / `should-i-read configure` | Operator onboarding hub (config, OAuth apps, mailbox) |
 | `go tool task mail:status` (internal) / `should-i-read mail status` | Onboarding checklist (JSON) |
 | `go tool task mail:readiness` / `should-i-read mail readiness` | Sync engine check (IMAP); `doctor` is a task alias |
-| `go tool task mail:sync` / `mail:report` / `mail:export` | `mail sync` (may classify via strop JobRunner + taxonomy), `mail report`, `mail export` |
+| `go tool task mail:sync` / `mail:report` / `mail:export` / `mail:overview` | `mail sync` (may classify via strop JobRunner + taxonomy), `mail report`, `mail export`, `mail overview` (offline HTML + JSON, no AI) |
 | `go tool task polypus-check` | Fail closed before host AI work (`mail report` needs JEV + chat models) |
 
 Nested provider checkouts (read-only for product patches): `providers/taxonomy`, `providers/strop`. Bump submodule gitlinks and `go.mod` after upstream tags; local dev may use `replace` to `./providers/taxonomy` until `v0.2.0` is published.

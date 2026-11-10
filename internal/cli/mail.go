@@ -25,6 +25,10 @@ func newMailCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd.AddCommand(newMailBenchCmd(opts, repoRoot))
 	cmd.AddCommand(newMailSimilarCmd(opts, repoRoot))
 	cmd.AddCommand(newMailShowCmd(opts, repoRoot))
+	cmd.AddCommand(newMailCartCmd(opts, repoRoot))
+	overview := newMailOverviewCmd(opts, repoRoot)
+	overview.AddCommand(newMailOverviewServeCmd(opts, repoRoot))
+	cmd.AddCommand(overview)
 	cmd.AddCommand(newMailTagsCmd(opts, repoRoot))
 	return cmd
 }

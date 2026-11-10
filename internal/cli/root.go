@@ -48,7 +48,7 @@ func skipTelemetryForCmd(cmd *cobra.Command) bool {
 			return true
 		case "mail":
 			switch leaf {
-			case VerbStatus, "readiness":
+			case VerbStatus, "readiness", "overview", "serve":
 				return true
 			}
 			return false

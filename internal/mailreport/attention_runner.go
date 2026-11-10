@@ -29,6 +29,8 @@ func (r *Runner) ScoreAttention(ctx context.Context, art Artifact) (Artifact, er
 		return art, nil
 	}
 	stopUnavailable := false
+	promptHash := AttentionPromptHash()
+	judgeModel := strings.TrimSpace(r.judgeModel)
 	for i := range art.Messages {
 		if ctx.Err() != nil {
 			return art, ctx.Err()
@@ -50,13 +52,6 @@ func (r *Runner) ScoreAttention(ctx context.Context, art Artifact) (Artifact, er
 		} else {
 			continue
 		}
-		if r.aiHops >= r.max {
-			art.AttentionOmitted++
-			continue
-		}
-		if stopUnavailable {
-			continue
-		}
 		in := AttentionIn{
 			Subject: row.Subject,
 			Sender:  row.Sender,
@@ -67,22 +62,35 @@ func (r *Runner) ScoreAttention(ctx context.Context, art Artifact) (Artifact, er
 		if attentionInputEmpty(in) {
 			continue
 		}
+		shapeScores, shapeErr := r.shapeAttentionScores(ctx, *row)
+		if shapeErr != nil {
+			return art, sirerr.Wrap(shapeErr, sirerr.CodeFailed, op, "shape attention")
+		}
+		if shapeScores != nil {
+			if err := r.persistAttentionHit(ctx, &art, row, hash, *shapeScores, tm, true); err != nil {
+				return art, err
+			}
+			continue
+		}
 		inputHash := AttentionInputHash(in)
-		promptHash := AttentionPromptHash()
-		judgeModel := strings.TrimSpace(r.judgeModel)
 		if judgeModel != "" {
 			cached, cacheErr := r.store.GetAttentionInput(ctx, inputHash, judgeModel, promptHash)
 			if cacheErr != nil {
 				return art, sirerr.Wrap(cacheErr, sirerr.CodeFailed, op, "get attention input cache")
 			}
 			if cached != nil {
-				row.Attention = AttentionFromState(cached.Urgency, cached.NeedsReplyNoul, cached.InvolvesDecisionNoul, tm)
-				if err := r.store.PutAttention(ctx, hash, cached.Urgency, cached.NeedsReplyNoul, cached.InvolvesDecisionNoul); err != nil {
-					return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention")
+				if err := r.persistAttentionHit(ctx, &art, row, hash, *cached, tm, false); err != nil {
+					return art, err
 				}
-				art.AttentionScored++
 				continue
 			}
+		}
+		if r.aiHops >= r.max {
+			art.AttentionOmitted++
+			continue
+		}
+		if stopUnavailable {
+			continue
 		}
 		r.aiHops++
 		att, scoreErr := r.attention.Score(ctx, in)
@@ -102,9 +110,86 @@ func (r *Runner) ScoreAttention(ctx context.Context, art Artifact) (Artifact, er
 				return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention input cache")
 			}
 		}
+		if err := r.storeShapeAttention(ctx, *row, att); err != nil {
+			return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "put shape attention")
+		}
 		art.AttentionScored++
 	}
 	return art, nil
+}
+
+func (r *Runner) persistAttentionHit(ctx context.Context, art *Artifact, row *MessageRow, hash string, scores hoststore.AttentionInputScores, tm float64, fromShape bool) error {
+	const op = "mailreport.Runner.ScoreAttention"
+	if art == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil artifact")
+	}
+	row.Attention = AttentionFromState(scores.Urgency, scores.NeedsReplyNoul, scores.InvolvesDecisionNoul, tm)
+	if err := r.store.PutAttention(ctx, hash, scores.Urgency, scores.NeedsReplyNoul, scores.InvolvesDecisionNoul); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention")
+	}
+	art.AttentionScored++
+	if fromShape {
+		art.AttentionShapeReused++
+	}
+	return nil
+}
+
+func (r *Runner) shapeAttentionScores(ctx context.Context, row MessageRow) (*hoststore.AttentionInputScores, error) {
+	if r == nil || r.store == nil {
+		return nil, nil
+	}
+	_, _, fp, ok := r.shapeFingerprintForItem(Item{Subject: row.Subject, Sender: row.Sender})
+	if !ok {
+		return nil, nil
+	}
+	shape, found, err := r.store.GetShape(ctx, fp)
+	if err != nil {
+		return nil, err
+	}
+	if !found || !r.shapeRowEligibleForAttention(shape) {
+		return nil, nil
+	}
+	if shape.AttentionScored {
+		return &hoststore.AttentionInputScores{
+			Urgency:              shape.Urgency,
+			NeedsReplyNoul:       shape.NeedsReplyNoul,
+			InvolvesDecisionNoul: shape.InvolvesDecisionNoul,
+		}, nil
+	}
+	seed := strings.TrimSpace(shape.SeedObjectHash)
+	if seed == "" {
+		return nil, nil
+	}
+	got, getErr := r.store.Get(ctx, seed)
+	if getErr != nil || !got.AttentionScored {
+		return nil, nil
+	}
+	if err := r.store.PutShapeAttention(ctx, fp, got.Urgency, got.NeedsReplyNoul, got.InvolvesDecisionNoul); err != nil {
+		return nil, err
+	}
+	return &hoststore.AttentionInputScores{
+		Urgency:              got.Urgency,
+		NeedsReplyNoul:       got.NeedsReplyNoul,
+		InvolvesDecisionNoul: got.InvolvesDecisionNoul,
+	}, nil
+}
+
+func (r *Runner) storeShapeAttention(ctx context.Context, row MessageRow, att Attention) error {
+	if r == nil || r.store == nil {
+		return nil
+	}
+	_, _, fp, ok := r.shapeFingerprintForItem(Item{Subject: row.Subject, Sender: row.Sender})
+	if !ok {
+		return nil
+	}
+	shape, found, err := r.store.GetShape(ctx, fp)
+	if err != nil {
+		return err
+	}
+	if !found || shape.Status == hoststore.ShapeStatusDisabled {
+		return nil
+	}
+	return r.store.PutShapeAttention(ctx, fp, att.Urgency, att.NeedsReplyNoul, att.InvolvesDecisionNoul)
 }
 
 func attentionInputEmpty(in AttentionIn) bool {

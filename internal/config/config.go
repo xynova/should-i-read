@@ -64,6 +64,8 @@ type PolypusFile struct {
 type PimalayaFile struct {
 	NeverestBin            string    `yaml:"neverest_bin"`
 	NeverestConfig         string    `yaml:"neverest_config"`
+	HimalayaBin            string    `yaml:"himalaya_bin"`
+	HimalayaConfig         string    `yaml:"himalaya_config"`
 	DefaultAccount         string    `yaml:"default_account"`
 	PimdirPath             string    `yaml:"pimdir_path"`
 	SyncExcludeCollections *[]string `yaml:"sync_exclude_collections"`
@@ -102,6 +104,8 @@ type Config struct {
 type PimalayaConfig struct {
 	NeverestBin            string
 	NeverestConfig         string
+	HimalayaBin            string
+	HimalayaConfig         string
 	DefaultAccount         string
 	PimdirPath             string
 	SyncExcludeCollections []string
@@ -151,6 +155,8 @@ func (c Config) Redacted() map[string]any {
 		"pimalaya": map[string]string{
 			"neverest_bin":             c.Pimalaya.NeverestBin,
 			"neverest_config":          c.Pimalaya.NeverestConfig,
+			"himalaya_bin":             c.Pimalaya.HimalayaBin,
+			"himalaya_config":          c.Pimalaya.HimalayaConfig,
 			"default_account":          c.Pimalaya.DefaultAccount,
 			"pimdir_path":              c.Pimalaya.PimdirPath,
 			"sync_exclude_collections": strings.Join(c.Pimalaya.SyncExcludeCollections, ","),
@@ -217,6 +223,8 @@ func DefaultFile() File {
 		Pimalaya: PimalayaFile{
 			NeverestBin:            "",
 			NeverestConfig:         "",
+			HimalayaBin:            "",
+			HimalayaConfig:         "",
 			DefaultAccount:         "",
 			PimdirPath:             "",
 			SyncExcludeCollections: ptrStringList(DefaultSyncExcludeCollections()),
@@ -327,6 +335,14 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 	if err != nil {
 		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand pimalaya.neverest_config")
 	}
+	himalayaBin, err := ExpandString(file.Pimalaya.HimalayaBin, resolve, false)
+	if err != nil {
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand pimalaya.himalaya_bin")
+	}
+	himalayaCfg, err := ExpandString(file.Pimalaya.HimalayaConfig, resolve, false)
+	if err != nil {
+		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand pimalaya.himalaya_config")
+	}
 	pimAccount, err := ExpandString(file.Pimalaya.DefaultAccount, resolve, false)
 	if err != nil {
 		return Config{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "expand pimalaya.default_account")
@@ -389,6 +405,8 @@ func materialize(repoRoot, path string, file File) (Config, error) {
 		Pimalaya: PimalayaConfig{
 			NeverestBin:            neverestBin,
 			NeverestConfig:         neverestCfg,
+			HimalayaBin:            himalayaBin,
+			HimalayaConfig:         himalayaCfg,
 			DefaultAccount:         pimAccount,
 			PimdirPath:             pimdirPath,
 			SyncExcludeCollections: resolveSyncExcludeCollections(file.Pimalaya.SyncExcludeCollections),

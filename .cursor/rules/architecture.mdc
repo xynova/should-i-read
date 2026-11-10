@@ -87,10 +87,11 @@ Set OPENROUTER_API_KEY so in-app classify "just works" against openrouter.ai
 
 - MUST: produce decisions, clusters, and TLDRs as host artifacts (for example under `tmp/`)
 - MUST: keep Jev as typed decisions via Polypus; keep TLDR on a chat model via Polypus
-- MUST NOT: delete, trash, spam-folder, or mark-read mail as part of the first milestone
+- MUST NOT: delete, trash, spam-folder, or mark-read mail from classify, `mail report`, overview **Mark**, or intent guess (report-only paths)
 - MUST NOT: call Jev/TypeSafe directly without Polypus
+- MAY: move messages to Trash at the mail source only via the confirmed deletion-cart job (`should-i-read mail cart apply --confirm trash-at-source` or overview **Move to Trash at source** after **Start deletion job**), which calls Himalaya `message delete` through host `internal/pimalaya` (not bare `himalaya` for product workflows)
 
-Enforcement: no mailbox-mutation calls in the report pipeline; mode flag `report_only`
+Enforcement: no mailbox-mutation calls in the report pipeline or cart staging; mode flag `report_only` on classify; cart apply requires literal confirm token `trash-at-source`
 Violation: STOP, remove mutation, keep report artifact only
 
 CORRECT:
@@ -110,7 +111,8 @@ Auto-move high-confidence spam to Trash from the first Jev integration
 | Use host `configure` / `go tool task mail:readiness|mail:sync|mail:export` for mail | Patch nested providers for host needs |
 | Write host orchestration in Go | Put product logic in provider trees |
 | Send all AI through Polypus (`POLYPUS_BASE_URL` / config) | Point clients at leaf AI vendors |
-| Keep unwanted-mail report-only until eval | Delete or quarantine mail early |
+| Keep classify/report Mark intent report-only until eval | Auto-delete or quarantine from Jev scores |
+| Confirmed cart Trash apply via `mail cart apply` | Bare `himalaya` as the product path |
 
 ## Pre-change checklist
 

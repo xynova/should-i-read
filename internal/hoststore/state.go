@@ -269,6 +269,93 @@ func (s *Store) ListCompleteShapes(ctx context.Context) ([]string, error) {
 }
 
 // ListCompleteHashes returns object_hashes with complete assignments.
+// OverviewRow is a complete classify_state row for reporting and analytics.
+type OverviewRow = StateRow
+
+// ListCompleteOverviewRows returns every row that counts as complete (same gate as isCompleteRow).
+func (s *Store) ListCompleteOverviewRows(ctx context.Context) ([]OverviewRow, error) {
+	const op = "hoststore.Store.ListCompleteOverviewRows"
+	if err := s.requireStore(ctx, op); err != nil {
+		return nil, err
+	}
+	q := `
+SELECT object_hash, status, term_id, path_json, label, source, strategy, kind, about, shape,
+  cosine, canonical_term_id, reinforced, judge_score, draft_kind, catalog_applied,
+  sender_term_id, sender_label, sender_maps_to, error, catalog_id, classify_model, embed_model,
+  claim_token, lease_until, attempt_count,
+  urgency, needs_reply_noul, involves_decision_noul, attention_scored, attention_error,
+  updated_at
+FROM classify_state
+WHERE status='complete'
+  AND TRIM(COALESCE(error,'')) = ''
+  AND (
+    TRIM(COALESCE(term_id,'')) != ''
+    OR TRIM(COALESCE(path_json,'')) NOT IN ('', '[]')
+  )
+ORDER BY object_hash`
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query overview rows")
+	}
+	defer func() { _ = rows.Close() }()
+	var out []OverviewRow
+	for rows.Next() {
+		var r OverviewRow
+		var reinforced, catalogApplied, attentionScored int
+		var pathJSON string
+		if err := rows.Scan(
+			&r.ObjectHash, &r.Status, &r.TermID, &pathJSON, &r.Label, &r.Source, &r.Strategy,
+			&r.Kind, &r.About, &r.Shape, &r.Cosine, &r.CanonicalTermID, &reinforced, &r.JudgeScore,
+			&r.DraftKind, &catalogApplied, &r.SenderTermID, &r.SenderLabel, &r.SenderMapsTo,
+			&r.Error, &r.CatalogID, &r.ClassifyModel, &r.EmbedModel, &r.ClaimToken, &r.LeaseUntil,
+			&r.AttemptCount,
+			&r.Urgency, &r.NeedsReplyNoul, &r.InvolvesDecisionNoul, &attentionScored, &r.AttentionError,
+			&r.UpdatedAt,
+		); err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan overview row")
+		}
+		r.Path, _ = unmarshalPath(pathJSON)
+		r.Reinforced = reinforced != 0
+		r.CatalogApplied = catalogApplied != 0
+		r.AttentionScored = attentionScored != 0
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ErrorRow holds classify_state rows in error status.
+type ErrorRow struct {
+	ObjectHash   string
+	Error        string
+	AttemptCount int
+	UpdatedAt    string
+}
+
+// ListErrorRows returns rows with status error, ordered by updated_at descending.
+func (s *Store) ListErrorRows(ctx context.Context) ([]ErrorRow, error) {
+	const op = "hoststore.Store.ListErrorRows"
+	if err := s.requireStore(ctx, op); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT object_hash, COALESCE(error,''), attempt_count, updated_at
+FROM classify_state WHERE status='error'
+ORDER BY updated_at DESC, object_hash`)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query error rows")
+	}
+	defer func() { _ = rows.Close() }()
+	var out []ErrorRow
+	for rows.Next() {
+		var r ErrorRow
+		if err := rows.Scan(&r.ObjectHash, &r.Error, &r.AttemptCount, &r.UpdatedAt); err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan error row")
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListCompleteHashes(ctx context.Context) ([]string, error) {
 	const op = "hoststore.Store.ListCompleteHashes"
 	if err := s.requireStore(ctx, op); err != nil {

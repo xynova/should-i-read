@@ -28,6 +28,13 @@ func TestFormatClassifyArtifactShapeConfirmed(t *testing.T) {
 	}
 }
 
+func TestFormatClassifyArtifactAttentionShapeReused(t *testing.T) {
+	out := formatClassifyArtifact(mailreport.Artifact{Classified: 40, AttentionShapeReused: 12})
+	if !strings.Contains(out, "attention shape-reused 12 (skipped SystemOne)") {
+		t.Fatalf("missing reuse line: %s", out)
+	}
+}
+
 func TestFormatClassifyArtifactClusters(t *testing.T) {
 	art := mailreport.Artifact{
 		Classified: 2,

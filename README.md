@@ -29,6 +29,7 @@ go tool task polypus-check
 go tool task mail:readiness           # mail readiness (doctor alias)
 go tool task mail:sync                # mail sync
 go tool task mail:export              # mail export → tmp/mail-export-*.json
+go tool task mail:overview            # ledger + pimdir → tmp/mail-overview-*.{html,json} (offline, no AI)
 ```
 
 Set `pimalaya.pimdir_path` in config to the directory that contains `pimdir.db`. Multi-account: `token gmail --account <label>` and matching sync-config `token.command_args`.

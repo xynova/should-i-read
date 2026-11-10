@@ -40,7 +40,17 @@ flowchart TD
    - **Artifacts:** each run writes `tmp/unwanted-report-<ts>.json` with optional `window_from` / `window_to`. Per-message ledger rows accumulate by `object_hash`. The live cluster cache is overwritten for each `cluster_id` on the latest processed window (weekly JSON files are the snapshots).
 3. For each message, taxonomy `Operate` runs **attach** (`taxonomy.strategy: attach`; legacy `walk` is treated as attach). Attach: Essence is three Polypus chat hops (WHY slave, TAGS slave, KIND slave), then embeddings, cosine alias or Walk reinforce or breadcrumb create on `inbox-kind`. Repeating CI subjects may skip Essence: after `taxonomy.shape_min_repeats` (default 3) hits of the same sender domain and templated subject under the current Essence prompt hash, the host promotes a row in `mail_shapes` and later mail with that fingerprint gets a Jev yes/no (`taxonomy.shape_confirm_min`, default 0.90). A match Completes with `strategy=shape-confirm` and copies KIND; a miss falls through to Essence. Default allow-listed last slots are `pipeline-failure`, `workflow-failure`, `pull-request`, and `release`. `mail bench` forces `shape_confirm` off. Report rows include `path`, and attach rows add `kind`, `about`, `shape`, `cosine` (leaf attach match), `description_cosine` (email vs ABOUT when `taxonomy.description_cosine_mode` is `report` or `repair`), `canonical_term_id`, `reinforced`. Breadcrumb ABOUT/SHAPE must pass host layout/length gates before catalog apply. Accepted drafts update the active catalog YAML unless `--no-apply`.
 4. Cluster messages in the report by `canonical_term_id` / `term_id`, then sender domain; optional embedding attach via `cluster.min_cosine`. One TLDR per cluster via Polypus chat (cached in host SQLite by fingerprint).
-5. Write `tmp/unwanted-report-<timestamp>.json` with `cluster_id` on each message and `clusters[]` summaries. This-run counters `shape_confirmed` and `shapes_promoted` appear in JSON and, when greater than zero, as human lines under `Classified N`. Resume-complete rows keep `strategy` from the ledger but do not increment those this-run counters. **No mailbox trash/spam/delete API calls.**
+5. Write `tmp/unwanted-report-<timestamp>.json` with `cluster_id` on each message and `clusters[]` summaries. This-run counters `shape_confirmed` and `shapes_promoted` appear in JSON and, when greater than zero, as human lines under `Classified N`. Resume-complete rows keep `strategy` from the ledger but do not increment those this-run counters. **No mailbox trash/spam/delete API calls on this path.**
+
+## Operator-confirmed Trash (deletion cart, out of band)
+
+Classify and overview **Mark** stay report-only. When you are ready to mutate the mailbox, use the deletion cart:
+
+1. Stage with overview **Mark** or `POST /cart` (host ledger only).
+2. **Start deletion job** (`go tool task mail:cart-job`, `should-i-read mail cart job`, or `POST /cart/jobs`): snapshot cart hashes, resolve pimdir folder + envelope id, write `tmp/delete-job-<id>.json`.
+3. **Apply** with confirm token `trash-at-source` (`go tool task mail:cart-apply -- --confirm trash-at-source`, or overview **Move to Trash at source** with HTTP `202` + poll). The host runs Himalaya `message delete` per planned item; cart rows drop only after `moved-to-trash`.
+
+This is explicit operator approval, not auto-trash from Jev or classify scores. Permanent expunge and auto-quarantine remain out of scope until eval exit criteria pass.
 
 ## Output schema (minimum)
 

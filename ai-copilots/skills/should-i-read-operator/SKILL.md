@@ -1,7 +1,7 @@
 ---
 name: should-i-read-operator
 description: >-
-  Operates the should-i-read host CLI: configure hub, mail status/readiness/sync/report/export/show,
+  Operates the should-i-read host CLI: configure hub, mail status/readiness/sync/report/export/overview/show,
   token gmail|outlook for scripts, Polypus check, init/config.
 ---
 
@@ -15,7 +15,7 @@ Architecture: `.cursor/rules/architecture.mdc`. **Setup:** [`docs/pimalaya-setup
 
 - First-time operator setup (`go tool task configure`, `configure --json`)
 - Polypus health before AI work
-- Day-2 `go tool task mail:readiness|mail:sync|mail:report|mail:export`, token brokers for multi-account labels
+- Day-2 `go tool task mail:readiness|mail:sync|mail:report|mail:export|mail:overview`, token brokers for multi-account labels
 
 ## CLI output
 
@@ -37,6 +37,10 @@ Token bare invoke (`token gmail`) still prints only the access token for Neveres
 | Classify mail (report-only, clusters + TLDR) | `mail report` | `go tool task mail:report` |
 | Regenerate mail tag register (stopword unify + Jev leftover curation when Polypus is up) | `mail tags` | `go tool task mail:tags` |
 | Export summary JSON | `mail export` | `go tool task mail:export` |
+| Offline month overview (HTML + JSON, read-only stores) | `mail overview` | `go tool task mail:overview` |
+| Snapshot deletion cart into a trash job (resolve pimdir; no IMAP) | `mail cart job` | `go tool task mail:cart-job` |
+| Move planned cart items to Trash at source (Himalaya via host) | `mail cart apply <job-id> --confirm trash-at-source` | `go tool task mail:cart-apply -- --confirm trash-at-source <job-id>` |
+| Deletion job status JSON | `mail cart status <job-id>` | (CLI only) |
 | Read one message body | `mail show <ref>` | (CLI only) |
 
 `mail report` runs tag cleanup only when new messages were classified this run; resume-only reports skip it. To re-judge a token, delete its `[[kept]]` or `[[skipped]]` row in `tag-deprecations.toml`, then run `mail tags`.

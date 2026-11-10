@@ -96,6 +96,13 @@ func (r *Runner) shapeRowEligible(row hoststore.MailShapeRow) bool {
 	return r.lastSlotAllowed(row.LastSlot)
 }
 
+func (r *Runner) shapeRowEligibleForAttention(row hoststore.MailShapeRow) bool {
+	if row.Status != hoststore.ShapeStatusActive {
+		return false
+	}
+	return r.lastSlotAllowed(row.LastSlot)
+}
+
 func (r *Runner) planShapeSkips(ctx context.Context, pending []Item) (essenceItems []Item, skipByHash map[string]shapeConfirmDecision) {
 	skipByHash = map[string]shapeConfirmDecision{}
 	type candidate struct {

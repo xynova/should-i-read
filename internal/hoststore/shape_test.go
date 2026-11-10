@@ -145,6 +145,10 @@ func TestShapeMethodsRequireDeadline(t *testing.T) {
 	if err == nil {
 		t.Fatal("RejectShape expected deadline error")
 	}
+	err = st.PutShapeAttention(context.Background(), "fp-x", 0.1, 0.2, 0.3)
+	if err == nil {
+		t.Fatal("PutShapeAttention expected deadline error")
+	}
 }
 
 func TestConfirmShapeIncrements(t *testing.T) {
@@ -159,5 +163,25 @@ func TestConfirmShapeIncrements(t *testing.T) {
 	row, _, err := st.GetShape(ctx, "fp-f")
 	if err != nil || row.ConfirmCount != 1 {
 		t.Fatalf("confirm_count=%d err=%v", row.ConfirmCount, err)
+	}
+}
+
+func TestPutShapeAttentionFirstWriteWins(t *testing.T) {
+	st, ctx := testStore(t)
+	if _, err := st.RecordShapeHit(ctx, testShapeHit("fp-att", 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutShapeAttention(ctx, "fp-att", 0.4, 0.1, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutShapeAttention(ctx, "fp-att", 0.9, 0.8, 0.7); err != nil {
+		t.Fatal(err)
+	}
+	row, ok, err := st.GetShape(ctx, "fp-att")
+	if err != nil || !ok {
+		t.Fatalf("get: ok=%v err=%v", ok, err)
+	}
+	if !row.AttentionScored || row.Urgency != 0.4 || row.NeedsReplyNoul != 0.1 || row.InvolvesDecisionNoul != 0.2 {
+		t.Fatalf("row=%+v", row)
 	}
 }

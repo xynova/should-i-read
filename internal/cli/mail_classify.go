@@ -971,6 +971,9 @@ func formatClassifyArtifact(art mailreport.Artifact) string {
 	if art.Omitted > 0 {
 		b.WriteString(clui.Muted(fmt.Sprintf("%d omitted (cap)\n", art.Omitted)))
 	}
+	if art.AttentionShapeReused > 0 {
+		fmt.Fprintf(&b, "attention shape-reused %d (skipped SystemOne)\n", art.AttentionShapeReused)
+	}
 	if art.AttentionOmitted > 0 {
 		b.WriteString(clui.Muted(fmt.Sprintf("%d attention omitted (cap)\n", art.AttentionOmitted)))
 	}

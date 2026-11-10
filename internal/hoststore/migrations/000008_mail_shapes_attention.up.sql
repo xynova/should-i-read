@@ -1,0 +1,4 @@
+ALTER TABLE mail_shapes ADD COLUMN attention_scored INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE mail_shapes ADD COLUMN urgency REAL NOT NULL DEFAULT 0;
+ALTER TABLE mail_shapes ADD COLUMN needs_reply_noul REAL NOT NULL DEFAULT 0;
+ALTER TABLE mail_shapes ADD COLUMN involves_decision_noul REAL NOT NULL DEFAULT 0;

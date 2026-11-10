@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mail overview</title>
+  <style>{{.InlineCSS}}</style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+    <div class="title-row">
+      <div>
+        <h1>Mail overview</h1>
+        <div class="meta">Generated {{.Generated}}</div>
+      </div>
+      <div class="header-actions">
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch light or dark theme">Light / dark</button>
+      <button type="button" class="theme-toggle" id="highlight-toggle" aria-pressed="true" aria-label="Highlight a region to ask what it might mean">Highlighting</button>
+      <span id="highlight-hint">Click or drag on the report</span>
+      <button type="button" class="theme-toggle" id="cart-toggle" aria-expanded="false">Cart <span id="cart-count">0</span></button>
+      </div>
+    </div>
+    <div class="month-tabs" role="tablist" aria-label="Month">
+      {{range .MainTabs}}
+      <button type="button" role="tab" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count">{{.Count}}</span></button>
+      {{end}}
+      {{if .MinorTabs}}
+      <span class="tab-sep" aria-hidden="true">Stray dates</span>
+      {{range .MinorTabs}}
+      <button type="button" role="tab" class="minor" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count">{{.Count}}</span></button>
+      {{end}}
+      {{end}}
+    </div>
+    </div>
+  </header>
+  <main>
+    {{range .Tabs}}
+    <div class="tab-panel{{if .Selected}} active{{end}}" data-month="{{.Key}}" role="tabpanel" data-label="{{.Label}}">
+      <section class="panel" id="sec-attention-{{.Key}}">
+        <h2>What needs you</h2>
+        <div class="need-tiles">
+          {{range .Tiles}}
+          <div class="need-tile tone-{{.Tone}}{{if eq .Count 0}} is-zero{{end}}">
+            <div class="need-count">{{.Count}}</div>
+            <div class="need-label">{{.Label}}</div>
+            <div class="need-hint">{{.Hint}}</div>
+          </div>
+          {{end}}
+        </div>
+        {{$key := .Key}}
+        {{range .ActionLists}}
+        <div class="action-list tone-{{.Tone}}">
+          <h3 class="list-title"><span class="dot" aria-hidden="true"></span>{{.Title}} <span class="list-count">{{.Messages}} messages{{if lt (len .Rows) .Messages}}, repeats grouped{{end}}</span></h3>
+          <div class="table-wrap"><table class="data action-table" id="act-{{$key}}-{{.Tone}}">
+            <thead><tr><th class="col-date">Latest</th><th class="col-sender">From</th><th>Subject</th></tr></thead>
+            <tbody>{{range .Rows}}<tr{{if .Extra}} class="extra" hidden{{end}} data-hashes="{{.HashAttr}}" data-sender="{{.Name}}" data-subject="{{.Subject}}" data-date="{{.FullDate}}">
+              <td class="col-date"><time datetime="{{.FullDate}}">{{.Date}}</time></td>
+              <td class="col-sender"><div class="sender-name">{{.Name}}</div>{{if .Address}}<div class="sender-addr">{{.Address}}</div>{{end}}</td>
+              <td class="col-subject">{{.Subject}}{{if gt .Count 1}} <span class="repeat" title="{{.Count}} messages with this subject">×{{.Count}}</span>{{end}}</td>
+            </tr>{{end}}</tbody>
+          </table></div>
+          {{if .ExtraCount}}<button type="button" class="more-btn" data-more-for="act-{{$key}}-{{.Tone}}" data-more-label="Show {{.ExtraCount}} more">Show {{.ExtraCount}} more</button>{{end}}
+        </div>
+        {{end}}
+      </section>
+
+      {{if .HasThemes}}
+      <section class="panel" id="sec-themes-{{.Key}}">
+        <h2>What arrived</h2>
+        {{with .KindTree}}
+        <div class="chart-wrap chart-card-aqua kind-tree">
+          <div class="ktree-head">
+            <h3 class="ktree-title">Kind tree</h3>
+            <p class="ktree-hint">Top kind, then area, then message type. Bars share one scale; the percentage is each row's part of the row above it. {{.Count}} messages.</p>
+          </div>
+          <ul class="ktree" role="tree">
+            {{range .Children}}{{template "knode" .}}{{end}}
+            {{if .Small}}{{template "ktail" .}}{{end}}
+          </ul>
+        </div>
+        {{end}}
+        {{if .HeatmapSVG}}<div class="chart-wrap">{{.HeatmapSVG}}</div>{{end}}
+      </section>
+      {{end}}
+
+      {{if .HasFluff}}
+      <section class="panel" id="sec-fluff-{{.Key}}">
+        <h2>What it costs you</h2>
+        <div class="grid-2">
+          {{if .FluffWeekBarsSVG}}<div class="chart-wrap">{{.FluffWeekBarsSVG}}</div>{{end}}
+          <div class="chart-wrap">{{.FluffSplitSVG}}</div>
+        </div>
+        {{if .Section.Fluff.TopSenders}}
+        <h3 class="sub">Senders costing you the most minutes</h3>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Sender</th><th>Messages</th><th>Minutes</th></tr></thead>
+        <tbody>{{range .Section.Fluff.TopSenders}}<tr{{if .HashAttr}} data-hashes="{{.HashAttr}}" data-sender="{{.Sender}}"{{end}}><td>{{.Sender}}</td><td>{{.Messages}}</td><td>{{printf "%.2f" .Minutes}}</td></tr>{{end}}</tbody></table></div>
+        {{end}}
+      </section>
+      {{end}}
+
+      <details class="audit">
+        <summary>Pipeline, trust, and every message</summary>
+        <section class="panel" id="sec-summary-{{.Key}}">
+          <h2>Summary</h2>
+          <div class="summary-tiles">
+            <div class="tile"><div class="label">Classified</div><div class="value">{{.Section.Summary.Classified}}</div><div class="delta">Delta vs previous calendar month {{.Section.Summary.DeltaClassified}}</div></div>
+            <div class="tile"><div class="label">Jev skips</div><div class="value">{{.Section.Summary.JevSkips}}</div></div>
+            <div class="tile"><div class="label">Essence chats</div><div class="value">{{.Section.Summary.EssenceChats}}</div></div>
+            <div class="tile"><div class="label">Embeds saved</div><div class="value">{{.Section.Summary.EmbedsSaved}}</div><div class="delta">skips times three hops</div></div>
+            <div class="tile"><div class="label">Needs reply</div><div class="value">{{.Section.Summary.NeedsReply}}</div></div>
+            <div class="tile"><div class="label">Fluff minutes</div><div class="value">{{printf "%.1f" .Section.Summary.FluffMinutes}}</div></div>
+          </div>
+          <div class="chart-wrap">{{.SparklineSVG}}</div>
+          <div class="sr-only">
+            <table>
+              <caption>Classified count by month</caption>
+              <thead><tr><th>Month</th><th>Count</th></tr></thead>
+              <tbody>
+              {{$sl := .Section.Summary.Sparkline}}{{range $i, $m := .Section.Summary.SparkMonths}}
+                <tr><td>{{$m}}</td><td>{{index $sl $i}}</td></tr>
+              {{end}}
+              </tbody>
+            </table>
+          </div>
+          <div class="chart-wrap">{{.AttentionDonutSVG}}</div>
+          <div class="chart-wrap">{{.UrgencyHistSVG}}</div>
+          <div class="sr-only">
+            <table>
+              <caption>Urgency histogram</caption>
+              <thead><tr><th>Bucket</th><th>Count</th></tr></thead>
+              <tbody>
+              {{range .UrgencyBucketRows}}
+                <tr><td>{{.Label}}</td><td>{{.Count}}</td></tr>
+              {{end}}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="sec-pipeline-{{.Key}}">
+          <h2>How the pipeline ran</h2>
+          <div class="chart-wrap">{{.HopFlowSVG}}</div>
+          <div class="chart-wrap">{{.SkipRateSVG}}</div>
+          {{if .Section.Pipeline.ModelsClassify}}
+          <h3 class="sub">Models classify</h3>
+          <div class="table-wrap"><table class="data"><thead><tr><th>Model</th><th>Count</th></tr></thead>
+          <tbody>{{range $k, $v := .Section.Pipeline.ModelsClassify}}<tr><td>{{$k}}</td><td>{{$v}}</td></tr>{{end}}</tbody></table></div>
+          {{end}}
+          {{if .Section.Pipeline.ModelsEmbed}}
+          <h3 class="sub">Models embed</h3>
+          <div class="table-wrap"><table class="data"><thead><tr><th>Model</th><th>Count</th></tr></thead>
+          <tbody>{{range $k, $v := .Section.Pipeline.ModelsEmbed}}<tr><td>{{$k}}</td><td>{{$v}}</td></tr>{{end}}</tbody></table></div>
+          {{end}}
+        </section>
+
+        <section class="panel" id="sec-trust-{{.Key}}">
+          <h2>Can you trust it</h2>
+          <div class="grid-2">
+            <div>
+              <div class="chart-wrap">{{.CosineHistSVG}}</div>
+              <div class="sr-only">
+                <table>
+                  <caption>Cosine histogram</caption>
+                  <thead><tr><th>Bucket</th><th>Count</th></tr></thead>
+                  <tbody>
+                  {{range .CosineBucketRows}}
+                    <tr><td>{{.Label}}</td><td>{{.Count}}</td></tr>
+                  {{end}}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div class="chart-wrap">{{.JudgeHistSVG}}</div>
+              <div class="sr-only">
+                <table>
+                  <caption>Judge score histogram</caption>
+                  <thead><tr><th>Bucket</th><th>Count</th></tr></thead>
+                  <tbody>
+                  {{range .JudgeBucketRows}}
+                    <tr><td>{{.Label}}</td><td>{{.Count}}</td></tr>
+                  {{end}}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <p class="note">Not attention-scored: <strong>{{.Section.Trust.NotAttention}}</strong></p>
+          {{if .Section.Trust.LowConf}}
+          <h3 class="sub">Lowest cosine</h3>
+          <div class="table-wrap"><table class="data"><thead><tr><th>Date</th><th>Sender</th><th>Cosine</th><th>Judge</th></tr></thead>
+          <tbody>{{range .Section.Trust.LowConf}}<tr><td>{{.Date}}</td><td>{{.Sender}}</td><td>{{printf "%.3f" .Cosine}}</td><td>{{printf "%.3f" .JudgeScore}}</td></tr>{{end}}</tbody></table></div>
+          {{end}}
+        </section>
+
+        <section class="panel" id="sec-messages-{{.Key}}">
+          <h2>Every message</h2>
+          <div class="toolbar">
+            <input type="search" id="tbl-{{.Key}}-search" placeholder="Search rows" aria-label="Search messages" />
+          </div>
+          <div class="table-wrap messages-scroll"><table class="data" id="tbl-{{.Key}}" data-overview-table="1">
+            <thead>
+              <tr>
+                <th data-sort="0" data-dir="desc">Date</th>
+                <th data-sort="1">Week</th>
+                <th data-sort="2">Sender</th>
+                <th data-sort="3">Subject</th>
+                <th data-sort="4">Theme</th>
+                <th data-sort="5">KIND</th>
+                <th data-sort="6">Strategy</th>
+                <th data-sort="7">Urgency</th>
+                <th data-sort="8">Reply</th>
+                <th data-sort="9">Decision</th>
+                <th data-sort="10">Cosine</th>
+                <th data-sort="11">Judge</th>
+                <th data-sort="12">Outlier</th>
+              </tr>
+            </thead>
+            <tbody>
+            {{range .Section.Messages}}
+              <tr class="msg-row" data-hash="{{.ObjectHash}}" data-sender="{{.Sender}}" data-subject="{{.Subject}}" data-date="{{.Date}}">
+                <td>{{.Date}}</td>
+                <td>{{.WeekKey}}</td>
+                <td>{{.Sender}}</td>
+                <td>{{.Subject}}</td>
+                <td>{{.Theme}}</td>
+                <td>{{.Kind}}</td>
+                <td>{{.Strategy}}</td>
+                <td>{{printf "%.2f" .Urgency}}</td>
+                <td>{{printf "%.2f" .NeedsReply}}</td>
+                <td>{{printf "%.2f" .Decision}}</td>
+                <td>{{printf "%.3f" .Cosine}}</td>
+                <td>{{printf "%.3f" .JudgeScore}}</td>
+                <td>{{.OutlierFirst}}</td>
+              </tr>
+              <tr class="drill-row" id="drill-{{.ObjectHash}}" style="display:none"><td colspan="13">
+                <div class="drilldown">
+                  <div><strong>Object hash</strong> {{.ObjectHash}}</div>
+                  <div><strong>Why</strong> {{.Why}}</div>
+                  <div><strong>Month</strong> {{.MonthKey}}</div>
+                </div>
+              </td></tr>
+            {{end}}
+            </tbody>
+          </table></div>
+        </section>
+      </details>
+    </div>
+    {{end}}
+
+    {{if or .Model.Shapes .Model.ErrorRows .Model.All.Pipeline.PromptHashes}}
+    <details class="audit">
+      <summary>Template health, errors, and prompt hashes</summary>
+      {{if .Model.Shapes}}
+      <section class="panel" id="sec-shapes">
+        <h2>Template health (mail_shapes)</h2>
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Status</th><th>Fingerprint</th><th>Sender domain</th><th>Subject template</th><th>Last slot</th><th>Hits</th><th>Confirms</th><th>Rejects</th></tr></thead>
+          <tbody>
+          {{range .Model.Shapes}}
+            <tr{{if eq .Status "disabled"}} class="row-muted"{{end}}>
+              <td>{{.Status}}</td>
+              <td>{{.Fingerprint}}</td>
+              <td>{{.SenderDomain}}</td>
+              <td>{{.SubjectTemplate}}</td>
+              <td>{{.LastSlot}}</td>
+              <td>{{.HitCount}}</td>
+              <td>{{.ConfirmCount}}</td>
+              <td>{{.RejectCount}}</td>
+            </tr>
+          {{end}}
+          </tbody>
+        </table></div>
+      </section>
+      {{end}}
+
+      {{if or .Model.All.Trust.ErrorGroups .Model.ErrorRows}}
+      <section class="panel" id="sec-errors">
+        <h2>Classify errors (ledger)</h2>
+        {{if .Model.All.Trust.ErrorGroups}}
+        <h3 class="sub">By error text</h3>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Error</th><th>Rows</th><th>Attempts</th></tr></thead>
+        <tbody>{{range .Model.All.Trust.ErrorGroups}}<tr><td>{{.Error}}</td><td>{{.Rows}}</td><td>{{.TotalAttempts}}</td></tr>{{end}}</tbody></table></div>
+        {{end}}
+        {{if .Model.ErrorRows}}
+        <h3 class="sub">Recent rows</h3>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Hash</th><th>Attempts</th><th>Updated</th><th>Error</th></tr></thead>
+        <tbody>{{range .Model.ErrorRows}}<tr><td>{{.ObjectHash}}</td><td>{{.AttemptCount}}</td><td>{{.UpdatedAt}}</td><td>{{.Error}}</td></tr>{{end}}</tbody></table></div>
+        {{end}}
+      </section>
+      {{end}}
+
+      {{if .Model.All.Pipeline.PromptHashes}}
+      <section class="panel" id="sec-prompt-global">
+        <h2>Prompt hashes (All, shapes)</h2>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Prompt hash</th><th>Count</th></tr></thead>
+        <tbody>{{range $k, $v := .Model.All.Pipeline.PromptHashes}}<tr><td>{{$k}}</td><td>{{$v}}</td></tr>{{end}}</tbody></table></div>
+      </section>
+      {{end}}
+    </details>
+    {{end}}
+  </main>
+  <footer class="site-footer">
+    <div class="foot-h"><strong>Provenance</strong></div>
+    <div>Complete rows {{.Model.Provenance.CompleteRows}} · Matched mail {{.Model.Provenance.MailMatched}} · Missing mail {{.Model.Provenance.MailMissing}}</div>
+    <div>Ledger <code>{{.Model.LedgerPath}}</code> · Mail store <code>{{.Model.MailStorePath}}</code></div>
+    <div>Schema v{{.Model.SchemaVersion}} · CLI {{.Model.CLIVersion}}{{if .Model.Provenance.GitRevision}} · {{.Model.Provenance.GitRevision}}{{end}}</div>
+    <div class="foot-h"><strong>Definitions</strong></div>
+    <div><strong>Hop savings</strong> embeds saved equals Jev skips times three hops. <strong>Fluff tax</strong> uses {{.DeleteSec}} seconds per message plus {{.KeepExtraSec}} seconds extra when reply or decision scoring is at least {{printf "%.2f" .UrgThreshold}}. Unknown-month mail skips week charts.</div>
+  </footer>
+  <div id="highlight-layer" hidden>
+    <div id="highlight-rect" hidden></div>
+  </div>
+  <aside id="intent-panel" hidden>
+    <div class="intent-panel-head">
+      <h2>TLDR and delete safety</h2>
+      <button type="button" class="theme-toggle" id="intent-close">Close</button>
+    </div>
+    <p class="intent-status" id="intent-status"></p>
+    <div class="intent-body" id="intent-text"></div>
+    <div class="intent-actions">
+      <button type="button" class="theme-toggle" id="intent-mark" disabled>Mark as deletable</button>
+    </div>
+  </aside>
+  <aside id="delete-cart" hidden>
+    <div id="cart-resize" class="cart-resize" role="separator" aria-orientation="vertical" aria-label="Resize deletion cart"></div>
+    <div class="intent-panel-head">
+      <h2>Deletion cart</h2>
+      <button type="button" class="theme-toggle" id="cart-close">Close</button>
+    </div>
+    <p class="intent-status" id="cart-help">Staging only until you confirm Trash at the source.</p>
+    <p class="intent-status" id="cart-job-status" hidden></p>
+    <div class="cart-job-actions">
+      <button type="button" class="theme-toggle" id="cart-job-start" disabled>Start deletion job</button>
+      <button type="button" class="theme-toggle" id="cart-job-trash" disabled title="Confirm trash-at-source">Move to Trash at source</button>
+    </div>
+    <div id="cart-list" class="cart-list"></div>
+  </aside>
+  <script type="application/json" id="overview-model">{{.ModelJSON}}</script>
+  <script>{{.InlineJS}}</script>
+</body>
+</html>
+{{define "krow"}}<span class="krow d{{.Depth}}"><span class="kname"><span class="chev" aria-hidden="true"></span>{{.Label}}{{if .OneOff}} <span class="kbadge" title="{{.Why}}">one-off</span>{{end}}</span><span class="kbar"><span class="kfill" style="width: {{printf "%.2f" .BarPct}}%"></span></span><span class="kcount">{{.Count}}</span><span class="kshare">{{.Share}}</span></span>{{end}}
+{{define "ktail"}}<li class="ktail"{{if .SmallHashAttr}} data-hashes="{{.SmallHashAttr}}"{{end}}><details><summary><span class="krow tail d{{.ChildDepth}}"><span class="kname"><span class="chev" aria-hidden="true"></span>+{{len .Small}} smaller</span><span class="kbar"></span><span class="kcount">{{.SmallMessages}}</span><span class="kshare"></span></span></summary><ul>{{range .Small}}{{template "knode" .}}{{end}}</ul></details></li>{{end}}
+{{define "knode"}}<li role="treeitem"{{if .HashAttr}} data-hashes="{{.HashAttr}}"{{end}}>{{if or .Children .Small}}<details{{if .Open}} open{{end}}><summary>{{template "krow" .}}</summary><ul>{{range .Children}}{{template "knode" .}}{{end}}{{if .Small}}{{template "ktail" .}}{{end}}</ul></details>{{else}}<div class="kleaf">{{template "krow" .}}</div>{{end}}</li>{{end}}

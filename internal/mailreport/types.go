@@ -123,6 +123,7 @@ type Artifact struct {
 	AttentionTrueMin     float64           `json:"attention_true_min,omitempty"`
 	AttentionScored      int               `json:"attention_scored,omitempty"`
 	AttentionOmitted     int               `json:"attention_omitted,omitempty"`
+	AttentionShapeReused int               `json:"attention_shape_reused,omitempty"`
 	EssenceDumpDir       string            `json:"essence_dump_dir,omitempty"`
 	TagRegisterPath      string            `json:"tag_register_path,omitempty"`
 	TagRegisterError     string            `json:"tag_register_error,omitempty"`
