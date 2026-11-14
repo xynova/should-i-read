@@ -457,18 +457,7 @@ func themesAndHeatmap(items []enriched) ([]ThemeCount, HeatmapData) {
 	}
 	heatThemes = append(heatThemes, themeOther)
 
-	weekSet := map[string]struct{}{}
-	for _, it := range items {
-		if it.weekKey != "" {
-			weekSet[it.weekKey] = struct{}{}
-		}
-	}
-	var weeks []string
-	for w := range weekSet {
-		weeks = append(weeks, w)
-	}
-	sort.Strings(weeks)
-
+	weeks := heatmapWeekLabels(items)
 	cells := make([][]int, len(weeks))
 	cellHashLists := make([][][]string, len(weeks))
 	widx := map[string]int{}
@@ -483,10 +472,7 @@ func themesAndHeatmap(items []enriched) ([]ThemeCount, HeatmapData) {
 	}
 	themeHashLists := make([][]string, len(heatThemes))
 	for _, it := range items {
-		if it.weekKey == "" {
-			continue
-		}
-		wi, ok := widx[it.weekKey]
+		wi, ok := widx[weekKeyOrNone(it.weekKey)]
 		if !ok {
 			continue
 		}
@@ -519,6 +505,27 @@ func themesAndHeatmap(items []enriched) ([]ThemeCount, HeatmapData) {
 		CellHashes:  cellHashes,
 		ThemeHashes: themeHashes,
 	}
+}
+
+func heatmapWeekLabels(items []enriched) []string {
+	weekSet := map[string]struct{}{}
+	hasNoWeek := false
+	for _, it := range items {
+		if it.weekKey == "" {
+			hasNoWeek = true
+			continue
+		}
+		weekSet[it.weekKey] = struct{}{}
+	}
+	weeks := make([]string, 0, len(weekSet)+1)
+	for w := range weekSet {
+		weeks = append(weeks, w)
+	}
+	sort.Strings(weeks)
+	if hasNoWeek {
+		weeks = append(weeks, NoWeekKey)
+	}
+	return weeks
 }
 
 func kindTreeFromItems(items []enriched, viewKey string) KindTreeBlock {
@@ -616,10 +623,7 @@ func fluffFromItems(items []enriched) FluffBlock {
 	senderHashes := map[string][]string{}
 	var deleteMin, keepExtra float64
 	for _, it := range items {
-		wk := it.weekKey
-		if wk == "" {
-			wk = "(no week)"
-		}
+		wk := weekKeyOrNone(it.weekKey)
 		del := float64(deleteFluffSecs) / 60
 		byWeek[wk] += del
 		sender[it.email] += del
@@ -677,10 +681,7 @@ func pipelineFromItems(items []enriched) PipelineBlock {
 		if em != "" {
 			p.ModelsEmbed[em]++
 		}
-		wk := it.weekKey
-		if wk == "" {
-			wk = "(no week)"
-		}
+		wk := weekKeyOrNone(it.weekKey)
 		w := weekSkip[wk]
 		w.total++
 		if strings.TrimSpace(it.row.Strategy) == skipStrat {

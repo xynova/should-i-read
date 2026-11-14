@@ -22,6 +22,8 @@ type Model struct {
 	All           MonthSection   `json:"all"`
 	Shapes        []ShapeInfo    `json:"shapes"`
 	ErrorRows     []ErrorRowInfo `json:"error_rows"`
+	// Actioned is the concise strip under the live months (trashed or already in Trash).
+	Actioned []ActionedRow `json:"actioned,omitempty"`
 }
 
 // Provenance records paths and counts for the footer.

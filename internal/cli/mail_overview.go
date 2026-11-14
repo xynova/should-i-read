@@ -15,6 +15,7 @@ import (
 	"github.com/xynova/should-i-read/internal/clui"
 	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/maildelete"
 	"github.com/xynova/should-i-read/internal/mailoverview"
 	"github.com/xynova/should-i-read/internal/mailoverview/render"
 	"github.com/xynova/should-i-read/internal/pimdir"
@@ -70,6 +71,7 @@ type overviewPage struct {
 	Model    mailoverview.Model
 	HTMLPath string
 	JSONPath string
+	Hashes   []string
 }
 
 func runMailOverview(cmd *cobra.Command, repoRoot string, cfg config.Config, f mailOverviewFlags) error {
@@ -141,9 +143,21 @@ func buildOverviewPage(parent context.Context, repoRoot string, cfg config.Confi
 		return overviewPage{}, wrapCLIHop(err, op, "open pimdir")
 	}
 
-	summaries, err := mailReader.SummariesByObjectHash(ctx, hashList(rows))
+	hashes := hashList(rows)
+	summaries, err := mailReader.SummariesByObjectHash(ctx, hashes)
 	if err != nil {
 		return overviewPage{}, wrapCLIHop(err, op, "load mail summaries")
+	}
+	jobItems, err := st.LatestDeleteJobItems(ctx, hashes)
+	if err != nil {
+		return overviewPage{}, wrapCLIHop(err, op, "load deletion job items")
+	}
+	actioned, err := maildelete.LookupActioned(ctx, mailReader, jobItems, hashes)
+	if err != nil {
+		return overviewPage{}, wrapCLIHop(err, op, "classify actioned mail")
+	}
+	if err := maildelete.PersistActioned(ctx, st, jobItems, actioned); err != nil {
+		return overviewPage{}, wrapCLIHop(err, op, "persist actioned outcomes")
 	}
 
 	gitRev := gitRevision(repoRoot)
@@ -151,7 +165,7 @@ func buildOverviewPage(parent context.Context, repoRoot string, cfg config.Confi
 		time.Now(),
 		time.Local,
 		mailoverview.Input{SinceMonth: f.since, UntilMonth: f.until, MaxTable: 0},
-		rows,
+		mailoverview.DropActionedRows(rows, actioned),
 		summaries,
 		ledger,
 		mailDir,
@@ -160,6 +174,7 @@ func buildOverviewPage(parent context.Context, repoRoot string, cfg config.Confi
 		shapes,
 		errRows,
 	)
+	model.Actioned = mailoverview.GroupActioned(actioned)
 	jsonBytes, err := json.MarshalIndent(model, "", "  ")
 	if err != nil {
 		return overviewPage{}, wrapCLIHop(err, op, "marshal json")
@@ -169,7 +184,7 @@ func buildOverviewPage(parent context.Context, repoRoot string, cfg config.Confi
 	if err != nil {
 		return overviewPage{}, wrapCLIHop(err, op, "render html")
 	}
-	return overviewPage{HTML: htmlStr, JSON: jsonBytes, Model: model}, nil
+	return overviewPage{HTML: htmlStr, JSON: jsonBytes, Model: model, Hashes: hashes}, nil
 }
 
 func writeOverviewFiles(repoRoot, outPath string, page *overviewPage) error {

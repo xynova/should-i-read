@@ -43,7 +43,7 @@ or --step for automation.`,
 	cmd.Flags().StringVar(&account, "account", "", "Sync account id")
 	cmd.Flags().StringVar(&email, "email", "", "Mailbox email")
 	cmd.Flags().StringVar(&storeRoot, "store-root", "", "Override local mail store directory")
-	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing mail-sync.toml")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing mail-sync.toml and himalaya.toml")
 	cmd.Flags().BoolVar(&skipLogin, "skip-login", false, "Stop before mailbox login on --apply")
 	return cmd
 }

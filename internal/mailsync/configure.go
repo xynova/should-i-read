@@ -58,6 +58,8 @@ type Result struct {
 	HostConfigPath    string   `json:"host_config_path"`
 	ConfigWritten     bool     `json:"config_written"`
 	HostConfigPatched bool     `json:"host_config_patched"`
+	HimalayaConfig    string   `json:"himalaya_config"`
+	HimalayaWritten   bool     `json:"himalaya_written"`
 	InitSkipped       bool     `json:"init_skipped"`
 	AlreadyConfigured bool     `json:"already_configured"`
 	NextSteps         []string `json:"next_steps"`
@@ -112,6 +114,10 @@ func (s *Service) Configure(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	himalayaPath, err := config.DefaultHimalayaConfigPath()
+	if err != nil {
+		return Result{}, err
+	}
 	storeRoot := strings.TrimSpace(opts.StoreRoot)
 	if storeRoot == "" {
 		storeRoot = config.DefaultPimStoreDir(account)
@@ -143,12 +149,17 @@ func (s *Service) Configure(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	himalayaBody, err := renderHimalayaTOML(account, storeRoot, opts.Provider.trashMailbox())
+	if err != nil {
+		return Result{}, err
+	}
 
 	res := Result{
 		Provider:       string(opts.Provider),
 		Account:        account,
 		Email:          email,
 		MailSyncConfig: mailSyncPath,
+		HimalayaConfig: himalayaPath,
 		PimdirPath:     storeRoot,
 	}
 
@@ -174,7 +185,15 @@ func (s *Service) Configure(ctx context.Context, opts Options) (Result, error) {
 		res.ConfigWritten = true
 	}
 
-	hostPath, patched, err := config.PimalayaPatch(mailSyncPath, storeRoot, account)
+	written, err := writeConfigFileIfNeeded(ctx, himalayaPath, himalayaBody, opts.Force, op)
+	if err != nil {
+		return res, err
+	}
+	if written {
+		res.HimalayaWritten = true
+	}
+
+	hostPath, patched, err := config.PimalayaPatch(mailSyncPath, storeRoot, account, himalayaPath)
 	if err != nil {
 		return res, err
 	}
@@ -212,6 +231,29 @@ func nextSteps(provider Provider, account string) []string {
 		"go tool task polypus-check",
 		"go tool task mail:readiness && go tool task mail:sync",
 	}
+}
+
+func writeConfigFileIfNeeded(ctx context.Context, path, body string, force bool, op string) (written bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	existing, readErr := os.ReadFile(path)
+	if readErr == nil && !force {
+		if string(existing) == body {
+			return false, nil
+		}
+		return false, sirerr.New(sirerr.CodeFailed, op, "config exists; re-run with --force or remove file").
+			With("path", path)
+	} else if readErr != nil && !os.IsNotExist(readErr) {
+		return false, sirerr.Wrap(readErr, sirerr.CodeFailed, op, "read config file").With("path", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return false, sirerr.Wrap(err, sirerr.CodeFailed, op, "create config dir")
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		return false, sirerr.Wrap(err, sirerr.CodeFailed, op, "write config file").With("path", path)
+	}
+	return true, nil
 }
 
 func defaultReplicaInit(ctx context.Context, cfg config.Config, account string) error {

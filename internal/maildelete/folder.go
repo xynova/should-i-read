@@ -4,11 +4,9 @@ import (
 	"strings"
 )
 
-// NormalizeFolder strips a leading imap/ namespace for Himalaya -m.
+// NormalizeFolder returns the pimdir collection id used for Himalaya -m.
 func NormalizeFolder(collection string) string {
-	c := strings.TrimSpace(collection)
-	c = strings.TrimPrefix(c, "imap/")
-	return strings.TrimSpace(c)
+	return strings.TrimSpace(collection)
 }
 
 // IsTrashFolder reports whether collection must not be passed to message delete.

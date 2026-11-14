@@ -7,7 +7,10 @@ import (
 	"strings"
 )
 
-const mailSyncConfigName = "mail-sync.toml"
+const (
+	mailSyncConfigName = "mail-sync.toml"
+	himalayaConfigName = "himalaya.toml"
+)
 
 // DefaultMailSyncConfigPath returns ~/.config/should-i-read/mail-sync.toml (or XDG equivalent).
 func DefaultMailSyncConfigPath() (string, error) {
@@ -16,6 +19,15 @@ func DefaultMailSyncConfigPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, mailSyncConfigName), nil
+}
+
+// DefaultHimalayaConfigPath returns ~/.config/should-i-read/himalaya.toml (or XDG equivalent).
+func DefaultHimalayaConfigPath() (string, error) {
+	dir, err := UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, himalayaConfigName), nil
 }
 
 // DefaultPimStoreDir returns the platform data directory for a pimdir account store.

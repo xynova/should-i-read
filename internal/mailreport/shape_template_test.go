@@ -33,7 +33,7 @@ func TestShapeFingerprintStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	domain := senderDomain("GitLab <incoming@mg.gitlab.com>")
+	domain := SenderDomain("GitLab <incoming@mg.gitlab.com>")
 	sub := tmpl.Template("Failed pipeline for branch | abcdef0123456789")
 	fp1 := ShapeFingerprint(domain, sub)
 	fp2 := ShapeFingerprint(domain, sub)

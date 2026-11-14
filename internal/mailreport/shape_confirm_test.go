@@ -92,7 +92,7 @@ func TestShapePromoteAfterEssenceComplete(t *testing.T) {
 	if art.ShapesPromoted != 1 {
 		t.Fatalf("ShapesPromoted=%d", art.ShapesPromoted)
 	}
-	row, ok, err := store.GetShape(ctx, ShapeFingerprint(senderDomain(sender), runner.subjectTemplater.Template(subject)))
+	row, ok, err := store.GetShape(ctx, ShapeFingerprint(SenderDomain(sender), runner.subjectTemplater.Template(subject)))
 	if err != nil || !ok || row.Status != hoststore.ShapeStatusActive {
 		t.Fatalf("shape ok=%v status=%q err=%v", ok, row.Status, err)
 	}
@@ -191,7 +191,7 @@ func TestShapeConfirmSkipJevMatch(t *testing.T) {
 	runner := testShapeRunner(t, store, judge)
 	subject := "Failed pipeline for branch | cafebabe"
 	sender := "GitLab <notify@gitlab.com>"
-	domain := senderDomain(sender)
+	domain := SenderDomain(sender)
 	template := runner.subjectTemplater.Template(subject)
 	fp := ShapeFingerprint(domain, template)
 	_, err := store.RecordShapeHit(ctx, hoststore.ShapeHit{

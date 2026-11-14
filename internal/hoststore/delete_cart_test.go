@@ -101,3 +101,23 @@ func TestDeleteCartRemoveGroup(t *testing.T) {
 		t.Fatal("expected empty group")
 	}
 }
+
+func TestDeleteCartClear(t *testing.T) {
+	st, ctx := testStore(t)
+	if err := st.AddDeleteCart(ctx, []DeleteCartItem{
+		{ObjectHash: "c1", Sender: "Ann"},
+		{ObjectHash: "c2", Sender: "Bob"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ClearDeleteCart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.ListDeleteCart(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("cleared cart %+v", got)
+	}
+}

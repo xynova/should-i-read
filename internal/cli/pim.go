@@ -96,7 +96,7 @@ func newPimConfigureCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd.Flags().StringVar(&account, "account", "", "Sync account id (default: provider name)")
 	cmd.Flags().StringVar(&email, "email", "", "Mailbox address for IMAP XOAUTH2")
 	cmd.Flags().StringVar(&storeRoot, "store-root", "", "Override pimdir store directory")
-	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing mail-sync.toml")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing mail-sync.toml and himalaya.toml")
 	cmd.Flags().BoolVar(&skipInit, "skip-init", false, "Skip pimdir replica init")
 	return cmd
 }

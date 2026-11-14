@@ -93,6 +93,7 @@ CREATE TABLE collections (
 );
 INSERT INTO collections (id, kind, name) VALUES ('INBOX', 'message/rfc822', 'INBOX');
 CREATE TABLE items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   collection TEXT NOT NULL,
   link_id TEXT NOT NULL,
   seq INTEGER NOT NULL,
@@ -106,23 +107,20 @@ CREATE TABLE items (
   conflicted INTEGER NOT NULL DEFAULT 0,
   conflict_object TEXT,
   changed INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (collection, link_id)
+  UNIQUE (collection, link_id)
 );
 INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted) VALUES ('INBOX', 'msg-1', 1, 'abcd1234efgh5678', '2020-01-02T00:00:00Z', 2, 0);
 CREATE TABLE mail_summary (
-  collection TEXT NOT NULL,
-  link_id TEXT NOT NULL,
+  item INTEGER PRIMARY KEY,
   message_id TEXT,
-  in_reply_to TEXT NOT NULL DEFAULT '[]',
   subject TEXT NOT NULL,
   sender TEXT,
   sender_name TEXT,
   date TEXT,
   size INTEGER,
-  attachment INTEGER,
-  PRIMARY KEY (collection, link_id)
+  attachment INTEGER
 );
-INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date) VALUES ('INBOX', 'msg-1', '<mid@example.com>', 'Hello pimdir', 'alice@example.com', '2020-01-02T00:00:00Z');
+INSERT INTO mail_summary (item, message_id, subject, sender, date) VALUES (1, '<mid@example.com>', 'Hello pimdir', 'alice@example.com', '2020-01-02T00:00:00Z');
 `
 	if _, err := db.Exec(schema); err != nil {
 		t.Fatal(err)
@@ -268,13 +266,17 @@ func initWindowRangeFixtureDB(t *testing.T, dir string) {
 		if len(hash) > 32 {
 			hash = hash[:32]
 		}
-		_, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
+		res, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
 VALUES (?, ?, 1, ?, ?, 2, ?)`, e.collection, e.link, hash, e.sortKey, e.deleted)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = db.Exec(`INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date)
-VALUES (?, ?, ?, ?, 'a@example.com', ?)`, e.collection, e.link, "<"+e.link+">", e.subject, e.sortKey)
+		itemID, err := res.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = db.Exec(`INSERT INTO mail_summary (item, message_id, subject, sender, date)
+VALUES (?, ?, ?, 'a@example.com', ?)`, itemID, "<"+e.link+">", e.subject, e.sortKey)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -287,13 +289,17 @@ VALUES (?, ?, ?, ?, 'a@example.com', ?)`, e.collection, e.link, "<"+e.link+">", 
 		if len(hash) > 32 {
 			hash = hash[:32]
 		}
-		_, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
+		res, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
 VALUES ('INBOX', ?, 1, ?, ?, 2, 0)`, link, hash, sk)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = db.Exec(`INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date)
-VALUES ('INBOX', ?, ?, ?, 'a@example.com', ?)`, link, "<"+link+">", subj, sk)
+		itemID, err := res.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = db.Exec(`INSERT INTO mail_summary (item, message_id, subject, sender, date)
+VALUES (?, ?, ?, 'a@example.com', ?)`, itemID, "<"+link+">", subj, sk)
 		if err != nil {
 			t.Fatal(err)
 		}

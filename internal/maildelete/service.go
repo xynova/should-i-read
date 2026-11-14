@@ -11,17 +11,20 @@ import (
 	"time"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
-	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
-const defaultItemTimeout = 30 * time.Second
+const (
+	defaultItemTimeout  = 30 * time.Second
+	himalayaMissingHint = "install Himalaya and set pimalaya.himalaya_config via should-i-read configure"
+)
 
 // JobArtifact is written to tmp/delete-job-<id>.json.
 type JobArtifact struct {
 	ID     string            `json:"id"`
 	Mode   string            `json:"mode"`
 	Status string            `json:"status"`
+	Error  string            `json:"error,omitempty"`
 	Counts JobCounts         `json:"counts"`
 	Items  []JobItemArtifact `json:"items"`
 }
@@ -47,7 +50,7 @@ type JobItemArtifact struct {
 // DeleteJobConfig wires the deletion job service.
 type DeleteJobConfig struct {
 	Store        *hoststore.Store
-	Pimdir       *pimdir.Reader
+	Pimdir       PimdirSummaries
 	Deleter      TrashDeleter
 	Now          func() time.Time
 	ItemTimeout  time.Duration
@@ -58,7 +61,7 @@ type DeleteJobConfig struct {
 // Service runs cart deletion jobs.
 type Service struct {
 	store        *hoststore.Store
-	pimdir       *pimdir.Reader
+	pimdir       PimdirSummaries
 	deleter      TrashDeleter
 	now          func() time.Time
 	itemTimeout  time.Duration
@@ -117,16 +120,35 @@ func (s *Service) StartJob(ctx context.Context) (JobArtifact, error) {
 	if err != nil {
 		return JobArtifact{}, err
 	}
+	if err := s.dropRefusedFromCart(ctx, job); err != nil {
+		return JobArtifact{}, err
+	}
 	if err := s.writeArtifact(job); err != nil {
 		return JobArtifact{}, err
 	}
 	return job, nil
 }
 
+func (s *Service) dropRefusedFromCart(ctx context.Context, job JobArtifact) error {
+	for _, it := range job.Items {
+		if it.Status != hoststore.DeleteJobItemRefused {
+			continue
+		}
+		if err := s.store.RemoveDeleteCart(ctx, it.ObjectHash); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetJob loads a job as artifact shape.
 func (s *Service) GetJob(ctx context.Context, jobID string) (JobArtifact, error) {
 	const op = "maildelete.Service.GetJob"
 	job, err := s.store.GetDeleteJob(ctx, jobID)
+	if err != nil {
+		return JobArtifact{}, err
+	}
+	job, err = s.recoverStuckApply(ctx, job)
 	if err != nil {
 		return JobArtifact{}, err
 	}
@@ -139,7 +161,36 @@ func (s *Service) LatestJob(ctx context.Context) (JobArtifact, error) {
 	if err != nil {
 		return JobArtifact{}, err
 	}
+	job, err = s.recoverStuckApply(ctx, job)
+	if err != nil {
+		return JobArtifact{}, err
+	}
 	return jobToArtifact(job), nil
+}
+
+func (s *Service) recoverStuckApply(ctx context.Context, job hoststore.DeleteJob) (hoststore.DeleteJob, error) {
+	if job.Status != hoststore.DeleteJobStatusApplying || s.deleter != nil {
+		return job, nil
+	}
+	if err := s.markHimalayaMissing(ctx, job.ID); err != nil {
+		return job, err
+	}
+	return s.store.GetDeleteJob(ctx, job.ID)
+}
+
+func (s *Service) markHimalayaMissing(ctx context.Context, jobID string) error {
+	return s.store.SetDeleteJobStatus(ctx, jobID, hoststore.DeleteJobStatusPlanned, himalayaMissingHint, nil)
+}
+
+func himalayaUnavailable(op string) error {
+	return sirerr.New(sirerr.CodeUnavailable, op, himalayaMissingHint)
+}
+
+func applyMailbox(it hoststore.DeleteJobItem) string {
+	if folder := NormalizeFolder(it.Collection); folder != "" {
+		return folder
+	}
+	return NormalizeFolder(it.Folder)
 }
 
 // ApplyAsync starts apply in the background (HTTP 202 path).
@@ -148,13 +199,12 @@ func (s *Service) ApplyAsync(jobID, confirm string) error {
 	if confirm != hoststore.DeleteJobConfirmToken {
 		return sirerr.New(sirerr.CodeInvalid, op, "confirm token mismatch")
 	}
-	now := s.now()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := s.store.SetDeleteJobStatus(ctx, jobID, hoststore.DeleteJobStatusApplying, "", &now); err != nil {
-		cancel()
-		return err
+	if s.deleter == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = s.markHimalayaMissing(ctx, jobID)
+		return himalayaUnavailable(op)
 	}
-	cancel()
 	go func() {
 		base := s.applyBaseCtx
 		if base == nil {
@@ -174,7 +224,8 @@ func (s *Service) Apply(ctx context.Context, jobID, confirm string) error {
 		return sirerr.New(sirerr.CodeInvalid, op, "confirm token mismatch")
 	}
 	if s.deleter == nil {
-		return sirerr.New(sirerr.CodeUnavailable, op, "himalaya not configured")
+		_ = s.markHimalayaMissing(ctx, jobID)
+		return himalayaUnavailable(op)
 	}
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
@@ -193,7 +244,7 @@ func (s *Service) Apply(ctx context.Context, jobID, confirm string) error {
 			jobErr = err.Error()
 			break
 		}
-		folder := strings.TrimSpace(it.Folder)
+		folder := applyMailbox(it)
 		env := strings.TrimSpace(it.EnvelopeID)
 		if folder == "" || env == "" {
 			bindings, rerr := ResolveJobBindings(ctx, s.pimdir, []string{it.ObjectHash})
@@ -227,6 +278,15 @@ func (s *Service) Apply(ctx context.Context, jobID, confirm string) error {
 			continue
 		}
 		_ = s.store.SetDeleteJobItemStatus(ctx, jobID, it.ObjectHash, hoststore.DeleteJobItemTrashed, "")
+		if err := s.store.UpsertOutcome(ctx, hoststore.MessageOutcome{
+			ObjectHash: it.ObjectHash,
+			Outcome:    hoststore.OutcomeTrashedAtSource,
+			Source:     hoststore.OutcomeSourceDeleteJob,
+			JobID:      jobID,
+			Sender:     strings.TrimSpace(it.Sender),
+		}); err != nil && jobErr == "" {
+			jobErr = err.Error()
+		}
 		if rerr := s.store.RemoveDeleteCart(ctx, it.ObjectHash); rerr != nil {
 			jobErr = rerr.Error()
 		}
@@ -286,6 +346,7 @@ func jobToArtifact(job hoststore.DeleteJob) JobArtifact {
 		ID:     job.ID,
 		Mode:   "trash_at_source",
 		Status: job.Status,
+		Error:  job.Error,
 	}
 	for _, it := range job.Items {
 		art.Items = append(art.Items, JobItemArtifact{

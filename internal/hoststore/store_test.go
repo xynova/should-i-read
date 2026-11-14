@@ -32,8 +32,8 @@ func TestCreateStoreTwiceMigratesOnce(t *testing.T) {
 	if err := s1.db.QueryRow(`SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if version != 11 {
-		t.Fatalf("schema_migrations version=%d, want 11", version)
+	if version != 12 {
+		t.Fatalf("schema_migrations version=%d, want 12", version)
 	}
 	if dirty {
 		t.Fatal("schema_migrations dirty")

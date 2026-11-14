@@ -41,3 +41,12 @@ func (p Provider) imapServer() string {
 func (p Provider) tokenSubcommand() string {
 	return string(p)
 }
+
+func (p Provider) trashMailbox() string {
+	switch p {
+	case ProviderOutlook:
+		return "Deleted Items"
+	default:
+		return "[Gmail]/Trash"
+	}
+}

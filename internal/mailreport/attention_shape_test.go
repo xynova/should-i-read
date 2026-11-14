@@ -64,7 +64,7 @@ func insertActivePipelineShape(t *testing.T, r *Runner, st *hoststore.Store, ctx
 	}
 	if _, err := st.RecordShapeHit(ctx, hoststore.ShapeHit{
 		Fingerprint:    fp,
-		Domain:         senderDomain(sender),
+		Domain:         SenderDomain(sender),
 		Template:       r.subjectTemplater.Template(subject),
 		Kind:           "notification > ci > pipeline-failure",
 		TermID:         "pipeline-failure",
@@ -174,7 +174,7 @@ func TestScoreAttention_shapeReuseIgnoresEssencePromptHash(t *testing.T) {
 	}
 	if _, err := st.RecordShapeHit(ctx, hoststore.ShapeHit{
 		Fingerprint:    fp,
-		Domain:         senderDomain(sender),
+		Domain:         SenderDomain(sender),
 		Template:       r.subjectTemplater.Template(subj),
 		Kind:           "notification > ci > pipeline-failure",
 		TermID:         "pipeline-failure",

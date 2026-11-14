@@ -47,10 +47,12 @@ flowchart TD
 Classify and overview **Mark** stay report-only. When you are ready to mutate the mailbox, use the deletion cart:
 
 1. Stage with overview **Mark** or `POST /cart` (host ledger only).
-2. **Start deletion job** (`go tool task mail:cart-job`, `should-i-read mail cart job`, or `POST /cart/jobs`): snapshot cart hashes, resolve pimdir folder + envelope id, write `tmp/delete-job-<id>.json`.
-3. **Apply** with confirm token `trash-at-source` (`go tool task mail:cart-apply -- --confirm trash-at-source`, or overview **Move to Trash at source** with HTTP `202` + poll). The host runs Himalaya `message delete` per planned item; cart rows drop only after `moved-to-trash`.
+2. Overview **Move to Trash at source** is checkout (`POST /cart/checkout` with confirm token `trash-at-source`): snapshot the cart into a deletion job, clear the cart, then apply Himalaya `message delete` in the background (`202` + poll). The job line and `tmp/delete-job-<id>.json` keep the order after the cart empties. An empty cart with leftover planned or failed items retries that job.
+3. CLI stays two-step: `go tool task mail:cart-job` / `should-i-read mail cart job` (or `POST /cart/jobs`) then `go tool task mail:cart-apply -- --confirm trash-at-source`. Himalaya runs against the pimdir replica (`himalaya -c ~/.config/should-i-read/himalaya.toml`, mailbox `-m imap/INBOX` or the resolved collection id). That delete is **staged locally** until you run `mail sync` (Neverest), which pushes Trash at the provider.
 
 This is explicit operator approval, not auto-trash from Jev or classify scores. Permanent expunge and auto-quarantine remain out of scope until eval exit criteria pass.
+
+Overview Mark, live months, and a future actioned strip follow the three GitHub-cluster cases in [overview-actioned-examples.md](overview-actioned-examples.md). Failed Move stays on the live board and on the deletion job; checkout has already emptied the cart. Already-in-Trash hashes must not re-enter the cart and must leave the live months.
 
 ## Output schema (minimum)
 
@@ -115,6 +117,7 @@ This is explicit operator approval, not auto-trash from Jev or classify scores. 
 - Strop `JobRunner` generator `mail_classify` wraps taxonomy `Operate`; Polypus HTTP only inside Judge/Author/Essence/Embed seats.
 - Artifacts: `tmp/unwanted-report-*.json` (snapshot) with `clusters[]`, per-message `cluster_id`, `strategy` (`attach` or `shape-confirm`), `suggested_action` (`review` or `quarantine_candidate` when `cluster.quarantine_terms` matches), nested `attention` on messages and clusters (`urgency`, `needs_reply`, `involves_decision` from Jev SystemOne via Polypus; report-only), and this-run `shape_confirmed` / `shapes_promoted`. Human classify box prints `shape-confirmed N (Jev, skipped Essence)` and `shapes promoted M` when those counts are greater than zero. When Essence parse fails after retries, the last chat completion is written to `tmp/essence-parse/<object_hash>.json` (`essence_dump_dir` on the report). Live classify state, embeddings, attention nouls, cluster TLDR cache, and repeating-template registry: host SQLite (`store.path`; tables `classify_state`, `embeddings`, `clusters`, `cluster_members`, `mail_shapes`, `essence_cache`). `tmp/mail-classify-progress.json` is import-only when the ledger is empty.
 - Config: `cluster.min_cosine`, `cluster.quarantine_terms`, `cluster.attention_true_min` (default 0.50), optional `polypus.tldr_model`. Shape-confirm knobs under `taxonomy:`: `shape_confirm` (default true), `shape_min_repeats` (3), `shape_confirm_min` (0.90), `shape_allowed_leaves`. Promote looks up `essence_cache` with the same joined WHY/TAGS/KIND prompt hash the live cache uses, not the tag-less default prompt.
+- Operator labels: `message_outcomes` in host SQLite (`trashed_at_source`, `already_in_trash`, `kept`) from Trash apply, replica Trash, and overview **Keep**. `mail report` may add per-message `worth_read_prior` (report-only) when `taxonomy.worth_read_prior` is true and labeled rows exist. Eval exit criteria may count operator labels toward the 100-message set.
 
 ### Live shape-confirm check (2026-11-01)
 

@@ -26,6 +26,12 @@ func TestHeatmapGrid_hashAttrs(t *testing.T) {
 	if !strings.Contains(s, `data-hashes="hcell"`) || !strings.Contains(s, `data-hashes="htheme"`) {
 		t.Fatal(s)
 	}
+	if !strings.Contains(s, "<title>Week of w, Other: 1</title>") {
+		t.Fatal("cell tooltip should carry the count once")
+	}
+	if strings.Count(s, ">1</text>") < 1 {
+		t.Fatal("cell should still paint the count")
+	}
 }
 
 func TestSparkline_hasPolylineAndThreePoints(t *testing.T) {

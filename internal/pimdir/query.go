@@ -14,7 +14,7 @@ import (
 const summarySelect = `
 SELECT i.collection, i.link_id, i.seq, m.subject, m.sender, m.sender_name, m.date, m.message_id, i.object_hash
 FROM items i
-JOIN mail_summary m ON m.collection = i.collection AND m.link_id = i.link_id
+JOIN mail_summary m ON m.item = i.id
 WHERE i.deleted = 0`
 
 // FindByObjectHash returns metadata for a live item with the given object hash.

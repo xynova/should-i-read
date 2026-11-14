@@ -61,7 +61,7 @@ func (r *Runner) shapeFingerprintForItem(item Item) (domain, template, fingerpri
 	if r == nil || r.subjectTemplater == nil {
 		return "", "", "", false
 	}
-	domain = senderDomain(item.Sender)
+	domain = SenderDomain(item.Sender)
 	if domain == "" {
 		return "", "", "", false
 	}

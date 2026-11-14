@@ -30,6 +30,7 @@ func newMailCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	overview.AddCommand(newMailOverviewServeCmd(opts, repoRoot))
 	cmd.AddCommand(overview)
 	cmd.AddCommand(newMailTagsCmd(opts, repoRoot))
+	cmd.AddCommand(newMailOutcomesCmd(opts, repoRoot))
 	return cmd
 }
 

@@ -1075,6 +1075,11 @@ body.cart-open #intent-panel {
   flex: 1 1 auto;
 }
 
+#cart-job-trash[aria-busy="true"] {
+  opacity: 0.72;
+  cursor: progress;
+}
+
 #delete-cart .intent-status {
   font-size: 0.8rem;
 }
@@ -1173,6 +1178,11 @@ body.cart-resizing * {
   font-size: 0.78rem;
 }
 
+.cart-folder-when {
+  color: var(--text-3);
+  font-size: 0.78rem;
+}
+
 .cart-folder:not([open]) .cart-folder-count::before {
   content: "Show ";
 }
@@ -1206,6 +1216,11 @@ body.cart-resizing * {
 .cart-list .cart-subject {
   color: var(--text-2);
   font-size: 0.78rem;
+}
+
+.cart-list .cart-when {
+  color: var(--text-3);
+  font-size: 0.75rem;
 }
 
 @media (max-width: 640px) {
@@ -1268,6 +1283,41 @@ body.cart-resizing * {
     margin-top: 0.15rem;
     color: var(--text-2);
   }
+}
+
+.actioned-board {
+  margin: 1.5rem 1rem 2rem;
+}
+.actioned-board h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.35rem;
+}
+.actioned-hint {
+  color: var(--text-3);
+  font-size: 0.88rem;
+  margin: 0 0 0.75rem;
+}
+[data-hashes].is-actioned {
+  display: none !important;
+}
+
+tr.is-staged > td:first-child,
+li.is-staged .kname {
+  position: relative;
+}
+
+tr.is-staged > td:first-child::before,
+li.is-staged .kname::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.4rem;
+  border-radius: 2px;
+  background: var(--decide);
+  box-shadow: 0 0 0 2px var(--decide-pastel);
+  flex: none;
+  vertical-align: 0.1em;
 }
 
 @media print {

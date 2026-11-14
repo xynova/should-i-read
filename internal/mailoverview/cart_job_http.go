@@ -103,6 +103,59 @@ func (s *IntentPageServer) getCartJob(ctx context.Context, w http.ResponseWriter
 	writeCartJobJSON(w, http.StatusOK, cartJobResponse{OK: true, JobID: job.ID, Status: job.Status, Job: &job})
 }
 
+func (s *IntentPageServer) serveCartCheckout(w http.ResponseWriter, r *http.Request) {
+	if s == nil || s.Jobs == nil {
+		writeCartJobJSON(w, http.StatusServiceUnavailable, cartJobResponse{Error: "deletion job needs mail overview serve with pimdir"})
+		return
+	}
+	if r.Method == http.MethodGet {
+		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: "POST required"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: "POST required"})
+		return
+	}
+	parent := r.Context()
+	if parent == nil {
+		writeCartJobJSON(w, http.StatusInternalServerError, cartJobResponse{Error: "nil request context"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)
+	defer cancel()
+	r.Body = http.MaxBytesReader(w, r.Body, cartMaxBody)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeCartJobJSON(w, http.StatusBadRequest, cartJobResponse{Error: "could not read checkout body"})
+		return
+	}
+	var in cartJobApplyRequest
+	if err := json.Unmarshal(raw, &in); err != nil {
+		writeCartJobJSON(w, http.StatusBadRequest, cartJobResponse{Error: "checkout body must be JSON"})
+		return
+	}
+	if strings.TrimSpace(in.Confirm) != hoststore.DeleteJobConfirmToken {
+		writeCartJobJSON(w, http.StatusBadRequest, cartJobResponse{Error: "confirm token mismatch"})
+		return
+	}
+	job, err := s.Jobs.Checkout(ctx, in.Confirm)
+	if err != nil {
+		body := cartJobResponse{Error: strings.TrimSpace(err.Error())}
+		if job.ID != "" {
+			body.Job = &job
+			body.JobID = job.ID
+			body.Status = job.Status
+		}
+		writeCartJobJSON(w, cartJobHTTPStatus(err), body)
+		return
+	}
+	status := http.StatusOK
+	if job.Status == hoststore.DeleteJobStatusApplying {
+		status = http.StatusAccepted
+	}
+	writeCartJobJSON(w, status, cartJobResponse{OK: true, JobID: job.ID, Status: job.Status, Job: &job})
+}
+
 func (s *IntentPageServer) applyCartJob(ctx context.Context, w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method == http.MethodGet {
 		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: "POST required"})
@@ -141,7 +194,13 @@ func (s *IntentPageServer) applyCartJob(ctx context.Context, w http.ResponseWrit
 		return
 	case hoststore.DeleteJobStatusPlanned, hoststore.DeleteJobStatusPartial:
 		if err := s.Jobs.ApplyAsync(id, in.Confirm); err != nil {
-			writeCartJobErr(w, err)
+			body := cartJobResponse{Error: strings.TrimSpace(err.Error())}
+			if updated, gerr := s.Jobs.GetJob(ctx, id); gerr == nil {
+				body.Job = &updated
+				body.JobID = updated.ID
+				body.Status = updated.Status
+			}
+			writeCartJobJSON(w, cartJobHTTPStatus(err), body)
 			return
 		}
 		job.Status = hoststore.DeleteJobStatusApplying
@@ -152,7 +211,7 @@ func (s *IntentPageServer) applyCartJob(ctx context.Context, w http.ResponseWrit
 	}
 }
 
-func writeCartJobErr(w http.ResponseWriter, err error) {
+func cartJobHTTPStatus(err error) int {
 	status := http.StatusInternalServerError
 	if c, ok := sirerr.AsCode(err); ok {
 		switch c {
@@ -164,7 +223,11 @@ func writeCartJobErr(w http.ResponseWriter, err error) {
 			status = http.StatusServiceUnavailable
 		}
 	}
-	writeCartJobJSON(w, status, cartJobResponse{Error: strings.TrimSpace(err.Error())})
+	return status
+}
+
+func writeCartJobErr(w http.ResponseWriter, err error) {
+	writeCartJobJSON(w, cartJobHTTPStatus(err), cartJobResponse{Error: strings.TrimSpace(err.Error())})
 }
 
 func writeCartJobJSON(w http.ResponseWriter, status int, body cartJobResponse) {

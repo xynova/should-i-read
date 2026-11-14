@@ -122,7 +122,7 @@ func groupKeyForRow(row MessageRow) (gk, termID, domain string) {
 	if term != "" {
 		return "term:" + term, term, ""
 	}
-	domain = senderDomain(row.Sender)
+	domain = SenderDomain(row.Sender)
 	if domain != "" {
 		return "domain:" + domain, "", domain
 	}
@@ -130,7 +130,8 @@ func groupKeyForRow(row MessageRow) (gk, termID, domain string) {
 	return "unlabeled:" + hash, "", ""
 }
 
-func senderDomain(sender string) string {
+// SenderDomain extracts the email domain from a From header value.
+func SenderDomain(sender string) string {
 	s := strings.TrimSpace(sender)
 	if s == "" {
 		return ""

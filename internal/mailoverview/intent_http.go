@@ -28,12 +28,20 @@ type CartStore interface {
 	RemoveDeleteCartGroup(ctx context.Context, groupID string) error
 }
 
+// ActionedLookup classifies hashes that must leave the live months.
+type ActionedLookup interface {
+	LookupActioned(ctx context.Context, hashes []string) (map[string]maildelete.ActionedInfo, error)
+}
+
 // IntentPageServer serves overview HTML, POST /intent, and the deletion cart.
 type IntentPageServer struct {
-	HTML  []byte
-	Guess *IntentGuesser
-	Cart  CartStore
-	Jobs  *maildelete.Service
+	HTML     []byte
+	Guess    *IntentGuesser
+	Cart     CartStore
+	Jobs     *maildelete.Service
+	Actioned ActionedLookup
+	Outcomes OutcomeStore
+	Hashes   []string
 }
 
 // Handler returns the overview mux.
@@ -42,9 +50,25 @@ func (s *IntentPageServer) Handler() http.Handler {
 	mux.HandleFunc("/", s.servePage)
 	mux.HandleFunc("/intent", s.serveIntent)
 	mux.HandleFunc("/cart", s.serveCart)
+	mux.HandleFunc("/cart/checkout", s.serveCartCheckout)
 	mux.HandleFunc("/cart/jobs", s.serveCartJobs)
 	mux.HandleFunc("/cart/jobs/", s.serveCartJobs)
+	mux.HandleFunc("/actioned", s.serveActioned)
+	mux.HandleFunc("/keep", s.serveKeep)
 	return mux
+}
+
+func (s *IntentPageServer) actionedLookup() ActionedLookup {
+	if s == nil {
+		return nil
+	}
+	if s.Actioned != nil {
+		return s.Actioned
+	}
+	if s.Jobs != nil {
+		return s.Jobs
+	}
+	return nil
 }
 
 func (s *IntentPageServer) servePage(w http.ResponseWriter, r *http.Request) {

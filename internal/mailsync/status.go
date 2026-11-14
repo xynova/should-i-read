@@ -13,28 +13,33 @@ import (
 
 // Status is mailbox readiness in product language.
 type Status struct {
-	Ready          bool                `json:"ready"`
-	DepOK          bool                `json:"dep_ok"`
-	ConfigOK       bool                `json:"config_ok"`
-	TokenOK        bool                `json:"token_ok"`
-	StoreOK        bool                `json:"store_ok"`
-	Provider       string              `json:"provider,omitempty"`
-	Account        string              `json:"account,omitempty"`
-	Email          string              `json:"email,omitempty"`
-	MailSyncConfig string              `json:"mail_sync_config,omitempty"`
-	PimdirPath     string              `json:"pimdir_path,omitempty"`
-	Messages       []string            `json:"messages"`
-	NextSteps      []string            `json:"next_steps,omitempty"`
-	ClassifyStore  ClassifyStoreStatus `json:"classify_store,omitempty"`
+	Ready            bool                `json:"ready"`
+	DepOK            bool                `json:"dep_ok"`
+	ConfigOK         bool                `json:"config_ok"`
+	TokenOK          bool                `json:"token_ok"`
+	StoreOK          bool                `json:"store_ok"`
+	HimalayaConfigOK bool                `json:"himalaya_config_ok"`
+	HimalayaConfig   string              `json:"himalaya_config,omitempty"`
+	Provider         string              `json:"provider,omitempty"`
+	Account          string              `json:"account,omitempty"`
+	Email            string              `json:"email,omitempty"`
+	MailSyncConfig   string              `json:"mail_sync_config,omitempty"`
+	PimdirPath       string              `json:"pimdir_path,omitempty"`
+	Messages         []string            `json:"messages"`
+	NextSteps        []string            `json:"next_steps,omitempty"`
+	ClassifyStore    ClassifyStoreStatus `json:"classify_store,omitempty"`
 }
 
 // ClassifyStoreStatus is host ledger counts for mail status JSON.
 type ClassifyStoreStatus struct {
-	Path     string `json:"path,omitempty"`
-	Complete int    `json:"complete"`
-	Error    int    `json:"error"`
-	Running  int    `json:"running"`
-	Pending  int    `json:"pending"`
+	Path                 string `json:"path,omitempty"`
+	Complete             int    `json:"complete"`
+	Error                int    `json:"error"`
+	Running              int    `json:"running"`
+	Pending              int    `json:"pending"`
+	OutcomesTrashed      int    `json:"outcomes_trashed,omitempty"`
+	OutcomesAlreadyTrash int    `json:"outcomes_already_in_trash,omitempty"`
+	OutcomesKept         int    `json:"outcomes_kept,omitempty"`
 }
 
 // CollectStatus probes filesystem and keyring without running a full sync check.
@@ -46,6 +51,7 @@ func CollectStatus(ctx context.Context, cfg config.Config) (Status, error) {
 	st := Status{Messages: []string{}}
 	st.MailSyncConfig = strings.TrimSpace(cfg.Pimalaya.NeverestConfig)
 	st.PimdirPath = strings.TrimSpace(cfg.Pimalaya.PimdirPath)
+	st.HimalayaConfig = strings.TrimSpace(cfg.Pimalaya.HimalayaConfig)
 	st.Account = strings.TrimSpace(cfg.Pimalaya.DefaultAccount)
 
 	if _, err := pimalaya.ResolveBin(cfg.Pimalaya.NeverestBin, "neverest"); err == nil {
@@ -98,6 +104,25 @@ func CollectStatus(ctx context.Context, cfg config.Config) (Status, error) {
 		} else if st.ConfigOK && st.TokenOK {
 			st.Messages = append(st.Messages, "Local mail store is not initialized; run should-i-read configure.")
 		}
+	}
+
+	himalayaPath := st.HimalayaConfig
+	if himalayaPath == "" {
+		if p, perr := config.DefaultHimalayaConfigPath(); perr == nil {
+			himalayaPath = p
+			if st.HimalayaConfig == "" {
+				st.HimalayaConfig = p
+			}
+		}
+	}
+	if himalayaPath != "" {
+		if fi, err := os.Stat(himalayaPath); err == nil && !fi.IsDir() {
+			st.HimalayaConfigOK = true
+		} else {
+			st.Messages = append(st.Messages, "Himalaya pimdir config is missing; run should-i-read configure --step mailbox_profile.")
+		}
+	} else {
+		st.Messages = append(st.Messages, "Himalaya pimdir config path is unset; run should-i-read configure.")
 	}
 
 	st.Ready = st.DepOK && st.ConfigOK && st.TokenOK && st.StoreOK

@@ -39,7 +39,7 @@ Token bare invoke (`token gmail`) still prints only the access token for Neveres
 | Export summary JSON | `mail export` | `go tool task mail:export` |
 | Offline month overview (HTML + JSON, read-only stores) | `mail overview` | `go tool task mail:overview` |
 | Snapshot deletion cart into a trash job (resolve pimdir; no IMAP) | `mail cart job` | `go tool task mail:cart-job` |
-| Move planned cart items to Trash at source (Himalaya via host) | `mail cart apply <job-id> --confirm trash-at-source` | `go tool task mail:cart-apply -- --confirm trash-at-source <job-id>` |
+| Move planned cart items to Trash at source (Himalaya pimdir via host `himalaya.toml`; then `mail sync` pushes Gmail) | `mail cart apply <job-id> --confirm trash-at-source` | `go tool task mail:cart-apply -- --confirm trash-at-source <job-id>` |
 | Deletion job status JSON | `mail cart status <job-id>` | (CLI only) |
 | Read one message body | `mail show <ref>` | (CLI only) |
 

@@ -65,34 +65,35 @@ type ClusterRow struct {
 
 // MessageRow is one classified message in the artifact.
 type MessageRow struct {
-	ObjectHash                string       `json:"object_hash"`
-	Subject                   string       `json:"subject,omitempty"`
-	Sender                    string       `json:"sender,omitempty"`
-	TermID                    string       `json:"term_id,omitempty"`
-	Path                      []string     `json:"path,omitempty"`
-	Label                     string       `json:"label,omitempty"`
-	Source                    string       `json:"source,omitempty"`
-	Strategy                  string       `json:"strategy,omitempty"`
-	Kind                      string       `json:"kind,omitempty"`
-	About                     string       `json:"about,omitempty"`
-	Shape                     string       `json:"shape,omitempty"`
-	Tags                      []string     `json:"tags,omitempty"`
-	Cosine                    float64      `json:"cosine,omitempty"`
-	DescriptionCosine         float64      `json:"description_cosine,omitempty"`
-	DescriptionCosineBelowMin bool         `json:"description_cosine_below_min,omitempty"`
-	CanonicalTermID           string       `json:"canonical_term_id,omitempty"`
-	Reinforced                bool         `json:"reinforced,omitempty"`
-	JudgeScore                float64      `json:"judge_score,omitempty"`
-	Draft                     *DraftRecord `json:"draft,omitempty"`
-	CatalogApplied            bool         `json:"catalog_applied"`
-	Error                     string       `json:"error,omitempty"`
-	EmbedPersist              string       `json:"embed_persist,omitempty"`
-	SenderTermID              string       `json:"sender_term_id,omitempty"`
-	SenderLabel               string       `json:"sender_label,omitempty"`
-	SenderMapsTo              string       `json:"sender_maps_to,omitempty"`
-	ClusterID                 string       `json:"cluster_id,omitempty"`
-	Attention                 *Attention   `json:"attention,omitempty"`
-	AttentionError            string       `json:"attention_error,omitempty"`
+	ObjectHash                string          `json:"object_hash"`
+	Subject                   string          `json:"subject,omitempty"`
+	Sender                    string          `json:"sender,omitempty"`
+	TermID                    string          `json:"term_id,omitempty"`
+	Path                      []string        `json:"path,omitempty"`
+	Label                     string          `json:"label,omitempty"`
+	Source                    string          `json:"source,omitempty"`
+	Strategy                  string          `json:"strategy,omitempty"`
+	Kind                      string          `json:"kind,omitempty"`
+	About                     string          `json:"about,omitempty"`
+	Shape                     string          `json:"shape,omitempty"`
+	Tags                      []string        `json:"tags,omitempty"`
+	Cosine                    float64         `json:"cosine,omitempty"`
+	DescriptionCosine         float64         `json:"description_cosine,omitempty"`
+	DescriptionCosineBelowMin bool            `json:"description_cosine_below_min,omitempty"`
+	CanonicalTermID           string          `json:"canonical_term_id,omitempty"`
+	Reinforced                bool            `json:"reinforced,omitempty"`
+	JudgeScore                float64         `json:"judge_score,omitempty"`
+	Draft                     *DraftRecord    `json:"draft,omitempty"`
+	CatalogApplied            bool            `json:"catalog_applied"`
+	Error                     string          `json:"error,omitempty"`
+	EmbedPersist              string          `json:"embed_persist,omitempty"`
+	SenderTermID              string          `json:"sender_term_id,omitempty"`
+	SenderLabel               string          `json:"sender_label,omitempty"`
+	SenderMapsTo              string          `json:"sender_maps_to,omitempty"`
+	ClusterID                 string          `json:"cluster_id,omitempty"`
+	Attention                 *Attention      `json:"attention,omitempty"`
+	AttentionError            string          `json:"attention_error,omitempty"`
+	WorthReadPrior            *WorthReadPrior `json:"worth_read_prior,omitempty"`
 }
 
 // Artifact is the report-only JSON output.
@@ -137,6 +138,7 @@ type Artifact struct {
 	ShapesPromoted       int               `json:"shapes_promoted,omitempty"`
 	ShapeStoreError      string            `json:"shape_store_error,omitempty"`
 	IncompleteError      string            `json:"incomplete_error,omitempty"`
+	WorthReadError       string            `json:"worth_read_error,omitempty"`
 	Messages             []MessageRow      `json:"messages"`
 	Clusters             []ClusterRow      `json:"clusters,omitempty"`
 }

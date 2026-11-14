@@ -54,7 +54,56 @@ func TestResolveJobBindings(t *testing.T) {
 	if len(out) != 2 {
 		t.Fatal(out)
 	}
-	if out[0].EnvelopeID != "42" || out[1].Status != hoststore.DeleteJobItemUnresolved {
-		t.Fatalf("%+v", out)
+	if out[0].EnvelopeID != "42" || out[0].Folder != "imap/INBOX" {
+		t.Fatalf("%+v", out[0])
+	}
+	if out[1].Status != hoststore.DeleteJobItemUnresolved {
+		t.Fatalf("%+v", out[1])
+	}
+}
+
+func TestBindingFromSummaryImapCollection(t *testing.T) {
+	b := BindingFromSummary("h", pimdir.EmailSummary{
+		Collection: "imap/INBOX",
+		Seq:        42,
+	}, true)
+	if b.Folder != "imap/INBOX" || b.EnvelopeID != "42" {
+		t.Fatalf("%+v", b)
+	}
+}
+
+func TestStartJobDropsAlreadyTrashCart(t *testing.T) {
+	st, ctx := openTestStore(t)
+	if err := st.AddDeleteCart(ctx, []hoststore.DeleteCartItem{
+		{ObjectHash: "keep-planned"},
+		{ObjectHash: "already-trash"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := CreateDeleteJobService(DeleteJobConfig{
+		Store: st,
+		Pimdir: &fakePim{m: map[string]pimdir.EmailSummary{
+			"keep-planned":  {Collection: "gmail/imap/[Gmail]/All Mail", Seq: 11},
+			"already-trash": {Collection: "gmail/imap/[Gmail]/Trash", Seq: 22},
+		}},
+		Now:         time.Now,
+		ItemTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := svc.StartJob(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Counts.Planned != 1 || job.Counts.Refused != 1 {
+		t.Fatalf("counts %+v", job.Counts)
+	}
+	cart, err := st.ListDeleteCart(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cart) != 1 || cart[0].ObjectHash != "keep-planned" {
+		t.Fatalf("cart %+v", cart)
 	}
 }

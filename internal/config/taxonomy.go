@@ -19,6 +19,9 @@ const (
 	defaultEssenceSemanticMaxAttempts = 2
 	defaultShapeMinRepeats            = 3
 	defaultShapeConfirmMin            = 0.90
+	defaultWorthReadMinNeighbors      = 3
+	defaultWorthReadSimilarK          = 10
+	maxWorthReadSimilarK              = 50
 )
 
 // DefaultShapeAllowedLeaves are last-slot KIND ids eligible for shape auto-promote.
@@ -53,6 +56,10 @@ type TaxonomyFile struct {
 	ShapeMinRepeats            int      `yaml:"shape_min_repeats"`
 	ShapeConfirmMin            float64  `yaml:"shape_confirm_min"`
 	ShapeAllowedLeaves         []string `yaml:"shape_allowed_leaves"`
+	WorthReadPrior             *bool    `yaml:"worth_read_prior"`
+	WorthReadMinNeighbors      int      `yaml:"worth_read_min_neighbors"`
+	WorthReadMinCosine         float64  `yaml:"worth_read_min_cosine"`
+	WorthReadSimilarK          int      `yaml:"worth_read_similar_k"`
 }
 
 // TaxonomyConfig is resolved taxonomy settings.
@@ -73,6 +80,10 @@ type TaxonomyConfig struct {
 	ShapeMinRepeats            int
 	ShapeConfirmMin            float64
 	ShapeAllowedLeaves         []string
+	WorthReadPrior             bool
+	WorthReadMinNeighbors      int
+	WorthReadMinCosine         float64
+	WorthReadSimilarK          int
 }
 
 // SeedCatalogPath returns the repo seed vocabulary path.
@@ -205,6 +216,25 @@ func resolveTaxonomy(file TaxonomyFile) (TaxonomyConfig, error) {
 	if len(shapeLeaves) == 0 {
 		shapeLeaves = DefaultShapeAllowedLeaves()
 	}
+	worthReadPrior := true
+	if file.WorthReadPrior != nil {
+		worthReadPrior = *file.WorthReadPrior
+	}
+	worthNeighbors := file.WorthReadMinNeighbors
+	if worthNeighbors < 1 {
+		worthNeighbors = defaultWorthReadMinNeighbors
+	}
+	worthCosine := file.WorthReadMinCosine
+	if worthCosine < 0 {
+		return TaxonomyConfig{}, sirerr.New(sirerr.CodeInvalid, op, "worth_read_min_cosine must be >= 0")
+	}
+	worthK := file.WorthReadSimilarK
+	if worthK <= 0 {
+		worthK = defaultWorthReadSimilarK
+	}
+	if worthK > maxWorthReadSimilarK {
+		worthK = maxWorthReadSimilarK
+	}
 	return TaxonomyConfig{
 		CatalogPath:                path,
 		ClassifyMax:                max,
@@ -222,6 +252,10 @@ func resolveTaxonomy(file TaxonomyFile) (TaxonomyConfig, error) {
 		ShapeMinRepeats:            shapeMinRepeats,
 		ShapeConfirmMin:            shapeConfirmMin,
 		ShapeAllowedLeaves:         shapeLeaves,
+		WorthReadPrior:             worthReadPrior,
+		WorthReadMinNeighbors:      worthNeighbors,
+		WorthReadMinCosine:         worthCosine,
+		WorthReadSimilarK:          worthK,
 	}, nil
 }
 

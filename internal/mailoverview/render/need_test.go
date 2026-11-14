@@ -75,6 +75,9 @@ func TestLabels(t *testing.T) {
 	if got := weekLabel("2026-09-28"); got != "28 Sep" {
 		t.Fatalf("weekLabel %q", got)
 	}
+	if got := weekLabel(mailoverview.NoWeekKey); got != "No date" {
+		t.Fatalf("weekLabel no-date %q", got)
+	}
 	if got := generatedLabel("2026-11-06T22:50:18Z"); got != "6 Nov 2026, 22:50 UTC" {
 		t.Fatalf("generatedLabel %q", got)
 	}

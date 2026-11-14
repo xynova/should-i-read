@@ -70,6 +70,44 @@ func TestDeleteJobEmptyCartInvalid(t *testing.T) {
 	}
 }
 
+func TestLatestDeleteJobItemsPrefersNewerJob(t *testing.T) {
+	st, ctx := testStore(t)
+	if err := st.AddDeleteCart(ctx, []DeleteCartItem{{ObjectHash: "hash-a"}}); err != nil {
+		t.Fatal(err)
+	}
+	oldID, err := st.CreateDeleteJobFromCart(ctx, time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindDeleteJobItems(ctx, oldID, []DeleteJobBinding{
+		{ObjectHash: "hash-a", Folder: "INBOX", EnvelopeID: "1", Status: DeleteJobItemFailed},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddDeleteCart(ctx, []DeleteCartItem{{ObjectHash: "hash-a"}}); err != nil {
+		t.Fatal(err)
+	}
+	newID, err := st.CreateDeleteJobFromCart(ctx, time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindDeleteJobItems(ctx, newID, []DeleteJobBinding{
+		{ObjectHash: "hash-a", Folder: "[Gmail]/Trash", EnvelopeID: "9", Status: DeleteJobItemRefused},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.LatestDeleteJobItems(ctx, []string{"hash-a", "missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["hash-a"].Status != DeleteJobItemRefused || got["hash-a"].JobID != newID {
+		t.Fatalf("%+v", got["hash-a"])
+	}
+	if _, ok := got["missing"]; ok {
+		t.Fatal("missing")
+	}
+}
+
 func TestDeleteJobRequiresDeadline(t *testing.T) {
 	st, _ := testStore(t)
 	_, err := st.CreateDeleteJobFromCart(context.Background(), time.Now().UTC())

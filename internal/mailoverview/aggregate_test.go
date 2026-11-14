@@ -68,6 +68,54 @@ func TestBuildModel_twoMonths_unknown_filtered(t *testing.T) {
 	if m.All.Pipeline.PromptHashes["ph1"] != 1 {
 		t.Fatalf("prompt hashes %+v", m.All.Pipeline.PromptHashes)
 	}
+	heatSum := 0
+	for _, row := range all.Heatmap.Cells {
+		for _, c := range row {
+			heatSum += c
+		}
+	}
+	if heatSum != all.Summary.Classified {
+		t.Fatalf("heatmap %d != classified %d weeks %v", heatSum, all.Summary.Classified, all.Heatmap.WeekLabels)
+	}
+	if n := len(all.Heatmap.WeekLabels); n == 0 || all.Heatmap.WeekLabels[n-1] != NoWeekKey {
+		t.Fatalf("undated mail should sit in a trailing No date week, got %v", all.Heatmap.WeekLabels)
+	}
+}
+
+func TestThemesAndHeatmap_undatedColumn(t *testing.T) {
+	_, hm := themesAndHeatmap([]enriched{
+		{weekKey: "2026-08-31", theme: themeOther, row: hoststore.OverviewRow{ObjectHash: "dated"}},
+		{weekKey: "", theme: themeOther, row: hoststore.OverviewRow{ObjectHash: "nodate-a"}},
+		{weekKey: "", theme: "engineering", row: hoststore.OverviewRow{ObjectHash: "nodate-b"}},
+	})
+	if len(hm.WeekLabels) != 2 || hm.WeekLabels[0] != "2026-08-31" || hm.WeekLabels[1] != NoWeekKey {
+		t.Fatalf("weeks %v", hm.WeekLabels)
+	}
+	sum := 0
+	for _, row := range hm.Cells {
+		for _, c := range row {
+			sum += c
+		}
+	}
+	if sum != 3 {
+		t.Fatalf("heatmap sum %d cells %+v", sum, hm.Cells)
+	}
+	eng := -1
+	other := -1
+	for i, lab := range hm.ThemeLabels {
+		switch lab {
+		case "engineering":
+			eng = i
+		case themeOther:
+			other = i
+		}
+	}
+	if eng < 0 || other < 0 {
+		t.Fatalf("themes %v", hm.ThemeLabels)
+	}
+	if hm.Cells[1][eng] != 1 || hm.Cells[1][other] != 1 {
+		t.Fatalf("no-date column %+v", hm.Cells[1])
+	}
 }
 
 func TestKindTree(t *testing.T) {

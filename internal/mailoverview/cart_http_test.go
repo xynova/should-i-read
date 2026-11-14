@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/maildelete"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -190,6 +192,85 @@ func TestCartRemoveGroup(t *testing.T) {
 	}
 	if !removed.OK || removed.Count != 0 {
 		t.Fatalf("removed group %+v", removed)
+	}
+}
+
+type stubActioned struct {
+	m map[string]maildelete.ActionedInfo
+}
+
+func (s stubActioned) LookupActioned(ctx context.Context, hashes []string) (map[string]maildelete.ActionedInfo, error) {
+	if err := requireCartCtx(ctx); err != nil {
+		return nil, err
+	}
+	return s.m, nil
+}
+
+func TestCartAddSkipsInCartAndActioned(t *testing.T) {
+	t.Parallel()
+	cart := newMemCart()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := cart.AddDeleteCart(ctx, []hoststore.DeleteCartItem{{ObjectHash: "already", Sender: "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer((&IntentPageServer{
+		HTML: []byte("h"),
+		Cart: cart,
+		Actioned: stubActioned{m: map[string]maildelete.ActionedInfo{
+			"trash": {Outcome: maildelete.OutcomeAlreadyInTrash},
+		}},
+	}).Handler())
+	t.Cleanup(ts.Close)
+	body, err := json.Marshal(cartAddRequest{Items: []cartJSONItem{
+		{ObjectHash: "already", Sender: "a"},
+		{ObjectHash: "trash", Sender: "github"},
+		{ObjectHash: "live", Sender: "b"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.Post(ts.URL+"/cart", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var out cartResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.OK || out.Count != 2 || out.SkippedInCart != 1 || out.SkippedActioned != 1 {
+		t.Fatalf("%+v", out)
+	}
+}
+
+func TestActionedGET(t *testing.T) {
+	t.Parallel()
+	ts := httptest.NewServer((&IntentPageServer{
+		HTML:   []byte("h"),
+		Hashes: []string{"h1", "h2"},
+		Actioned: stubActioned{m: map[string]maildelete.ActionedInfo{
+			"h1": {Sender: "notifications@github.com", Outcome: maildelete.OutcomeAlreadyInTrash, Date: "2026-09-19"},
+		}},
+	}).Handler())
+	t.Cleanup(ts.Close)
+	res, err := http.Get(ts.URL + "/actioned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var out actionedResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.OK || len(out.Rows) != 1 || out.Rows[0].Sender != "notifications@github.com" {
+		t.Fatalf("%+v", out)
 	}
 }
 

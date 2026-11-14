@@ -300,6 +300,25 @@
       {{end}}
     </details>
     {{end}}
+    <section id="sec-actioned" class="panel actioned-board"{{if not .Model.Actioned}} hidden{{end}}>
+      <h2>Actioned</h2>
+      <p class="actioned-hint">Trashed at the source or already in Trash. Not counted on the live months.</p>
+      <div class="table-wrap">
+        <table class="data" id="actioned-table">
+          <thead><tr><th>Sender</th><th>Messages</th><th>When</th><th>Outcome</th></tr></thead>
+          <tbody id="actioned-body">
+            {{range .Model.Actioned}}
+            <tr data-hashes="{{.HashAttr}}" data-sender="{{.Sender}}">
+              <td>{{.Sender}}</td>
+              <td>{{.Count}}</td>
+              <td>{{.WhenLabel}}</td>
+              <td>{{.Outcome}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
   </main>
   <footer class="site-footer">
     <div class="foot-h"><strong>Provenance</strong></div>
@@ -320,6 +339,7 @@
     <p class="intent-status" id="intent-status"></p>
     <div class="intent-body" id="intent-text"></div>
     <div class="intent-actions">
+      <button type="button" class="theme-toggle" id="intent-keep" disabled>Keep (worth reading)</button>
       <button type="button" class="theme-toggle" id="intent-mark" disabled>Mark as deletable</button>
     </div>
   </aside>
@@ -329,11 +349,10 @@
       <h2>Deletion cart</h2>
       <button type="button" class="theme-toggle" id="cart-close">Close</button>
     </div>
-    <p class="intent-status" id="cart-help">Staging only until you confirm Trash at the source.</p>
+    <p class="intent-status" id="cart-help">Staging until checkout. Move to Trash at source empties the cart; the job keeps the order.</p>
     <p class="intent-status" id="cart-job-status" hidden></p>
     <div class="cart-job-actions">
-      <button type="button" class="theme-toggle" id="cart-job-start" disabled>Start deletion job</button>
-      <button type="button" class="theme-toggle" id="cart-job-trash" disabled title="Confirm trash-at-source">Move to Trash at source</button>
+      <button type="button" class="theme-toggle" id="cart-job-trash" hidden disabled title="Confirm trash-at-source">Move to Trash at source</button>
     </div>
     <div id="cart-list" class="cart-list"></div>
   </aside>

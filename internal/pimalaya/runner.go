@@ -148,14 +148,14 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 		span.SetStatus(codes.Error, "needs_review")
 		return res, sirerr.New(sirerr.CodeNeedsReview, op, "pimalaya CLI needs human review").
 			With("exit_code", fmt.Sprintf("%d", exit)).
-			With("stderr", truncate(stderr.String(), 400))
+			With("stderr", truncate(cliDetail(stderr.String(), stdout.String()), 400))
 	}
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "exec failed")
 		return res, sirerr.Wrap(err, sirerr.CodeFailed, op, "pimalaya CLI failed").
 			With("exit_code", fmt.Sprintf("%d", exit)).
-			With("stderr", truncate(stderr.String(), 400))
+			With("stderr", truncate(cliDetail(stderr.String(), stdout.String()), 400))
 	}
 	if len(res.Raw) > 0 {
 		var probe struct {
@@ -193,6 +193,13 @@ func mergeEnv(base, extra []string) []string {
 	out = append(out, base...)
 	out = append(out, extra...)
 	return out
+}
+
+func cliDetail(stderr, stdout string) string {
+	if s := strings.TrimSpace(stderr); s != "" {
+		return s
+	}
+	return strings.TrimSpace(stdout)
 }
 
 func truncate(s string, n int) string {

@@ -165,6 +165,7 @@
     var textEl = document.getElementById("intent-text");
     var closeBtn = document.getElementById("intent-close");
     var markBtn = document.getElementById("intent-mark");
+    var keepBtn = document.getElementById("intent-keep");
     if (!toggle || !layer || !rectEl || !panel || !statusEl || !textEl) {
       return;
     }
@@ -231,6 +232,53 @@
 
     function normalizeText(s) {
       return (s || "").replace(/\s+/g, " ").trim();
+    }
+
+    function isSvgNode(el) {
+      if (!el) {
+        return false;
+      }
+      if (el.ownerSVGElement) {
+        return true;
+      }
+      var ns = el.namespaceURI || "";
+      return ns.indexOf("svg") >= 0 || String(el.tagName || "").toLowerCase() === "svg";
+    }
+
+    // Heatmap cells paint the count and also put it in <title>. textContent
+    // concatenates both, so 7 becomes 77. Prefer the tooltip label.
+    function svgTitleLabel(el) {
+      if (!el || !el.getElementsByTagName) {
+        return "";
+      }
+      var titles = el.getElementsByTagName("title");
+      if (!titles || !titles.length) {
+        return "";
+      }
+      var parts = [];
+      var seen = {};
+      for (var i = 0; i < titles.length; i++) {
+        var t = normalizeText(titles[i].textContent);
+        if (!t || seen[t]) {
+          continue;
+        }
+        seen[t] = true;
+        parts.push(t);
+      }
+      return parts.join("\n");
+    }
+
+    function readableText(el) {
+      if (!el) {
+        return "";
+      }
+      if (isSvgNode(el)) {
+        var titled = svgTitleLabel(el);
+        if (titled) {
+          return titled;
+        }
+      }
+      return normalizeText(el.innerText || el.textContent);
     }
 
     function messageByHash(h) {
@@ -327,13 +375,24 @@
       return out;
     }
 
+    function kindRowOf(el) {
+      if (!el || !el.closest) {
+        return null;
+      }
+      var row = el.closest(".krow");
+      if (!row || !row.closest(".ktree")) {
+        return null;
+      }
+      return row;
+    }
+
     function collectFromRect(box) {
       var empty = { text: "", items: [] };
       var root = document.querySelector(".tab-panel.active") || document.querySelector("main");
       if (!root) {
         return empty;
       }
-      var sel = "h2, h3, p, .need-tile, .need-hint, td, th, .kname, .kcount, li, figcaption, caption, [data-hash], [data-hashes]";
+      var sel = "h2, h3, p, .need-tile, .need-hint, td, th, .ktree .krow, figcaption, caption, [data-hash], [data-hashes]";
       var nodes = root.querySelectorAll(sel);
       var seen = {};
       var parts = [];
@@ -341,10 +400,13 @@
       var seenHash = {};
       for (var i = 0; i < nodes.length; i++) {
         var el = nodes[i];
+        if (el.closest && el.closest(".ktree") && !(el.classList && el.classList.contains("krow"))) {
+          continue;
+        }
         if (!visible(el) || !intersects(box, el.getBoundingClientRect())) {
           continue;
         }
-        var t = normalizeText(el.innerText || el.textContent);
+        var t = readableText(el);
         if (t && !seen[t]) {
           seen[t] = true;
           parts.push(t);
@@ -368,12 +430,19 @@
       if (!el) {
         return { text: "", items: [] };
       }
+      if (el.closest && el.closest(".kind-tree")) {
+        var krow = kindRowOf(el);
+        if (!krow) {
+          return { text: "", items: [] };
+        }
+        return { text: readableText(krow), items: itemsFromEl(krow) };
+      }
       var items = itemsFromEl(el);
-      var block = el.closest("[data-hash], [data-hashes], .need-tile, tr, .panel, section, svg, .table-wrap, .kind-tree, li");
+      var block = el.closest("[data-hash], [data-hashes], .need-tile, tr, .panel, section, svg, .table-wrap, li");
       if (!block) {
         block = el;
       }
-      return { text: normalizeText(block.innerText || block.textContent), items: items };
+      return { text: readableText(block), items: items };
     }
 
     function escapeHtml(s) {
@@ -389,6 +458,13 @@
       html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
       html = html.replace(/\n/g, "<br>");
       return html;
+    }
+
+    function setKeepEnabled(on) {
+      if (!keepBtn) {
+        return;
+      }
+      keepBtn.disabled = !on;
     }
 
     function setMarkEnabled(on) {
@@ -407,6 +483,7 @@
     function askIntent(selected, items) {
       lastItems = enrichItems(items || []);
       setMarkEnabled(lastItems.length > 0);
+      setKeepEnabled(lastItems.length > 0);
       var month = activeMonth();
       if (!selected) {
         showPanel("Nothing readable in that region.", "Drag a box over tiles, charts, or table text, or click one message row.");
@@ -538,6 +615,61 @@
       return items.length + " messages";
     }
 
+    var mailMonthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    function parseMailDay(s) {
+      var t = String(s || "").trim();
+      if (t.length < 10 || t.charAt(4) !== "-" || t.charAt(7) !== "-") {
+        return 0;
+      }
+      var y = parseInt(t.slice(0, 4), 10);
+      var m = parseInt(t.slice(5, 7), 10);
+      var d = parseInt(t.slice(8, 10), 10);
+      if (!y || m < 1 || m > 12 || d < 1 || d > 31) {
+        return 0;
+      }
+      return y * 10000 + m * 100 + d;
+    }
+
+    function formatMailDay(n, refYear) {
+      if (!n) {
+        return "";
+      }
+      var y = Math.floor(n / 10000);
+      var m = Math.floor((n % 10000) / 100);
+      var d = n % 100;
+      var label = d + " " + mailMonthNames[m - 1];
+      if (y !== refYear) {
+        return label + " " + y;
+      }
+      return label;
+    }
+
+    function folderWhen(items) {
+      var min = 0;
+      var max = 0;
+      for (var i = 0; i < items.length; i++) {
+        var n = parseMailDay(items[i].date);
+        if (!n) {
+          continue;
+        }
+        if (!min || n < min) {
+          min = n;
+        }
+        if (!max || n > max) {
+          max = n;
+        }
+      }
+      if (!min) {
+        return "";
+      }
+      var year = (new Date()).getFullYear();
+      if (min === max) {
+        return formatMailDay(min, year);
+      }
+      return formatMailDay(min, year) + " - " + formatMailDay(max, year);
+    }
+
     function groupCartItems(items) {
       var order = [];
       var by = {};
@@ -572,6 +704,13 @@
       sub.className = "cart-subject";
       sub.textContent = item.subject || "";
       meta.appendChild(from);
+      var when = formatMailDay(parseMailDay(item.date), (new Date()).getFullYear());
+      if (when) {
+        var time = document.createElement("div");
+        time.className = "cart-when";
+        time.textContent = when;
+        meta.appendChild(time);
+      }
       meta.appendChild(sub);
       var rm = document.createElement("button");
       rm.type = "button";
@@ -591,6 +730,7 @@
         countEl.textContent = String(n);
       }
       if (!list) {
+        applyStaged(data);
         return;
       }
       list.innerHTML = "";
@@ -600,6 +740,7 @@
         empty.className = "cart-empty";
         empty.textContent = "Nothing staged yet.";
         list.appendChild(empty);
+        applyStaged(data);
         return;
       }
       var groups = groupCartItems(items);
@@ -624,6 +765,13 @@
         count.textContent = group.items.length === 1 ? "1 message" : group.items.length + " messages";
         head.appendChild(title);
         head.appendChild(count);
+        var when = folderWhen(group.items);
+        if (when) {
+          var span = document.createElement("div");
+          span.className = "cart-folder-when";
+          span.textContent = when;
+          head.appendChild(span);
+        }
         var rmAll = document.createElement("button");
         rmAll.type = "button";
         rmAll.className = "theme-toggle";
@@ -640,13 +788,54 @@
         folder.appendChild(ul);
         list.appendChild(folder);
       }
+      applyStaged(data);
     }
 
-    var cartJob = { id: "", status: "", poll: null, last: null };
+    function applyStaged(data) {
+      var set = {};
+      var items = (data && data.items) || [];
+      for (var i = 0; i < items.length; i++) {
+        var h = items[i] && items[i].object_hash;
+        if (h) {
+          set[h] = true;
+        }
+      }
+      var nodes = document.querySelectorAll("[data-hashes]");
+      for (var n = 0; n < nodes.length; n++) {
+        var el = nodes[n];
+        if (el.closest && (el.closest("#sec-actioned") || el.closest("#delete-cart"))) {
+          continue;
+        }
+        var parts = String(el.getAttribute("data-hashes") || "").split(",");
+        var staged = false;
+        for (var p = 0; p < parts.length; p++) {
+          var hash = parts[p].trim();
+          if (hash && set[hash]) {
+            staged = true;
+            break;
+          }
+        }
+        if (staged) {
+          el.classList.add("is-staged");
+          el.setAttribute("title", "Staged in the deletion cart");
+        } else {
+          el.classList.remove("is-staged");
+          if (el.getAttribute("title") === "Staged in the deletion cart") {
+            el.removeAttribute("title");
+          }
+        }
+      }
+    }
+
+    var cartJob = { id: "", status: "", poll: null, linePoll: null, last: null, busy: false };
     var cartJobConfirm = "trash-at-source";
-    var cartJobStartBtn = document.getElementById("cart-job-start");
     var cartJobTrashBtn = document.getElementById("cart-job-trash");
     var cartJobStatusEl = document.getElementById("cart-job-status");
+
+    function cartCountNow() {
+      var el = document.getElementById("cart-count");
+      return el ? parseInt(el.textContent, 10) || 0 : 0;
+    }
 
     function showCartJobStatus(text) {
       if (!cartJobStatusEl) {
@@ -664,12 +853,16 @@
 
     function updateCartJobButtons(job, cartCount) {
       var planned = job && job.counts ? job.counts.planned : 0;
+      var failed = job && job.counts ? job.counts.failed : 0;
+      var leftover = planned >= 1 || failed >= 1;
       var applying = job && job.status === "applying";
-      if (cartJobStartBtn) {
-        cartJobStartBtn.disabled = !cartCount || applying;
-      }
+      var checkingOut = !!cartJob.busy && !applying;
+      var canCheckout = (cartCount || 0) >= 1 || leftover;
       if (cartJobTrashBtn) {
-        cartJobTrashBtn.disabled = !job || !job.id || planned < 1 || applying;
+        cartJobTrashBtn.hidden = !canCheckout && !applying && !checkingOut;
+        cartJobTrashBtn.disabled = applying || checkingOut || !canCheckout;
+        cartJobTrashBtn.textContent = applying ? "Moving to Trash…" : (checkingOut ? "Checking out…" : "Move to Trash at source");
+        cartJobTrashBtn.setAttribute("aria-busy", applying || checkingOut ? "true" : "false");
       }
     }
 
@@ -681,11 +874,43 @@
       return "planned " + c.planned + " · unresolved " + c.unresolved + " · refused " + c.refused + " · trashed " + c.trashed + " · failed " + c.failed;
     }
 
+    function jobStatusLine(job, cartCount) {
+      if (!job) {
+        return "";
+      }
+      var line = "Job " + job.status + ". " + jobCountsLine(job);
+      var refused = job.counts ? job.counts.refused || 0 : 0;
+      if (refused >= 1) {
+        line += " " + refused + " already in Trash.";
+      }
+      if (job.error) {
+        line += " " + job.error;
+      }
+      return line;
+    }
+
     function stopCartJobPoll() {
       if (cartJob.poll) {
         clearInterval(cartJob.poll);
         cartJob.poll = null;
       }
+    }
+
+    function stopCartLinePoll() {
+      if (cartJob.linePoll) {
+        clearInterval(cartJob.linePoll);
+        cartJob.linePoll = null;
+      }
+    }
+
+    function startCartLinePoll() {
+      stopCartLinePoll();
+      cartJob.linePoll = setInterval(function () {
+        if (cartJob.busy || cartJob.status === "applying") {
+          return;
+        }
+        refreshJob(cartCountNow());
+      }, 2000);
     }
 
     function startCartJobPoll(id) {
@@ -700,8 +925,8 @@
           cartJob.id = body.job.id;
           cartJob.status = body.job.status;
           cartJob.last = body.job;
-          showCartJobStatus("Job " + body.job.status + ". " + jobCountsLine(body.job));
-          updateCartJobButtons(body.job, document.getElementById("cart-count") ? parseInt(document.getElementById("cart-count").textContent, 10) || 0 : 0);
+          showCartJobStatus(jobStatusLine(body.job, cartCountNow()));
+          updateCartJobButtons(body.job, cartCountNow());
           if (body.job.status !== "applying") {
             stopCartJobPoll();
             refreshCart();
@@ -710,32 +935,14 @@
       }, 1000);
     }
 
-    function startDeletionJob() {
-      fetch("/cart/jobs", { method: "POST" }).then(function (res) {
-        return res.json().then(function (data) {
-          return { ok: res.ok, status: res.status, data: data };
-        });
-      }).then(function (out) {
-        if (!out.ok || !out.data || !out.data.job) {
-          showCartJobStatus((out.data && out.data.error) || "Could not start deletion job.");
-          return;
-        }
-        cartJob.id = out.data.job.id;
-        cartJob.status = out.data.job.status;
-        cartJob.last = out.data.job;
-        showCartJobStatus("Job " + out.data.job.status + ". " + jobCountsLine(out.data.job));
-        var count = document.getElementById("cart-count") ? parseInt(document.getElementById("cart-count").textContent, 10) || 0 : 0;
-        updateCartJobButtons(out.data.job, count);
-      }).catch(function () {
-        showCartJobStatus("Deletion jobs need overview serve with pimdir.");
-      });
-    }
-
-    function applyTrashAtSource() {
-      if (!cartJob.id) {
+    function checkoutTrashAtSource() {
+      if (cartJob.busy || (cartJobTrashBtn && cartJobTrashBtn.disabled)) {
         return;
       }
-      fetch("/cart/jobs/" + encodeURIComponent(cartJob.id) + "/apply", {
+      cartJob.busy = true;
+      showCartJobStatus("Checking out deletion cart…");
+      updateCartJobButtons(cartJob.last, cartCountNow());
+      fetch("/cart/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirm: cartJobConfirm })
@@ -744,24 +951,132 @@
           return { ok: res.ok, status: res.status, data: data };
         });
       }).then(function (out) {
+        cartJob.busy = false;
         if (!out.ok && out.status !== 202 && out.status !== 200) {
-          showCartJobStatus((out.data && out.data.error) || "Apply failed.");
+          showCartJobStatus((out.data && out.data.error) || "Checkout failed.");
+          if (out.data && out.data.job) {
+            cartJob.id = out.data.job.id;
+            cartJob.status = out.data.job.status;
+            cartJob.last = out.data.job;
+            updateCartJobButtons(out.data.job, cartCountNow());
+          } else {
+            updateCartJobButtons(cartJob.last, cartCountNow());
+          }
           return;
         }
-        cartJob.status = "applying";
-        showCartJobStatus("Moving to Trash at source…");
-        startCartJobPoll(cartJob.id);
-        updateCartJobButtons({ id: cartJob.id, status: "applying", counts: { planned: 1 } }, 0);
+        var job = out.data && out.data.job;
+        if (!job) {
+          showCartJobStatus("Checkout had no job.");
+          updateCartJobButtons(cartJob.last, cartCountNow());
+          return;
+        }
+        cartJob.id = job.id;
+        cartJob.status = job.status;
+        cartJob.last = job;
+        showCartJobStatus(jobStatusLine(job, 0));
+        updateCartJobButtons(job, 0);
+        refreshCart();
+        if (job.status === "applying") {
+          startCartJobPoll(job.id);
+        }
       }).catch(function () {
-        showCartJobStatus("Could not apply deletion job.");
+        cartJob.busy = false;
+        showCartJobStatus("Deletion checkout needs overview serve with pimdir.");
+        updateCartJobButtons(cartJob.last, cartCountNow());
       });
     }
 
-    if (cartJobStartBtn) {
-      cartJobStartBtn.addEventListener("click", startDeletionJob);
-    }
     if (cartJobTrashBtn) {
-      cartJobTrashBtn.addEventListener("click", applyTrashAtSource);
+      cartJobTrashBtn.addEventListener("click", checkoutTrashAtSource);
+    }
+
+    function actionedWhen(row) {
+      if (!row || !row.from) {
+        return "";
+      }
+      if (!row.until || row.until === row.from) {
+        return row.from;
+      }
+      return row.from + " through " + row.until;
+    }
+
+    function applyActioned(rows) {
+      var set = {};
+      rows = rows || [];
+      for (var i = 0; i < rows.length; i++) {
+        var hs = (rows[i] && rows[i].hashes) || [];
+        for (var j = 0; j < hs.length; j++) {
+          if (hs[j]) {
+            set[hs[j]] = true;
+          }
+        }
+      }
+      var nodes = document.querySelectorAll("[data-hashes]");
+      for (var n = 0; n < nodes.length; n++) {
+        var el = nodes[n];
+        if (el.closest && el.closest("#sec-actioned")) {
+          continue;
+        }
+        var parts = String(el.getAttribute("data-hashes") || "").split(",");
+        var live = false;
+        var any = false;
+        for (var p = 0; p < parts.length; p++) {
+          var h = parts[p].trim();
+          if (!h) {
+            continue;
+          }
+          any = true;
+          if (!set[h]) {
+            live = true;
+            break;
+          }
+        }
+        if (any && !live) {
+          el.classList.add("is-actioned");
+        } else {
+          el.classList.remove("is-actioned");
+        }
+      }
+      var body = document.getElementById("actioned-body");
+      var sec = document.getElementById("sec-actioned");
+      if (!body || !sec) {
+        return;
+      }
+      body.textContent = "";
+      for (var r = 0; r < rows.length; r++) {
+        var row = rows[r];
+        var tr = document.createElement("tr");
+        tr.setAttribute("data-hashes", (row.hashes || []).join(","));
+        tr.setAttribute("data-sender", row.sender || "");
+        var tdS = document.createElement("td");
+        tdS.textContent = row.sender || "";
+        var tdC = document.createElement("td");
+        tdC.textContent = String(row.count || 0);
+        var tdW = document.createElement("td");
+        tdW.textContent = actionedWhen(row);
+        var tdO = document.createElement("td");
+        tdO.textContent = row.outcome || "";
+        tr.appendChild(tdS);
+        tr.appendChild(tdC);
+        tr.appendChild(tdW);
+        tr.appendChild(tdO);
+        body.appendChild(tr);
+      }
+      sec.hidden = rows.length === 0;
+    }
+
+    function refreshActioned() {
+      return fetch("/actioned").then(function (res) {
+        return res.json().then(function (data) {
+          return { ok: res.ok, data: data };
+        }).catch(function () {
+          return { ok: false, data: {} };
+        });
+      }).then(function (out) {
+        if (out.ok && out.data && out.data.ok) {
+          applyActioned(out.data.rows || []);
+        }
+      }).catch(function () {});
     }
 
     function refreshCart() {
@@ -775,6 +1090,35 @@
         if (out.ok) {
           renderCart(out.data);
           updateCartJobButtons(cartJob.last, out.data.count || 0);
+          return refreshJob(out.data.count || 0).then(function () {
+            return refreshActioned();
+          });
+        }
+        return refreshActioned();
+      }).catch(function () {});
+    }
+
+    function refreshJob(cartCount) {
+      var url = cartJob.id ? "/cart/jobs/" + encodeURIComponent(cartJob.id) : "/cart/jobs";
+      return fetch(url).then(function (res) {
+        return res.json().then(function (data) {
+          return { ok: res.ok, data: data };
+        }).catch(function () {
+          return { ok: false, data: {} };
+        });
+      }).then(function (out) {
+        if (!out.ok || !out.data || !out.data.job) {
+          return;
+        }
+        cartJob.id = out.data.job.id;
+        cartJob.status = out.data.job.status;
+        cartJob.last = out.data.job;
+        showCartJobStatus(jobStatusLine(out.data.job, cartCountNow()));
+        updateCartJobButtons(out.data.job, cartCount);
+        if (out.data.job.status === "applying") {
+          startCartJobPoll(out.data.job.id);
+        } else {
+          stopCartJobPoll();
         }
       }).catch(function () {});
     }
@@ -864,6 +1208,9 @@
       }
       if (on) {
         refreshCart();
+        startCartLinePoll();
+      } else {
+        stopCartLinePoll();
       }
     }
 
@@ -893,7 +1240,37 @@
           return res.json();
         }).then(function (data) {
           renderCart(data);
+          updateCartJobButtons(cartJob.last, (data && data.count) || 0);
         }).catch(function () {});
+      });
+    }
+    if (keepBtn) {
+      keepBtn.addEventListener("click", function () {
+        if (!lastItems.length) {
+          return;
+        }
+        fetch("/keep", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: lastItems })
+        }).then(function (res) {
+          return res.json().then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        }).then(function (out) {
+          if (!out.ok) {
+            showPanel("Could not keep messages.", (out.data && out.data.error) || "Keep failed.");
+            return;
+          }
+          var skipped = (out.data && out.data.skipped_actioned) || 0;
+          var msg = "Saved " + ((out.data && out.data.count) || 0) + " kept label(s) for this mailbox.";
+          if (skipped) {
+            msg += " " + skipped + " already in Trash were skipped.";
+          }
+          showPanel("Worth reading", msg);
+        }).catch(function () {
+          showPanel("Could not keep messages.", "Serve this report to save keep labels.");
+        });
       });
     }
     if (markBtn) {
@@ -918,6 +1295,14 @@
           renderCart(out.data);
           setCartOpen(true);
           setMarkEnabled(false);
+          refreshActioned();
+          var skipped = (out.data && (out.data.skipped_actioned || 0)) || 0;
+          var staged = (out.data && out.data.count) || 0;
+          if (skipped && !staged) {
+            showPanel("Already in Trash.", skipped + " already in Trash. Nothing added to the cart.");
+          } else if (skipped) {
+            showPanel("Some already in Trash.", skipped + " already in Trash were not added.");
+          }
         }).catch(function () {
           showPanel("Could not add to the cart.", "Serve this report to use the deletion cart.");
         });

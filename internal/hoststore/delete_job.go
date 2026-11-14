@@ -341,3 +341,82 @@ ORDER BY object_hash ASC`, id, DeleteJobItemPlanned, DeleteJobItemFailed)
 	}
 	return out, nil
 }
+
+const latestJobItemChunk = 400
+
+// LatestDeleteJobItems returns the newest job row per object hash.
+func (s *Store) LatestDeleteJobItems(ctx context.Context, hashes []string) (map[string]DeleteJobItem, error) {
+	const op = "hoststore.Store.LatestDeleteJobItems"
+	if err := s.requireStore(ctx, op); err != nil {
+		return nil, err
+	}
+	clean := make([]string, 0, len(hashes))
+	seen := map[string]struct{}{}
+	for _, h := range hashes {
+		h = strings.TrimSpace(h)
+		if h == "" {
+			continue
+		}
+		if _, ok := seen[h]; ok {
+			continue
+		}
+		seen[h] = struct{}{}
+		clean = append(clean, h)
+	}
+	out := map[string]DeleteJobItem{}
+	for i := 0; i < len(clean); i += latestJobItemChunk {
+		end := i + latestJobItemChunk
+		if end > len(clean) {
+			end = len(clean)
+		}
+		chunk := clean[i:end]
+		if err := s.scanLatestDeleteJobItems(ctx, op, chunk, out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) scanLatestDeleteJobItems(ctx context.Context, op string, hashes []string, out map[string]DeleteJobItem) error {
+	args := make([]any, 0, len(hashes))
+	for _, h := range hashes {
+		args = append(args, h)
+	}
+	q := `
+SELECT i.job_id, i.object_hash, i.group_id, i.group_label, i.sender, i.subject,
+  i.collection, i.seq, i.link_id, i.envelope_id, i.folder, i.status, i.error
+FROM delete_job_items i
+JOIN delete_jobs j ON j.id = i.job_id
+WHERE i.object_hash IN (` + sqlPlaceholders(len(hashes)) + `)
+ORDER BY j.created_at DESC, j.id DESC`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "query latest items")
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var it DeleteJobItem
+		if err := rows.Scan(
+			&it.JobID, &it.ObjectHash, &it.GroupID, &it.GroupLabel, &it.Sender, &it.Subject,
+			&it.Collection, &it.Seq, &it.LinkID, &it.EnvelopeID, &it.Folder, &it.Status, &it.Error,
+		); err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "scan latest item")
+		}
+		if _, ok := out[it.ObjectHash]; ok {
+			continue
+		}
+		out[it.ObjectHash] = it
+	}
+	if err := rows.Err(); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate latest items")
+	}
+	return nil
+}
+
+func sqlPlaceholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	b := strings.Repeat("?,", n)
+	return b[:len(b)-1]
+}

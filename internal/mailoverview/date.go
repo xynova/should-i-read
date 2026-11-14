@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+// NoWeekKey buckets messages whose date did not parse.
+const NoWeekKey = "(no week)"
+
+func weekKeyOrNone(weekKey string) string {
+	if weekKey == "" {
+		return NoWeekKey
+	}
+	return weekKey
+}
+
 // ParseMailDate parses pimdir mail_summary.date (often RFC3339).
 func ParseMailDate(s string, loc *time.Location) (time.Time, bool) {
 	s = strings.TrimSpace(s)

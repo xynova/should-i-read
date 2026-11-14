@@ -123,6 +123,11 @@ func collectClassifyStoreStatus(ctx context.Context, cfg config.Config) mailsync
 		out.Error = c.Error
 		out.Running = c.Running
 	}
+	if oc, err := store.CountOutcomes(opCtx); err == nil {
+		out.OutcomesTrashed = oc.TrashedAtSource
+		out.OutcomesAlreadyTrash = oc.AlreadyInTrash
+		out.OutcomesKept = oc.Kept
+	}
 	complete, _ := store.ListCompleteHashes(opCtx)
 	done := map[string]struct{}{}
 	for _, h := range complete {

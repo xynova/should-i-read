@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/xynova/should-i-read/internal/sirerr"
@@ -70,5 +71,31 @@ exit 2
 	code, ok := sirerr.AsCode(runErr)
 	if !ok || code != sirerr.CodeNeedsReview {
 		t.Fatalf("code: %v %q", ok, code)
+	}
+}
+
+func TestRunJSONUsesStdoutWhenStderrEmpty(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script helper")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "himalaya")
+	body := `#!/bin/sh
+echo '{"error":"Cannot determine the trash mailbox; set ` + "`mailbox.alias.trash`" + ` in your config"}'
+exit 1
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Create(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, runErr := r.RunJSON(context.Background(), "message", "delete")
+	if runErr == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(runErr.Error(), "Cannot determine the trash mailbox") {
+		t.Fatalf("want stdout JSON in error, got %q", runErr.Error())
 	}
 }

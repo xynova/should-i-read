@@ -89,7 +89,7 @@ Set OPENROUTER_API_KEY so in-app classify "just works" against openrouter.ai
 - MUST: keep Jev as typed decisions via Polypus; keep TLDR on a chat model via Polypus
 - MUST NOT: delete, trash, spam-folder, or mark-read mail from classify, `mail report`, overview **Mark**, or intent guess (report-only paths)
 - MUST NOT: call Jev/TypeSafe directly without Polypus
-- MAY: move messages to Trash at the mail source only via the confirmed deletion-cart job (`should-i-read mail cart apply --confirm trash-at-source` or overview **Move to Trash at source** after **Start deletion job**), which calls Himalaya `message delete` through host `internal/pimalaya` (not bare `himalaya` for product workflows)
+- MAY: move messages to Trash at the mail source only via the confirmed deletion-cart job (`should-i-read mail cart apply --confirm trash-at-source` or overview **Move to Trash at source** checkout), which calls Himalaya `message delete` through host `internal/pimalaya` (not bare `himalaya` for product workflows)
 
 Enforcement: no mailbox-mutation calls in the report pipeline or cart staging; mode flag `report_only` on classify; cart apply requires literal confirm token `trash-at-source`
 Violation: STOP, remove mutation, keep report artifact only

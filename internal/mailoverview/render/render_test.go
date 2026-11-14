@@ -98,6 +98,12 @@ func TestRenderHTML_sections_and_no_external_refs(t *testing.T) {
 	if !strings.Contains(html, `data-hashes="leafh"`) {
 		t.Fatal("kind tree rows should carry message hashes")
 	}
+	if !strings.Contains(html, "function kindRowOf") || !strings.Contains(html, `closest(".kind-tree")`) {
+		t.Fatal("kind tree highlight must snap to one krow, not the wrapping branch")
+	}
+	if !strings.Contains(html, "function readableText") || !strings.Contains(html, "function svgTitleLabel") {
+		t.Fatal("highlight must read SVG tooltip labels so cell 7 is not sent as 77")
+	}
 	lower := strings.ToLower(html)
 	if strings.Contains(lower, `src="http`) || strings.Contains(lower, `href="http`) {
 		t.Fatal("external http ref")
@@ -127,7 +133,7 @@ func TestRenderHTML_sections_and_no_external_refs(t *testing.T) {
 	if !strings.Contains(html, `id="highlight-toggle"`) || !strings.Contains(html, `id="intent-panel"`) {
 		t.Fatal("missing highlight experiment controls")
 	}
-	if !strings.Contains(html, `id="intent-mark"`) || !strings.Contains(html, `id="delete-cart"`) {
+	if !strings.Contains(html, `id="intent-keep"`) || !strings.Contains(html, `id="intent-mark"`) || !strings.Contains(html, `id="delete-cart"`) {
 		t.Fatal("missing deletion cart controls")
 	}
 	if !strings.Contains(html, "--cart-width: 30vw") || !strings.Contains(html, "cart-folder") {
@@ -145,8 +151,35 @@ func TestRenderHTML_sections_and_no_external_refs(t *testing.T) {
 	if !strings.Contains(html, `content: "Show "`) {
 		t.Fatal("missing cart folder expand hint")
 	}
-	if !strings.Contains(html, "Start deletion job") || !strings.Contains(html, "trash-at-source") {
-		t.Fatal("missing cart deletion job controls")
+	if !strings.Contains(html, ".cart-folder-when") || !strings.Contains(html, ".cart-list .cart-when") {
+		t.Fatal("missing cart mailed-at situating")
+	}
+	if strings.Contains(html, "Start deletion job") || strings.Contains(html, "id=\"cart-job-start\"") {
+		t.Fatal("checkout should not keep a Start button")
+	}
+	if !strings.Contains(html, "Move to Trash at source") || !strings.Contains(html, "trash-at-source") {
+		t.Fatal("missing cart checkout control")
+	}
+	if !strings.Contains(html, "Checking out deletion cart…") || !strings.Contains(html, "/cart/checkout") {
+		t.Fatal("missing cart checkout in-progress copy")
+	}
+	if !strings.Contains(html, "already in Trash") {
+		t.Fatal("missing already in Trash job copy")
+	}
+	if strings.Contains(html, "Cart has newer marks") {
+		t.Fatal("checkout must not split Start vs Move for newer marks")
+	}
+	if !strings.Contains(html, `id="sec-actioned"`) || !strings.Contains(html, "/actioned") {
+		t.Fatal("missing actioned strip")
+	}
+	if !strings.Contains(html, `is-actioned`) {
+		t.Fatal("missing live-board actioned hide")
+	}
+	if !strings.Contains(html, `is-staged`) || !strings.Contains(html, "Staged in the deletion cart") {
+		t.Fatal("missing staged-in-cart board mark")
+	}
+	if !strings.Contains(html, `id="cart-job-trash" hidden`) {
+		t.Fatal("Move to Trash should start hidden until JS shows checkout")
 	}
 	if !strings.Contains(html, "<th>Messages</th>") || !strings.Contains(html, "<td>2</td>") {
 		t.Fatal("missing sender message counts")
@@ -191,5 +224,40 @@ func TestHTMLOfflineRowCap(t *testing.T) {
 	}
 	if len(html) > 5_000_000 {
 		t.Fatalf("html too large: %d", len(html))
+	}
+}
+
+func TestRenderHTML_heatmapNoDateWeek(t *testing.T) {
+	m := mailoverview.Model{
+		SchemaVersion: 1,
+		GeneratedAt:   "2025-01-01T00:00:00Z",
+		All: mailoverview.MonthSection{
+			Key: "all", Label: "All",
+			Summary: mailoverview.SummaryStats{Classified: 1},
+			Attention: mailoverview.AttentionBlock{
+				UrgencyHist: mailoverview.Histogram{Buckets: []float64{0, 1}, Counts: []int{1}},
+				Donut:       []mailoverview.DonutSlice{{Label: "Quiet", Count: 1}},
+			},
+			Themes: []mailoverview.ThemeCount{{Slot: "Other", Count: 1}},
+			Heatmap: mailoverview.HeatmapData{
+				WeekLabels:  []string{mailoverview.NoWeekKey},
+				ThemeLabels: []string{"Other"},
+				Cells:       [][]int{{1}},
+			},
+			Trust: mailoverview.TrustBlock{
+				CosineHist: mailoverview.Histogram{Buckets: []float64{0, 1}, Counts: []int{1}},
+				JudgeHist:  mailoverview.Histogram{Buckets: []float64{0, 1}, Counts: []int{1}},
+			},
+		},
+	}
+	html, err := RenderHTML(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "Week of No date, Other: 1") {
+		t.Fatal("heatmap should label the undated week")
+	}
+	if strings.Contains(html, `text-anchor="middle">(no week)</text>`) {
+		t.Fatal("heatmap header should not show the raw no-week key")
 	}
 }

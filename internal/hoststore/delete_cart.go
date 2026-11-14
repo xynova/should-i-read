@@ -164,6 +164,18 @@ func (s *Store) RemoveDeleteCartGroup(ctx context.Context, groupID string) error
 	return nil
 }
 
+// ClearDeleteCart drops every cart row. It does not change the mailbox.
+func (s *Store) ClearDeleteCart(ctx context.Context) error {
+	const op = "hoststore.Store.ClearDeleteCart"
+	if err := s.requireStore(ctx, op); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM delete_cart`); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "clear cart")
+	}
+	return nil
+}
+
 func normalizeDeleteCartItem(op string, in DeleteCartItem) (DeleteCartItem, error) {
 	hash := strings.TrimSpace(in.ObjectHash)
 	if hash == "" {

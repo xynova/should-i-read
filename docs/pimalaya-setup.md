@@ -29,6 +29,16 @@ go tool task configure
 
 `configure` writes `~/.config/should-i-read/mail-sync.toml`, patches `pimalaya.*` in host config, runs browser login on a TTY when needed, then initializes the local store. Scripts pass `--apply` plus `--provider` / `--email` for automation.
 
+## Himalaya pimdir config (deletion cart)
+
+`configure` (mailbox profile step) also writes a **pimdir-only** Himalaya file at `~/.config/should-i-read/himalaya.toml` and sets `pimalaya.himalaya_config` in host YAML. It points at the same replica as Neverest (`pimdir.root` matches `store.root` in `mail-sync.toml`). There is no IMAP or SMTP in that file.
+
+Deletion cart **apply** calls `himalaya -c` that path with `-m imap/INBOX` (pimdir collection ids). The file sets `mailbox.alias.trash` to the pimdir collection id (`gmail/imap/[Gmail]/Trash` or `outlook/imap/Deleted Items`) so Himalaya can stage `message delete`. That delete stays in the local replica until you run `mail sync`, which pushes Trash at the provider. Sync still skips fetching Trash bodies by default (`pimalaya.sync_exclude_collections`).
+
+Install the binary with `cargo install --locked --git https://github.com/pimalaya/himalaya.git` (or the project install script). Resolve via `pimalaya.himalaya_bin` or `$CARGO_HOME/bin/himalaya`. `mail status --json` reports `himalaya_config_ok` separately from `ready` (sync does not need Himalaya).
+
+Re-run `should-i-read configure --step mailbox_profile` when `himalaya.toml` is missing. Use `configure --force` only if you intend to overwrite both `mail-sync.toml` and `himalaya.toml`.
+
 ## Maintainer mapping (scripts / advanced)
 
 The sync engine is Neverest (`v0.x`, beta). Host scripts and `pim` subcommands remain for automation:

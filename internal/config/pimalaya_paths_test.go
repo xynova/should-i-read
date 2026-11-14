@@ -6,6 +6,19 @@ import (
 	"testing"
 )
 
+func TestDefaultHimalayaConfigPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	got, err := DefaultHimalayaConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, AppName, himalayaConfigName)
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 func TestDefaultMailSyncConfigPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -46,7 +59,7 @@ func TestPimalayaPatch(t *testing.T) {
 	}
 	t.Setenv("SHOULD_I_READ_CONFIG", path)
 
-	gotPath, changed, err := PimalayaPatch("/tmp/sync.toml", "/tmp/store", "gmail")
+	gotPath, changed, err := PimalayaPatch("/tmp/sync.toml", "/tmp/store", "gmail", "/tmp/himalaya.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,11 +69,51 @@ func TestPimalayaPatch(t *testing.T) {
 	if gotPath != path {
 		t.Fatalf("path %q", gotPath)
 	}
-	_, changed2, err := PimalayaPatch("/tmp/sync.toml", "/tmp/store", "gmail")
+	_, changed2, err := PimalayaPatch("/tmp/sync.toml", "/tmp/store", "gmail", "/tmp/himalaya.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if changed2 {
 		t.Fatal("expected idempotent patch")
+	}
+}
+
+func TestPimalayaPatchBlankHimalayaDoesNotClear(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "cfg")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cfgDir, "config.yaml")
+	example, err := ExampleYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, example, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHOULD_I_READ_CONFIG", path)
+
+	_, _, err = PimalayaPatch("/tmp/sync.toml", "/tmp/store", "gmail", "/tmp/himalaya.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(dir, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Pimalaya.HimalayaConfig != "/tmp/himalaya.toml" {
+		t.Fatalf("himalaya_config: %q", loaded.Pimalaya.HimalayaConfig)
+	}
+	_, _, err = PimalayaPatch("/tmp/sync.toml", "/tmp/store", "gmail", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded2, err := Load(dir, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded2.Pimalaya.HimalayaConfig != "/tmp/himalaya.toml" {
+		t.Fatalf("cleared himalaya_config: %q", loaded2.Pimalaya.HimalayaConfig)
 	}
 }

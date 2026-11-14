@@ -98,10 +98,13 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 		}
 	}
 	handler := (&mailoverview.IntentPageServer{
-		HTML:  []byte(page.HTML),
-		Guess: guesser,
-		Cart:  st,
-		Jobs:  jobs,
+		HTML:     []byte(page.HTML),
+		Guess:    guesser,
+		Cart:     st,
+		Jobs:     jobs,
+		Actioned: jobs,
+		Outcomes: st,
+		Hashes:   page.Hashes,
 	}).Handler()
 	srv := &http.Server{
 		Addr:              addr,

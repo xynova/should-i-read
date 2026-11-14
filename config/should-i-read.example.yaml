@@ -76,6 +76,11 @@ taxonomy:
     - workflow-failure
     - pull-request
     - release
+  # Report-only worth_read_prior from message_outcomes (default on)
+  worth_read_prior: true
+  worth_read_min_neighbors: 3
+  worth_read_min_cosine: 0
+  worth_read_similar_k: 10
   # Email vs Essence ABOUT cosine (report-only by default; repair needs PhaseWalk)
   description_cosine_min: 0.55
   description_cosine_mode: report

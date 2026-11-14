@@ -2,6 +2,7 @@ package pimalaya
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	"github.com/xynova/should-i-read/internal/config"
@@ -20,11 +21,19 @@ func CreateHimalaya(cfg config.Config) (*Himalaya, error) {
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeUnavailable, op, "resolve himalaya bin")
 	}
+	cfgPath := strings.TrimSpace(cfg.Pimalaya.HimalayaConfig)
+	if cfgPath == "" {
+		return nil, sirerr.New(sirerr.CodeUnavailable, op, "pimalaya.himalaya_config is unset; run should-i-read configure")
+	}
+	if st, statErr := os.Stat(cfgPath); statErr != nil || st.IsDir() {
+		return nil, sirerr.New(sirerr.CodeUnavailable, op, "himalaya config file missing; run should-i-read configure").
+			With("path", cfgPath)
+	}
 	runner, err := Create(bin)
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create himalaya runner")
 	}
-	runner.ConfigPath = strings.TrimSpace(cfg.Pimalaya.HimalayaConfig)
+	runner.ConfigPath = cfgPath
 	runner.Account = strings.TrimSpace(cfg.Pimalaya.DefaultAccount)
 	runner.ExtraEnv = cfg.OAuthEnv()
 	return &Himalaya{Runner: runner}, nil

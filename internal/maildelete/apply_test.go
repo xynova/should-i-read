@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,15 @@ type fakeDeleter struct {
 	script string
 }
 
+type recordingDeleter struct {
+	lastFolder string
+}
+
+func (r *recordingDeleter) MessageDelete(ctx context.Context, folder, envelopeID string) (*pimalaya.Result, error) {
+	r.lastFolder = folder
+	return &pimalaya.Result{Raw: json.RawMessage(`{"data":{"action":"moved-to-trash","count":1}}`)}, nil
+}
+
 func (f *fakeDeleter) MessageDelete(ctx context.Context, folder, envelopeID string) (*pimalaya.Result, error) {
 	r, err := pimalaya.Create(f.script)
 	if err != nil {
@@ -28,19 +38,7 @@ func (f *fakeDeleter) MessageDelete(ctx context.Context, folder, envelopeID stri
 }
 
 func TestApplyTrashSuccessRemovesCart(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell script")
-	}
 	st, ctx := openTestStore(t)
-	dir := t.TempDir()
-	script := filepath.Join(dir, "himalaya")
-	body := `#!/bin/sh
-echo '{"action":"moved-to-trash","count":1}'
-exit 0
-`
-	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	_ = st.AddDeleteCart(ctx, []hoststore.DeleteCartItem{{ObjectHash: "h1"}})
 	jobID, err := st.CreateDeleteJobFromCart(ctx, time.Now().UTC())
 	if err != nil {
@@ -50,7 +48,7 @@ exit 0
 		{ObjectHash: "h1", Folder: "INBOX", EnvelopeID: "1", Status: hoststore.DeleteJobItemPlanned},
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &fakeDeleter{script: script},
+		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &recordingDeleter{},
 		Now: time.Now, ItemTimeout: time.Second,
 	})
 	if err != nil {
@@ -72,6 +70,32 @@ exit 0
 	}
 	if job.Items[0].Status != hoststore.DeleteJobItemTrashed {
 		t.Fatalf("%+v", job.Items[0])
+	}
+}
+
+func TestApplyTrashSuccessUpsertsOutcome(t *testing.T) {
+	st, ctx := openTestStore(t)
+	_ = st.AddDeleteCart(ctx, []hoststore.DeleteCartItem{{ObjectHash: "h1", Sender: "a@x"}})
+	jobID, err := st.CreateDeleteJobFromCart(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.BindDeleteJobItems(ctx, jobID, []hoststore.DeleteJobBinding{
+		{ObjectHash: "h1", Folder: "INBOX", EnvelopeID: "1", Status: hoststore.DeleteJobItemPlanned},
+	})
+	svc, err := CreateDeleteJobService(DeleteJobConfig{
+		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &recordingDeleter{},
+		Now: time.Now, ItemTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Apply(ctx, jobID, hoststore.DeleteJobConfirmToken); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := st.GetOutcome(ctx, "h1")
+	if err != nil || !ok || got.Outcome != hoststore.OutcomeTrashedAtSource {
+		t.Fatalf("outcome %+v ok %v err %v", got, ok, err)
 	}
 }
 
@@ -184,6 +208,106 @@ func TestApplyConfirmMismatch(t *testing.T) {
 	code, ok := sirerr.AsCode(err)
 	if !ok || code != sirerr.CodeInvalid {
 		t.Fatal(err)
+	}
+}
+
+func TestApplyMissingHimalayaRevertsApplying(t *testing.T) {
+	st, ctx := openTestStore(t)
+	_ = st.AddDeleteCart(ctx, []hoststore.DeleteCartItem{{ObjectHash: "h1"}})
+	jobID, err := st.CreateDeleteJobFromCart(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := st.SetDeleteJobStatus(ctx, jobID, hoststore.DeleteJobStatusApplying, "", &now); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := CreateDeleteJobService(DeleteJobConfig{
+		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = svc.Apply(ctx, jobID, hoststore.DeleteJobConfirmToken)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	code, ok := sirerr.AsCode(err)
+	if !ok || code != sirerr.CodeUnavailable {
+		t.Fatal(err)
+	}
+	job, err := svc.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != hoststore.DeleteJobStatusPlanned {
+		t.Fatalf("status %s", job.Status)
+	}
+	if !strings.Contains(job.Error, "Himalaya") {
+		t.Fatalf("error %q", job.Error)
+	}
+	if !strings.Contains(job.Error, "himalaya_config") && !strings.Contains(job.Error, "configure") {
+		t.Fatalf("error %q", job.Error)
+	}
+}
+
+func TestApplyPrefersCollectionMailbox(t *testing.T) {
+	st, ctx := openTestStore(t)
+	_ = st.AddDeleteCart(ctx, []hoststore.DeleteCartItem{{ObjectHash: "h1"}})
+	jobID, err := st.CreateDeleteJobFromCart(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.BindDeleteJobItems(ctx, jobID, []hoststore.DeleteJobBinding{
+		{
+			ObjectHash: "h1",
+			Collection: "imap/INBOX",
+			Folder:     "INBOX",
+			EnvelopeID: "1",
+			Status:     hoststore.DeleteJobItemPlanned,
+		},
+	})
+	rec := &recordingDeleter{}
+	svc, err := CreateDeleteJobService(DeleteJobConfig{
+		Store: st, Pimdir: &pimdir.Reader{}, Deleter: rec, Now: time.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Apply(ctx, jobID, hoststore.DeleteJobConfirmToken); err != nil {
+		t.Fatal(err)
+	}
+	if rec.lastFolder != "imap/INBOX" {
+		t.Fatalf("folder %q", rec.lastFolder)
+	}
+}
+
+func TestGetJobRecoversStuckApplying(t *testing.T) {
+	st, ctx := openTestStore(t)
+	_ = st.AddDeleteCart(ctx, []hoststore.DeleteCartItem{{ObjectHash: "h1"}})
+	jobID, err := st.CreateDeleteJobFromCart(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := st.SetDeleteJobStatus(ctx, jobID, hoststore.DeleteJobStatusApplying, "", &now); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := CreateDeleteJobService(DeleteJobConfig{
+		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := svc.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != hoststore.DeleteJobStatusPlanned || !strings.Contains(job.Error, "Himalaya") {
+		t.Fatalf("%+v", job)
+	}
+	if !strings.Contains(job.Error, "himalaya_config") && !strings.Contains(job.Error, "configure") {
+		t.Fatalf("error %q", job.Error)
 	}
 }
 

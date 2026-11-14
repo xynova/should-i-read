@@ -62,8 +62,12 @@ type RunnerConfig struct {
 	ShapeAllowedLeaves         []string
 	// EssenceSystemPrompt is the joined WHY/TAGS/KIND text used by essence_cache.
 	// Empty uses DefaultEssenceSystemPrompt (tests).
-	EssenceSystemPrompt string
-	Now                 time.Time
+	EssenceSystemPrompt   string
+	Now                   time.Time
+	WorthReadPrior        bool
+	WorthReadMinNeighbors int
+	WorthReadMinCosine    float64
+	WorthReadSimilarK     int
 }
 
 // Runner classifies items with taxonomy Operate.
@@ -114,6 +118,10 @@ type Runner struct {
 	shapeSkipByHash            map[string]shapeConfirmDecision
 	aiHops                     int
 	now                        time.Time
+	worthReadPrior             bool
+	worthReadMinNeighbors      int
+	worthReadMinCosine         float64
+	worthReadSimilarK          int
 }
 
 // CreateRunner builds a Runner after catalog is loaded.
@@ -207,7 +215,16 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		subjectTemplater:           templater,
 		currentPromptHash:          EssencePromptHash(cfg.EssenceSystemPrompt),
 		now:                        now,
+		worthReadPrior:             cfg.WorthReadPrior,
+		worthReadMinNeighbors:      cfg.WorthReadMinNeighbors,
+		worthReadMinCosine:         cfg.WorthReadMinCosine,
+		worthReadSimilarK:          cfg.WorthReadSimilarK,
 	}, nil
+}
+
+// WorthReadPriorEnabled reports whether outcome-based priors run on mail report.
+func (r *Runner) WorthReadPriorEnabled() bool {
+	return r != nil && r.worthReadPrior
 }
 
 // Close closes the injected store.

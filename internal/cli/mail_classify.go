@@ -160,6 +160,9 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 			art.Messages = rows
 			art.Clusters = clusters
 		}
+		priorCtx, priorCancel := context.WithTimeout(cmd.Context(), classifyJobTimeout)
+		art, _ = runner.ScoreWorthReadPrior(priorCtx, art)
+		priorCancel()
 	} else {
 		ctx, cancel, err := classifyJobContext(cmd.Context(), false)
 		if err != nil {
@@ -185,6 +188,9 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 			return err
 		}
 		art, clusterErr = runner.Cluster(attCtx, art)
+		priorCtx, priorCancel := context.WithTimeout(cmd.Context(), classifyJobTimeout)
+		art, _ = runner.ScoreWorthReadPrior(priorCtx, art)
+		priorCancel()
 	}
 	path, err := writeReportArtifact(repoRoot, outPath, art)
 	if err != nil {
@@ -272,7 +278,11 @@ func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot st
 			return err
 		}
 	}
-	art, clusterErr := runner.Cluster(ctx, art)
+	var clusterErr error
+	art, clusterErr = runner.Cluster(ctx, art)
+	if runner.WorthReadPriorEnabled() {
+		art, _ = runner.ScoreWorthReadPrior(ctx, art)
+	}
 	path, werr := writeReportArtifact(repoRoot, "", art)
 	if werr != nil {
 		return sirerr.Wrap(werr, sirerr.CodeFailed, op, "write report")
@@ -580,6 +590,10 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		ShapeAllowedLeaves:         cfg.Taxonomy.ShapeAllowedLeaves,
 		EssenceSystemPrompt:        essencePromptJoined,
 		Now:                        now,
+		WorthReadPrior:             cfg.Taxonomy.WorthReadPrior,
+		WorthReadMinNeighbors:      cfg.Taxonomy.WorthReadMinNeighbors,
+		WorthReadMinCosine:         cfg.Taxonomy.WorthReadMinCosine,
+		WorthReadSimilarK:          cfg.Taxonomy.WorthReadSimilarK,
 	}, vocab, cat)
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create runner")

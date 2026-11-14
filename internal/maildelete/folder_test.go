@@ -3,7 +3,7 @@ package maildelete
 import "testing"
 
 func TestNormalizeFolder(t *testing.T) {
-	if got := NormalizeFolder("imap/INBOX"); got != "INBOX" {
+	if got := NormalizeFolder("imap/INBOX"); got != "imap/INBOX" {
 		t.Fatalf("got %q", got)
 	}
 	if got := NormalizeFolder("INBOX"); got != "INBOX" {

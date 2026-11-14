@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/maildelete"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -32,10 +33,12 @@ type cartAddRequest struct {
 }
 
 type cartResponse struct {
-	OK    bool           `json:"ok"`
-	Items []cartJSONItem `json:"items,omitempty"`
-	Count int            `json:"count"`
-	Error string         `json:"error,omitempty"`
+	OK              bool           `json:"ok"`
+	Items           []cartJSONItem `json:"items,omitempty"`
+	Count           int            `json:"count"`
+	SkippedInCart   int            `json:"skipped_in_cart,omitempty"`
+	SkippedActioned int            `json:"skipped_actioned,omitempty"`
+	Error           string         `json:"error,omitempty"`
 }
 
 func (s *IntentPageServer) serveCart(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +66,10 @@ func (s *IntentPageServer) serveCart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *IntentPageServer) listCart(ctx context.Context, w http.ResponseWriter) {
+	s.writeCartList(ctx, w, 0, 0)
+}
+
+func (s *IntentPageServer) writeCartList(ctx context.Context, w http.ResponseWriter, skippedInCart, skippedActioned int) {
 	items, err := s.Cart.ListDeleteCart(ctx)
 	if err != nil {
 		writeCartErr(w, err)
@@ -72,7 +79,10 @@ func (s *IntentPageServer) listCart(ctx context.Context, w http.ResponseWriter) 
 	for _, item := range items {
 		out = append(out, cartItemJSON(item))
 	}
-	writeCartJSON(w, http.StatusOK, cartResponse{OK: true, Items: out, Count: len(out)})
+	writeCartJSON(w, http.StatusOK, cartResponse{
+		OK: true, Items: out, Count: len(out),
+		SkippedInCart: skippedInCart, SkippedActioned: skippedActioned,
+	})
 }
 
 func (s *IntentPageServer) addCart(ctx context.Context, w http.ResponseWriter, r *http.Request) {
@@ -108,11 +118,33 @@ func (s *IntentPageServer) addCart(ctx context.Context, w http.ResponseWriter, r
 		}
 		items = append(items, item)
 	}
-	if err := s.Cart.AddDeleteCart(ctx, items); err != nil {
+	existing, err := s.Cart.ListDeleteCart(ctx)
+	if err != nil {
 		writeCartErr(w, err)
 		return
 	}
-	s.listCart(ctx, w)
+	actioned := map[string]maildelete.ActionedInfo{}
+	lookup := s.actionedLookup()
+	if lookup != nil {
+		hashes := make([]string, 0, len(items))
+		for _, item := range items {
+			hashes = append(hashes, item.ObjectHash)
+		}
+		got, aerr := lookup.LookupActioned(ctx, hashes)
+		if aerr != nil {
+			writeCartErr(w, aerr)
+			return
+		}
+		actioned = got
+	}
+	toAdd, skippedInCart, skippedActioned := filterCartAdds(existing, items, actioned)
+	if len(toAdd) > 0 {
+		if err := s.Cart.AddDeleteCart(ctx, toAdd); err != nil {
+			writeCartErr(w, err)
+			return
+		}
+	}
+	s.writeCartList(ctx, w, skippedInCart, skippedActioned)
 }
 
 func (s *IntentPageServer) removeCart(ctx context.Context, w http.ResponseWriter, r *http.Request) {

@@ -174,6 +174,9 @@ func shortDate(s string, refYear int) string {
 
 // weekLabel turns a Monday week key "2026-09-28" into "28 Sep".
 func weekLabel(key string) string {
+	if key == "" || key == mailoverview.NoWeekKey {
+		return "No date"
+	}
 	t, err := time.Parse("2006-01-02", key)
 	if err != nil {
 		return key
