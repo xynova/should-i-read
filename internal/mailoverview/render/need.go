@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,6 +13,9 @@ import (
 
 // visibleActionRows is how many grouped rows a list shows before "Show more".
 const visibleActionRows = 8
+
+// deleteMinutesPerMessage matches aggregate delete fluff seconds as minutes.
+const deleteMinutesPerMessage = 5.0 / 60.0
 
 // AttentionTile is one count tile at the top of "What needs you".
 type AttentionTile struct {
@@ -30,8 +34,10 @@ type ActionRow struct {
 	// Address is the sender email, empty when Name already shows it.
 	Address string
 	Subject string
-	Count   int
-	Score   float64
+	// TLDR is the classified About sentence for this grouped row.
+	TLDR  string
+	Count int
+	Score float64
 	// Hashes are object_hash values in this grouped row.
 	Hashes []string
 	// HashAttr is Hashes joined for data-hashes.
@@ -50,6 +56,26 @@ type ActionList struct {
 	ExtraCount int
 }
 
+// DeleteSenderRow is one quiet sender plus expandable message entries.
+type DeleteSenderRow struct {
+	Name     string
+	Address  string
+	Messages int
+	Minutes  float64
+	HashAttr string
+	ExpandID string
+	Extra    bool
+	Entries  []ActionRow
+}
+
+// DeleteListView is the Delete list under What needs you.
+type DeleteListView struct {
+	Title      string
+	Messages   int
+	Senders    []DeleteSenderRow
+	ExtraCount int
+}
+
 func attentionTiles(a mailoverview.AttentionBlock) []AttentionTile {
 	return []AttentionTile{
 		{Label: "Need a reply", Hint: "Someone is waiting on you", Count: a.NeedsReply, Tone: "reply"},
@@ -59,8 +85,8 @@ func attentionTiles(a mailoverview.AttentionBlock) []AttentionTile {
 	}
 }
 
-// actionLists returns the Reply list then the Decide list, each grouped by
-// sender and subject. Dates in refYear are shown without the year.
+// actionLists returns the Reply list, then Decide, then Urgent, each grouped
+// by sender and subject. Dates in refYear are shown without the year.
 func actionLists(a mailoverview.AttentionBlock, refYear int) []ActionList {
 	var out []ActionList
 	if len(a.ReplyList) > 0 {
@@ -68,6 +94,9 @@ func actionLists(a mailoverview.AttentionBlock, refYear int) []ActionList {
 	}
 	if len(a.DecisionList) > 0 {
 		out = append(out, groupActions("Decide", "decide", a.DecisionList, refYear, func(m mailoverview.MessageLine) float64 { return m.Decision }))
+	}
+	if len(a.UrgentList) > 0 {
+		out = append(out, groupActions("Urgent", "urgent", a.UrgentList, refYear, func(m mailoverview.MessageLine) float64 { return m.Urgency }))
 	}
 	return out
 }
@@ -98,6 +127,7 @@ func groupActions(title, tone string, lines []mailoverview.MessageLine, refYear 
 		if m.Date >= g.latest {
 			g.latest = m.Date
 			g.row.Subject = strings.TrimSpace(m.Subject)
+			g.row.TLDR = strings.TrimSpace(m.About)
 			g.row.Date = shortDate(m.Date, refYear)
 			g.row.FullDate = isoDate(m.Date)
 		}
@@ -122,6 +152,91 @@ func groupActions(title, tone string, lines []mailoverview.MessageLine, refYear 
 		}
 	}
 	return ActionList{Title: title, Tone: tone, Messages: len(lines), Rows: rows, ExtraCount: extra}
+}
+
+func groupDeleteSenders(lines []mailoverview.MessageLine, refYear int, tabKey string) DeleteListView {
+	if len(lines) == 0 {
+		return DeleteListView{}
+	}
+	type group struct {
+		row     DeleteSenderRow
+		hashes  []string
+		entries []ActionRow
+	}
+	byKey := map[string]*group{}
+	var order []string
+	for _, m := range lines {
+		key := deleteGroupKey(m)
+		g, ok := byKey[key]
+		name, addr := senderParts(m)
+		if name == "" {
+			name = key
+		}
+		if !ok {
+			g = &group{row: DeleteSenderRow{Name: name, Address: addr}}
+			byKey[key] = g
+			order = append(order, key)
+		}
+		h := strings.TrimSpace(m.ObjectHash)
+		var hashes []string
+		if h != "" {
+			hashes = []string{h}
+			g.hashes = append(g.hashes, h)
+		}
+		g.entries = append(g.entries, ActionRow{
+			Name:     g.row.Name,
+			Address:  g.row.Address,
+			Subject:  strings.TrimSpace(m.Subject),
+			Date:     shortDate(m.Date, refYear),
+			FullDate: isoDate(m.Date),
+			Count:    1,
+			Hashes:   hashes,
+			HashAttr: strings.Join(hashes, ","),
+		})
+	}
+	senders := make([]DeleteSenderRow, 0, len(order))
+	for _, k := range order {
+		g := byKey[k]
+		sort.SliceStable(g.entries, func(i, j int) bool {
+			return g.entries[i].FullDate > g.entries[j].FullDate
+		})
+		g.row.Entries = g.entries
+		g.row.Messages = len(g.entries)
+		g.row.Minutes = float64(g.row.Messages) * deleteMinutesPerMessage
+		g.row.HashAttr = mailoverview.JoinHashes(g.hashes)
+		senders = append(senders, g.row)
+	}
+	sort.SliceStable(senders, func(i, j int) bool {
+		if senders[i].Messages != senders[j].Messages {
+			return senders[i].Messages > senders[j].Messages
+		}
+		return senders[i].Name < senders[j].Name
+	})
+	prefix := strings.TrimSpace(tabKey)
+	if prefix == "" {
+		prefix = "tab"
+	}
+	extra := 0
+	for i := range senders {
+		senders[i].ExpandID = fmt.Sprintf("del-%s-%d", prefix, i)
+		if i >= visibleActionRows {
+			senders[i].Extra = true
+			extra++
+		}
+	}
+	return DeleteListView{Title: "Delete", Messages: len(lines), Senders: senders, ExtraCount: extra}
+}
+
+func deleteGroupKey(m mailoverview.MessageLine) string {
+	addr := strings.ToLower(strings.TrimSpace(m.Sender))
+	if addr == "" {
+		addr = "(unknown sender)"
+	}
+	name := strings.ToLower(strings.TrimSpace(m.SenderName))
+	if name == "" || name == addr {
+		return addr
+	}
+	return name + "\x00" + addr
 }
 
 // senderParts returns the display name and, when it differs, the address.
@@ -228,7 +343,33 @@ func yearOf(stamp string) int {
 	return y
 }
 
-// defaultTabKey opens the latest main month with mail, else the latest stray
+// isMinorTab reports whether a month tab belongs in the Previous pulldown.
+func isMinorTab(key, generatedAt string) bool {
+	if key == "unknown" {
+		return true
+	}
+	return !isRecentMonthKey(key, generatedAt)
+}
+
+// isRecentMonthKey reports whether key is in the last recentMonthCount
+// calendar months of generatedAt, including that month.
+func isRecentMonthKey(key, generatedAt string) bool {
+	now, err := time.Parse(time.RFC3339, generatedAt)
+	if err != nil {
+		return false
+	}
+	month, err := time.Parse("2006-01", key)
+	if err != nil {
+		return false
+	}
+	now = now.UTC()
+	end := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	start := end.AddDate(0, 1-recentMonthCount, 0)
+	m := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return !m.Before(start) && !m.After(end)
+}
+
+// defaultTabKey opens the latest main month with mail, else the latest previous
 // month with mail, else All. The unknown month is never opened by default.
 func defaultTabKey(views []TabView) string {
 	main, stray := "", ""

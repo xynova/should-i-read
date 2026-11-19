@@ -78,3 +78,39 @@ exit 0
 		t.Fatalf("expected trash exclude in argv: %q", argsLine)
 	}
 }
+
+func TestNeverestSyncAcceptingAbsences(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script helper")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "neverest")
+	body := `#!/bin/sh
+printf '%s\n' "$@" >&2
+echo '{"ok":true}'
+exit 0
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner, err := Create(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := &Neverest{Runner: runner}
+	res, err := n.SyncAcceptingAbsences(context.Background(), "gmail", []string{"[Gmail]/Spam"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsLine := strings.TrimSpace(res.Stderr)
+	if !strings.Contains(argsLine, "--accept-absences") {
+		t.Fatalf("expected --accept-absences in argv: %q", argsLine)
+	}
+	plain, err := n.Sync(context.Background(), "gmail", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.TrimSpace(plain.Stderr), "--accept-absences") {
+		t.Fatalf("plain sync must not pass --accept-absences: %q", plain.Stderr)
+	}
+}

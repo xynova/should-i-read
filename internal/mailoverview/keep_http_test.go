@@ -25,6 +25,14 @@ func (s stubOutcomes) ListOutcomes(ctx context.Context) ([]hoststore.MessageOutc
 	return s.st.ListOutcomes(ctx)
 }
 
+func (s stubOutcomes) GetOutcome(ctx context.Context, objectHash string) (hoststore.MessageOutcome, bool, error) {
+	return s.st.GetOutcome(ctx, objectHash)
+}
+
+func (s stubOutcomes) ClearKeptOutcome(ctx context.Context, objectHash string) error {
+	return s.st.ClearKeptOutcome(ctx, objectHash)
+}
+
 func openKeepTestStore(t *testing.T) (*hoststore.Store, context.Context) {
 	t.Helper()
 	path := t.TempDir() + "/ledger.db"
@@ -103,6 +111,35 @@ func TestServeKeepTrashWins(t *testing.T) {
 	got, _, _ := st.GetOutcome(ctx, "h1")
 	if got.Outcome != hoststore.OutcomeTrashedAtSource {
 		t.Fatalf("trash must win: %+v", got)
+	}
+}
+
+func TestServeKeepDeleteClearsKept(t *testing.T) {
+	t.Parallel()
+	st, ctx := openKeepTestStore(t)
+	if err := st.UpsertOutcome(ctx, hoststore.MessageOutcome{
+		ObjectHash: "h1", Outcome: hoststore.OutcomeKept, Source: hoststore.OutcomeSourceOverviewKeep,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv := (&IntentPageServer{HTML: []byte("h"), Outcomes: stubOutcomes{st: st}}).Handler()
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, ts.URL+"/keep?hash=h1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	_, ok, err := st.GetOutcome(ctx, "h1")
+	if err != nil || ok {
+		t.Fatalf("kept still present ok=%v err=%v", ok, err)
 	}
 }
 

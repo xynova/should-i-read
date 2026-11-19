@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	deleteCartMaxItems     = 200
+	deleteCartAddMax       = 200
+	deleteCartMaxTotal     = 2000
 	deleteCartHashMax      = 128
 	deleteCartFieldMax     = 500
 	deleteCartTLDRMax      = 2000
@@ -41,7 +42,7 @@ func (s *Store) AddDeleteCart(ctx context.Context, items []DeleteCartItem) error
 	if len(items) == 0 {
 		return nil
 	}
-	if len(items) > deleteCartMaxItems {
+	if len(items) > deleteCartAddMax {
 		return sirerr.New(sirerr.CodeInvalid, op, "too many cart items").
 			With("count", strconv.Itoa(len(items)))
 	}
@@ -57,6 +58,9 @@ func (s *Store) AddDeleteCart(ctx context.Context, items []DeleteCartItem) error
 		}
 		seen[item.ObjectHash] = struct{}{}
 		cleaned = append(cleaned, item)
+	}
+	if err := s.guardDeleteCartTotal(ctx, op, cleaned); err != nil {
+		return err
 	}
 	batchGroup := ""
 	for _, item := range cleaned {
@@ -193,6 +197,39 @@ func normalizeDeleteCartItem(op string, in DeleteCartItem) (DeleteCartItem, erro
 		GroupID:    clipRunes(strings.TrimSpace(in.GroupID), deleteCartGroupIDMax),
 		GroupLabel: clipRunes(strings.TrimSpace(in.GroupLabel), deleteCartFieldMax),
 	}, nil
+}
+
+func (s *Store) guardDeleteCartTotal(ctx context.Context, op string, incoming []DeleteCartItem) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT object_hash FROM delete_cart`)
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "count cart")
+	}
+	defer func() { _ = rows.Close() }()
+	have := map[string]struct{}{}
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "scan cart hash")
+		}
+		have[hash] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate cart hashes")
+	}
+	total := len(have)
+	for _, item := range incoming {
+		if _, ok := have[item.ObjectHash]; ok {
+			continue
+		}
+		have[item.ObjectHash] = struct{}{}
+		total++
+	}
+	if total > deleteCartMaxTotal {
+		return sirerr.New(sirerr.CodeInvalid, op, "deletion cart is full").
+			With("count", strconv.Itoa(total)).
+			With("max", strconv.Itoa(deleteCartMaxTotal))
+	}
+	return nil
 }
 
 func newDeleteCartGroupID() (string, error) {

@@ -22,6 +22,23 @@ func TestSkipTelemetryForCmd_mailReadiness(t *testing.T) {
 	}
 }
 
+func TestSkipTelemetryForCmd_mailOverviewServe(t *testing.T) {
+	root := &cobra.Command{Use: "should-i-read"}
+	mail := &cobra.Command{Use: "mail"}
+	overview := &cobra.Command{Use: "overview"}
+	serve := &cobra.Command{Use: "serve"}
+	overview.AddCommand(serve)
+	mail.AddCommand(overview)
+	root.AddCommand(mail)
+
+	if skipTelemetryForCmd(serve) {
+		t.Fatal("expected mail overview serve to keep telemetry")
+	}
+	if !skipTelemetryForCmd(overview) {
+		t.Fatal("expected mail overview generate to skip telemetry")
+	}
+}
+
 func TestSkipTelemetryForCmd_mailReport(t *testing.T) {
 	root := &cobra.Command{Use: "should-i-read"}
 	mail := &cobra.Command{Use: "mail"}

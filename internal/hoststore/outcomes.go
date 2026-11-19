@@ -14,6 +14,7 @@ const (
 	OutcomeTrashedAtSource = "trashed_at_source"
 	OutcomeAlreadyInTrash  = "already_in_trash"
 	OutcomeKept            = "kept"
+	OutcomeAcked           = "acked"
 )
 
 // Outcome sources.
@@ -21,6 +22,7 @@ const (
 	OutcomeSourceDeleteJob     = "delete_job"
 	OutcomeSourceReplicaFolder = "replica_folder"
 	OutcomeSourceOverviewKeep  = "overview_keep"
+	OutcomeSourceAckJob        = "ack_job"
 )
 
 // MessageOutcome is one operator label for a message.
@@ -38,6 +40,7 @@ type OutcomeCounts struct {
 	TrashedAtSource int
 	AlreadyInTrash  int
 	Kept            int
+	Acked           int
 }
 
 // OutcomeWithKind joins an outcome with classify_state.kind when present.
@@ -55,18 +58,25 @@ func isTrashOutcome(code string) bool {
 	}
 }
 
+func hidesFromLiveBoard(code string) bool {
+	if isTrashOutcome(code) {
+		return true
+	}
+	return strings.TrimSpace(code) == OutcomeAcked
+}
+
 func validateOutcomeRecord(o MessageOutcome) error {
 	const op = "hoststore.validateOutcomeRecord"
 	if strings.TrimSpace(o.ObjectHash) == "" {
 		return sirerr.New(sirerr.CodeInvalid, op, "empty object_hash")
 	}
 	switch strings.TrimSpace(o.Outcome) {
-	case OutcomeTrashedAtSource, OutcomeAlreadyInTrash, OutcomeKept:
+	case OutcomeTrashedAtSource, OutcomeAlreadyInTrash, OutcomeKept, OutcomeAcked:
 	default:
 		return sirerr.New(sirerr.CodeInvalid, op, "invalid outcome").With("outcome", o.Outcome)
 	}
 	switch strings.TrimSpace(o.Source) {
-	case OutcomeSourceDeleteJob, OutcomeSourceReplicaFolder, OutcomeSourceOverviewKeep:
+	case OutcomeSourceDeleteJob, OutcomeSourceReplicaFolder, OutcomeSourceOverviewKeep, OutcomeSourceAckJob:
 	default:
 		return sirerr.New(sirerr.CodeInvalid, op, "invalid source").With("source", o.Source)
 	}
@@ -87,7 +97,7 @@ func (s *Store) UpsertOutcome(ctx context.Context, o MessageOutcome) error {
 	if incoming == OutcomeKept {
 		var existing string
 		err := s.db.QueryRowContext(ctx, `SELECT outcome FROM message_outcomes WHERE object_hash=?`, hash).Scan(&existing)
-		if err == nil && isTrashOutcome(existing) {
+		if err == nil && hidesFromLiveBoard(existing) {
 			return nil
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -108,7 +118,10 @@ ON CONFLICT(object_hash) DO UPDATE SET
   sender=CASE WHEN excluded.sender != '' THEN excluded.sender ELSE message_outcomes.sender END,
   decided_at=excluded.decided_at
 WHERE excluded.outcome IN ('trashed_at_source', 'already_in_trash')
-   OR message_outcomes.outcome NOT IN ('trashed_at_source', 'already_in_trash')`,
+   OR (
+     message_outcomes.outcome NOT IN ('trashed_at_source', 'already_in_trash')
+     AND NOT (excluded.outcome = 'kept' AND message_outcomes.outcome = 'acked')
+   )`,
 		hash, incoming, strings.TrimSpace(o.Source), strings.TrimSpace(o.JobID),
 		strings.TrimSpace(o.Sender), stamp,
 	)
@@ -140,6 +153,24 @@ FROM message_outcomes WHERE object_hash=?`, hash).
 		return MessageOutcome{}, false, sirerr.Wrap(err, sirerr.CodeFailed, op, "select outcome")
 	}
 	return o, true, nil
+}
+
+// ClearKeptOutcome removes a kept label. Trash rows stay.
+func (s *Store) ClearKeptOutcome(ctx context.Context, objectHash string) error {
+	const op = "hoststore.Store.ClearKeptOutcome"
+	if err := s.requireStore(ctx, op); err != nil {
+		return err
+	}
+	hash := strings.TrimSpace(objectHash)
+	if hash == "" {
+		return sirerr.New(sirerr.CodeInvalid, op, "empty object_hash")
+	}
+	_, err := s.db.ExecContext(ctx, `
+DELETE FROM message_outcomes WHERE object_hash=? AND outcome=?`, hash, OutcomeKept)
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "delete kept")
+	}
+	return nil
 }
 
 const outcomeHashChunk = 400
@@ -215,6 +246,8 @@ func (s *Store) CountOutcomes(ctx context.Context) (OutcomeCounts, error) {
 			c.AlreadyInTrash = n
 		case OutcomeKept:
 			c.Kept = n
+		case OutcomeAcked:
+			c.Acked = n
 		}
 	}
 	return c, rows.Err()

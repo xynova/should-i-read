@@ -3,12 +3,19 @@ package maildelete
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/pimalaya"
@@ -21,11 +28,21 @@ type fakeDeleter struct {
 }
 
 type recordingDeleter struct {
-	lastFolder string
+	lastFolder   string
+	lastEnvelope string
+}
+
+type errDeleter struct {
+	msg string
+}
+
+func (e *errDeleter) MessageDelete(ctx context.Context, folder, envelopeID string) (*pimalaya.Result, error) {
+	return nil, errors.New(e.msg)
 }
 
 func (r *recordingDeleter) MessageDelete(ctx context.Context, folder, envelopeID string) (*pimalaya.Result, error) {
 	r.lastFolder = folder
+	r.lastEnvelope = envelopeID
 	return &pimalaya.Result{Raw: json.RawMessage(`{"data":{"action":"moved-to-trash","count":1}}`)}, nil
 }
 
@@ -192,6 +209,75 @@ exit 0
 	}
 }
 
+func TestApplyRecordsFailedItemSpan(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+
+	st, ctx := openTestStore(t)
+	_ = st.AddDeleteCart(ctx, []hoststore.DeleteCartItem{{ObjectHash: "h1"}})
+	jobID, err := st.CreateDeleteJobFromCart(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.BindDeleteJobItems(ctx, jobID, []hoststore.DeleteJobBinding{
+		{ObjectHash: "h1", Folder: "gmail/imap/[Gmail]/All Mail", EnvelopeID: "41", Status: hoststore.DeleteJobItemPlanned},
+	})
+	svc, err := CreateDeleteJobService(DeleteJobConfig{
+		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &errDeleter{msg: "No message deleted: no id matched in the mailbox"},
+		Now: time.Now, ItemTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Apply(ctx, jobID, hoststore.DeleteJobConfirmToken); err != nil {
+		t.Fatal(err)
+	}
+	var item sdktrace.ReadOnlySpan
+	for _, sp := range sr.Ended() {
+		if sp.Name() == "maildelete.MessageDelete" {
+			item = sp
+			break
+		}
+	}
+	if item == nil {
+		t.Fatal("missing maildelete.MessageDelete span")
+	}
+	attrs := attribute.NewSet(item.Attributes()...)
+	gotFolder, _ := attrs.Value(attribute.Key("delete.folder"))
+	gotEnv, _ := attrs.Value(attribute.Key("delete.envelope_id"))
+	gotHash, _ := attrs.Value(attribute.Key("delete.object_hash"))
+	if gotFolder.AsString() != "gmail/imap/[Gmail]/All Mail" || gotEnv.AsString() != "41" || gotHash.AsString() != "h1" {
+		t.Fatalf("attrs folder=%q env=%q hash=%q", gotFolder.AsString(), gotEnv.AsString(), gotHash.AsString())
+	}
+	stt := item.Status()
+	if stt.Code != codes.Error {
+		t.Fatalf("status %+v", stt)
+	}
+	if !strings.Contains(stt.Description, "no id matched") {
+		t.Fatalf("status %q", stt.Description)
+	}
+	var apply sdktrace.ReadOnlySpan
+	for _, sp := range sr.Ended() {
+		if sp.Name() == "maildelete.Apply" {
+			apply = sp
+			break
+		}
+	}
+	if apply == nil {
+		t.Fatal("missing maildelete.Apply span")
+	}
+	applyAttrs := attribute.NewSet(apply.Attributes()...)
+	failed, _ := applyAttrs.Value(attribute.Key("delete.failed"))
+	trashed, _ := applyAttrs.Value(attribute.Key("delete.trashed"))
+	if failed.AsInt64() != 1 || trashed.AsInt64() != 0 {
+		t.Fatalf("counts failed=%d trashed=%d", failed.AsInt64(), trashed.AsInt64())
+	}
+}
+
 func TestApplyConfirmMismatch(t *testing.T) {
 	st, ctx := openTestStore(t)
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
@@ -278,6 +364,47 @@ func TestApplyPrefersCollectionMailbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rec.lastFolder != "imap/INBOX" {
+		t.Fatalf("folder %q", rec.lastFolder)
+	}
+}
+
+func TestApplyFailedRetryUsesSeqNotMessageID(t *testing.T) {
+	st, ctx := openTestStore(t)
+	_ = st.AddDeleteCart(ctx, []hoststore.DeleteCartItem{{ObjectHash: "h1"}})
+	jobID, err := st.CreateDeleteJobFromCart(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.BindDeleteJobItems(ctx, jobID, []hoststore.DeleteJobBinding{
+		{
+			ObjectHash: "h1",
+			Collection: "gmail/imap/[Gmail]/All Mail",
+			Folder:     "gmail/imap/[Gmail]/All Mail",
+			Seq:        478,
+			LinkID:     "behaviorengineering/blog/pull/64/c6675222988@github.com",
+			EnvelopeID: "behaviorengineering/blog/pull/64/c6675222988@github.com",
+			Status:     hoststore.DeleteJobItemFailed,
+			Error:      "Invalid message id (expected a number)",
+		},
+	})
+	rec := &recordingDeleter{}
+	svc, err := CreateDeleteJobService(DeleteJobConfig{
+		Store: st,
+		Pimdir: &fakePim{m: map[string]pimdir.EmailSummary{
+			"h1": {Collection: "gmail/imap/INBOX", Seq: 478, LinkID: "behaviorengineering/blog/pull/64/c6675222988@github.com"},
+		}},
+		Deleter: rec, Now: time.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Apply(ctx, jobID, hoststore.DeleteJobConfirmToken); err != nil {
+		t.Fatal(err)
+	}
+	if rec.lastEnvelope != "478" {
+		t.Fatalf("envelope %q", rec.lastEnvelope)
+	}
+	if rec.lastFolder != "gmail/imap/INBOX" {
 		t.Fatalf("folder %q", rec.lastFolder)
 	}
 }

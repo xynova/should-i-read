@@ -47,10 +47,18 @@ flowchart TD
 Classify and overview **Mark** stay report-only. When you are ready to mutate the mailbox, use the deletion cart:
 
 1. Stage with overview **Mark** or `POST /cart` (host ledger only).
-2. Overview **Move to Trash at source** is checkout (`POST /cart/checkout` with confirm token `trash-at-source`): snapshot the cart into a deletion job, clear the cart, then apply Himalaya `message delete` in the background (`202` + poll). The job line and `tmp/delete-job-<id>.json` keep the order after the cart empties. An empty cart with leftover planned or failed items retries that job.
-3. CLI stays two-step: `go tool task mail:cart-job` / `should-i-read mail cart job` (or `POST /cart/jobs`) then `go tool task mail:cart-apply -- --confirm trash-at-source`. Himalaya runs against the pimdir replica (`himalaya -c ~/.config/should-i-read/himalaya.toml`, mailbox `-m imap/INBOX` or the resolved collection id). That delete is **staged locally** until you run `mail sync` (Neverest), which pushes Trash at the provider.
+2. Overview **Apply at source** is checkout: `POST /ack/checkout` with `seen-at-source` (if Acked has work) then `POST /cart/checkout` with `trash-at-source` (if Cart has work). Acked stays in Inbox; Cart snapshots into a deletion job, clears, then Himalaya `message delete` in the background (`202` + poll). The job line and `tmp/delete-job-<id>.json` keep the order after the cart empties. An empty cart with leftover planned or failed items retries that job.
+3. CLI stays two-step: `go tool task mail:cart-job` / `should-i-read mail cart job` (or `POST /cart/jobs`) then `go tool task mail:cart-apply -- --confirm trash-at-source`. Himalaya runs against the pimdir replica (`himalaya -c ~/.config/should-i-read/himalaya.toml`, mailbox `-m imap/INBOX` or the resolved collection id). That delete is **staged locally** until you run overview **Sync** (header on `mail overview serve`; `POST /sync`; Neverest, then report-only classify) or `mail sync` (Neverest, then report-only classify), which pushes Trash at the provider. If Neverest then reports INBOX listing absences and leftover replica hashes are already `trashed_at_source`, that same Sync retries once with `--accept-absences`.
 
 This is explicit operator approval, not auto-trash from Jev or classify scores. Permanent expunge and auto-quarantine remain out of scope until eval exit criteria pass.
+
+## Operator-confirmed Seen (Acked cart, out of band)
+
+Reply and Decide **Acked** stages hashes only. Classify, Worth reading, and Mark stay report-only.
+
+1. Stage with overview **Acked** or `POST /ack` (host ledger only).
+2. Overview **Apply at source** is checkout (`POST /ack/checkout` with confirm token `seen-at-source` when Acked has work): snapshot the Acked list into a job, clear the list, then apply Himalaya `flag add --flag seen` in the background (`202` + poll). Messages stay in Inbox. The same click also checkouts Cart when it has work. Overview **Sync** (header on `mail overview serve`; `POST /sync`; Neverest, then report-only classify) or `mail sync` (Neverest, then report-only classify) pushes the Seen flag at the provider.
+
 
 Overview Mark, live months, and a future actioned strip follow the three GitHub-cluster cases in [overview-actioned-examples.md](overview-actioned-examples.md). Failed Move stays on the live board and on the deletion job; checkout has already emptied the cart. Already-in-Trash hashes must not re-enter the cart and must leave the live months.
 

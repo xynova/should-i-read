@@ -7,17 +7,21 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/xynova/should-i-read/internal/hostevent"
 	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/mailack"
 	"github.com/xynova/should-i-read/internal/maildelete"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 const (
-	intentHTTPTimeout = 45 * time.Second
-	intentMaxBody     = 32 << 10
-	cartMaxBody       = 256 << 10
+	intentHTTPTimeout       = 45 * time.Second
+	intentDetailHTTPTimeout = 90 * time.Second
+	intentMaxBody           = 32 << 10
+	cartMaxBody             = 256 << 10
 )
 
 // CartStore is the report-only deletion cart. It must not mutate the mailbox.
@@ -35,13 +39,30 @@ type ActionedLookup interface {
 
 // IntentPageServer serves overview HTML, POST /intent, and the deletion cart.
 type IntentPageServer struct {
+	pageMu   sync.RWMutex
 	HTML     []byte
 	Guess    *IntentGuesser
 	Cart     CartStore
 	Jobs     *maildelete.Service
+	AckCart  AckCartStore
+	AckJobs  *mailack.Service
 	Actioned ActionedLookup
 	Outcomes OutcomeStore
+	Preview  MailPreviewer
 	Hashes   []string
+	Sync     *SyncController
+	Events   *hostevent.Bus
+}
+
+// ReplacePage swaps the served HTML and hash list after a post-sync report.
+func (s *IntentPageServer) ReplacePage(html []byte, hashes []string) {
+	if s == nil {
+		return
+	}
+	s.pageMu.Lock()
+	s.HTML = append([]byte(nil), html...)
+	s.Hashes = append([]string(nil), hashes...)
+	s.pageMu.Unlock()
 }
 
 // Handler returns the overview mux.
@@ -49,12 +70,20 @@ func (s *IntentPageServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.servePage)
 	mux.HandleFunc("/intent", s.serveIntent)
+	mux.HandleFunc("/intent/detail", s.serveIntentDetail)
 	mux.HandleFunc("/cart", s.serveCart)
 	mux.HandleFunc("/cart/checkout", s.serveCartCheckout)
 	mux.HandleFunc("/cart/jobs", s.serveCartJobs)
 	mux.HandleFunc("/cart/jobs/", s.serveCartJobs)
+	mux.HandleFunc("/ack", s.serveAck)
+	mux.HandleFunc("/ack/checkout", s.serveAckCheckout)
+	mux.HandleFunc("/ack/jobs", s.serveAckJobs)
+	mux.HandleFunc("/ack/jobs/", s.serveAckJobs)
 	mux.HandleFunc("/actioned", s.serveActioned)
 	mux.HandleFunc("/keep", s.serveKeep)
+	mux.HandleFunc("/preview", s.servePreview)
+	mux.HandleFunc("/sync", s.serveSync)
+	mux.HandleFunc("/events", s.serveEvents)
 	return mux
 }
 
@@ -81,7 +110,10 @@ func (s *IntentPageServer) servePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(s.HTML)
+	s.pageMu.RLock()
+	html := s.HTML
+	s.pageMu.RUnlock()
+	_, _ = w.Write(html)
 }
 
 type intentRequest struct {
@@ -90,6 +122,30 @@ type intentRequest struct {
 }
 
 type intentResponse struct {
+	OK     bool   `json:"ok"`
+	Intent string `json:"intent,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+type intentDetailMessageJSON struct {
+	Date         string  `json:"date,omitempty"`
+	Sender       string  `json:"sender,omitempty"`
+	Subject      string  `json:"subject,omitempty"`
+	About        string  `json:"about,omitempty"`
+	Snippet      string  `json:"snippet,omitempty"`
+	NeedsReply   float64 `json:"needs_reply,omitempty"`
+	Decision     float64 `json:"decision,omitempty"`
+	Urgency      float64 `json:"urgency,omitempty"`
+	OutlierFirst bool    `json:"outlier_first,omitempty"`
+}
+
+type intentDetailRequest struct {
+	Month    string                    `json:"month"`
+	Summary  string                    `json:"summary,omitempty"`
+	Messages []intentDetailMessageJSON `json:"messages"`
+}
+
+type intentDetailResponse struct {
 	OK     bool   `json:"ok"`
 	Intent string `json:"intent,omitempty"`
 	Error  string `json:"error,omitempty"`
@@ -129,8 +185,12 @@ func (s *IntentPageServer) serveIntent(w http.ResponseWriter, r *http.Request) {
 			switch c {
 			case sirerr.CodeInvalid:
 				status = http.StatusBadRequest
+			case sirerr.CodeNotFound:
+				status = http.StatusNotFound
 			case sirerr.CodeUnavailable:
 				status = http.StatusServiceUnavailable
+			case sirerr.CodeFailed, sirerr.CodeAI, sirerr.CodeAuth, sirerr.CodeNetwork, sirerr.CodeNeedsReview:
+				status = http.StatusInternalServerError
 			}
 		}
 		writeIntentJSON(w, status, intentResponse{Error: strings.TrimSpace(err.Error())})
@@ -139,10 +199,87 @@ func (s *IntentPageServer) serveIntent(w http.ResponseWriter, r *http.Request) {
 	writeIntentJSON(w, http.StatusOK, intentResponse{OK: true, Intent: intent})
 }
 
+func (s *IntentPageServer) serveIntentDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeIntentDetailJSON(w, http.StatusMethodNotAllowed, intentDetailResponse{Error: "POST required"})
+		return
+	}
+	if s == nil || s.Guess == nil {
+		writeIntentDetailJSON(w, http.StatusServiceUnavailable, intentDetailResponse{Error: "intent guesser is not configured"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, intentMaxBody)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeIntentDetailJSON(w, http.StatusBadRequest, intentDetailResponse{Error: "could not read selection"})
+		return
+	}
+	var in intentDetailRequest
+	if err := json.Unmarshal(raw, &in); err != nil {
+		writeIntentDetailJSON(w, http.StatusBadRequest, intentDetailResponse{Error: "selection must be JSON"})
+		return
+	}
+	msgs := make([]IntentDetailMessage, 0, len(in.Messages))
+	for _, m := range in.Messages {
+		msgs = append(msgs, IntentDetailMessage{
+			Date:         m.Date,
+			Sender:       m.Sender,
+			Subject:      m.Subject,
+			About:        m.About,
+			Snippet:      m.Snippet,
+			NeedsReply:   m.NeedsReply,
+			Decision:     m.Decision,
+			Urgency:      m.Urgency,
+			OutlierFirst: m.OutlierFirst,
+		})
+	}
+	parent := r.Context()
+	if parent == nil {
+		writeIntentDetailJSON(w, http.StatusInternalServerError, intentDetailResponse{Error: "nil request context"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, intentDetailHTTPTimeout)
+	defer cancel()
+	intent, err := s.Guess.GuessDetail(ctx, IntentDetailInput{
+		Month:    in.Month,
+		Summary:  in.Summary,
+		Messages: msgs,
+	})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if c, ok := sirerr.AsCode(err); ok {
+			switch c {
+			case sirerr.CodeInvalid:
+				status = http.StatusBadRequest
+			case sirerr.CodeNotFound:
+				status = http.StatusNotFound
+			case sirerr.CodeUnavailable:
+				status = http.StatusServiceUnavailable
+			case sirerr.CodeFailed, sirerr.CodeAI, sirerr.CodeAuth, sirerr.CodeNetwork, sirerr.CodeNeedsReview:
+				status = http.StatusInternalServerError
+			}
+		}
+		writeIntentDetailJSON(w, status, intentDetailResponse{Error: strings.TrimSpace(err.Error())})
+		return
+	}
+	writeIntentDetailJSON(w, http.StatusOK, intentDetailResponse{OK: true, Intent: intent})
+}
+
 func writeIntentJSON(w http.ResponseWriter, status int, body intentResponse) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(body); err != nil {
 		http.Error(w, "encode intent reply", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(buf.Bytes())
+}
+
+func writeIntentDetailJSON(w http.ResponseWriter, status int, body intentDetailResponse) {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		http.Error(w, "encode intent detail reply", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -72,6 +72,17 @@ func TestBindingFromSummaryImapCollection(t *testing.T) {
 	}
 }
 
+func TestBindingFromSummaryPrefersSeqOverMessageID(t *testing.T) {
+	b := BindingFromSummary("h", pimdir.EmailSummary{
+		Collection: "gmail/imap/[Gmail]/All Mail",
+		Seq:        41,
+		LinkID:     "behaviorengineering/blog/pull/64/c6675222988@github.com",
+	}, true)
+	if b.Status != hoststore.DeleteJobItemPlanned || b.EnvelopeID != "41" {
+		t.Fatalf("%+v", b)
+	}
+}
+
 func TestStartJobDropsAlreadyTrashCart(t *testing.T) {
 	st, ctx := openTestStore(t)
 	if err := st.AddDeleteCart(ctx, []hoststore.DeleteCartItem{

@@ -39,3 +39,21 @@ func TestSummarizeNeverestJSON_unrecognized(t *testing.T) {
 		t.Fatal("invalid json should be unrecognized")
 	}
 }
+
+func TestSummarizeNeverestJSON_ndjsonAbsences(t *testing.T) {
+	raw := []byte(`{"event":"account-started","account":"gmail"}
+{"accounts":[{"account":"gmail","report":{"account":"gmail","dryRun":true,"item":{"patch":[]},"outstandingConflicts":0,"absences":[{"side":"imap","collection":"INBOX","absent":1054,"bound":2069,"rebuild":false}]}}]}`)
+	r := SummarizeNeverestJSON(raw)
+	if !r.Recognized {
+		t.Fatal("expected recognized accounts report")
+	}
+	if r.Conflicts != 0 {
+		t.Fatalf("conflicts %d", r.Conflicts)
+	}
+	if len(r.Absences) != 1 {
+		t.Fatalf("absences %+v", r.Absences)
+	}
+	if r.Absences[0].Collection != "INBOX" || r.Absences[0].Absent != 1054 || r.Absences[0].Bound != 2069 {
+		t.Fatalf("absence %+v", r.Absences[0])
+	}
+}

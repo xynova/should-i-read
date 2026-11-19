@@ -14,6 +14,8 @@ import (
 
 	"github.com/xynova/should-i-read/internal/clui"
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/mailsync"
 	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/sirerr"
@@ -76,7 +78,15 @@ func runMailSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, account
 	if err != nil {
 		return err
 	}
-	res, err := nev.Sync(ctx, acct, excludes)
+	absences := &mailsync.AbsenceRunner{Engine: nev}
+	if st, serr := hoststore.CreateStore(hoststore.StoreConfig{Path: cfg.StorePath, Now: time.Now().UTC()}); serr == nil {
+		defer func() { _ = st.Close() }()
+		absences.Store = st
+	}
+	if reader, rerr := pimdir.OpenStore(cfg.Pimalaya.PimdirPath); rerr == nil {
+		absences.Mail = reader
+	}
+	res, err := absences.Sync(ctx, acct, excludes)
 	if err != nil {
 		return finishPimalaya(cmd, opts, res, err, acct)
 	}

@@ -33,7 +33,9 @@ func (s *IntentPageServer) serveActioned(w http.ResponseWriter, r *http.Request)
 		writeActionedJSON(w, http.StatusOK, actionedResponse{OK: true, Rows: []ActionedRow{}})
 		return
 	}
-	hashes := s.Hashes
+	s.pageMu.RLock()
+	hashes := append([]string(nil), s.Hashes...)
+	s.pageMu.RUnlock()
 	got, err := lookup.LookupActioned(ctx, hashes)
 	if err != nil {
 		status := http.StatusInternalServerError

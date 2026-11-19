@@ -40,6 +40,8 @@ Token bare invoke (`token gmail`) still prints only the access token for Neveres
 | Offline month overview (HTML + JSON, read-only stores) | `mail overview` | `go tool task mail:overview` |
 | Snapshot deletion cart into a trash job (resolve pimdir; no IMAP) | `mail cart job` | `go tool task mail:cart-job` |
 | Move planned cart items to Trash at source (Himalaya pimdir via host `himalaya.toml`; then `mail sync` pushes Gmail) | `mail cart apply <job-id> --confirm trash-at-source` | `go tool task mail:cart-apply -- --confirm trash-at-source <job-id>` |
+| Push replica Seen/Trash and pull IMAP from overview (Neverest; then report-only classify continues) | overview serve header **Sync** (`POST /sync`) | (overview serve) |
+| Apply Acked as read and Cart to Trash at source (Himalaya seen + delete; Inbox until Sync) | overview **Apply at source** (`POST /ack/checkout` `seen-at-source`, then `POST /cart/checkout` `trash-at-source`) | (overview serve) |
 | Deletion job status JSON | `mail cart status <job-id>` | (CLI only) |
 | Read one message body | `mail show <ref>` | (CLI only) |
 
@@ -100,7 +102,7 @@ Phoenix (Arize) on the same host as Polypus: UI `http://<polypus-host>:6006`, cl
 
 **Classify:** `taxonomy.collections` (default INBOX) and `taxonomy.classify_max` (Operate calls per run). `mail report` accepts `--from` / `--to` (`YYYY-MM-DD` UTC, half-open `[from, to)` on pimdir `items.sort_key`; no default row cap unless `--limit`). Dated runs use `--slice-days` (default 7) for classify waves; tags and cluster merge run after all slices. Cannot combine with `--in`. Rerun the same window while `omitted` or `attention_omitted` is non-zero. Weekly example: `go tool task mail:report -- --from 2026-09-01 --to 2026-09-08` (then adjacent weeks through `2026-10-01`). `taxonomy.author_on_skip: false` skips Author chat on Judge skip (default report-only). Inspect `tmp/unwanted-report-*.json` for per-message taxonomy fields, `cluster_id`, `clusters[]` (TLDR + `suggested_action`), and optional `window_from` / `window_to`. Essence parse failures dump the last chat completion under `tmp/essence-parse/<object_hash>.json`. Optional `cluster.quarantine_terms` marks clusters `quarantine_candidate` (report-only; no mailbox moves). Live resume: classify ledger plus cluster fingerprint cache (`store.path`); see [`host-classify-store`](../host-classify-store/SKILL.md). `mail similar <object_hash>` uses stored embeddings.
 
-**Sync folders:** `pimalaya.sync_exclude_collections` (default `[Gmail]/Spam` and `[Gmail]/Trash`) plus `--exclude-collection`. An empty YAML list syncs every folder. This is not `taxonomy.collections` (report listing only).
+**Sync folders:** `pimalaya.sync_exclude_collections` (default `[Gmail]/Spam` and `[Gmail]/Trash`) plus `--exclude-collection`. An empty YAML list syncs every folder. This is not `taxonomy.collections` (report listing only). After **Move to Trash at source**, overview **Sync** and `mail sync` retry once with `--accept-absences` when leftover INBOX hashes are already `trashed_at_source`. They do not pass that flag by default.
 
 **Attach (only strategy):** catalog `inbox-kind` (seed `config/vocabularies/inbox-kind.yaml`, default under `~/.config/should-i-read/vocabularies/`), `polypus.embed_model` via strop `CreateEmbedder`, Essence as three Polypus chat hops on `polypus.essence_model` (empty uses classify author), thresholds `attach_min_cosine` / `walk_reinforce_min` with `strop/pkg/embed.CosineSimilarity`. Legacy `taxonomy.strategy: walk` in YAML is treated as attach.
 

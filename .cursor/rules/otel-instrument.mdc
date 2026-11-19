@@ -1,0 +1,87 @@
+---
+description: >-
+  Host Go that can fail MUST emit OpenTelemetry spans while it is written,
+  not after a production miss. Apply when adding or changing cmd/, internal/,
+  CLI hops, maildelete, Himalaya, overview serve, cart apply, or diagnosing
+  why and when a job failed. Triggers: instrument, OpenTelemetry, otel, span,
+  olly, telemetry, failed 41, no id matched, developing, observability.
+alwaysApply: true
+---
+
+# Instrument fail-able host code
+
+**Moral:** Write the span with the feature. Job counts and leaf CLI traces are not enough to tell why and when a host loop failed.
+
+LLM hops: skill `golang-quality` C15. Process Olly: `internal/cli/telemetry.go`. Leaf CLI: `internal/pimalaya/runner.go`. Report seats: `internal/mailreport/trace.go`.
+
+**CONSTRAINT:** New or changed host Go that can fail, hang, or call outbound (HTTP, Himalaya/Neverest, SQLite apply, IMAP bind) MUST start an OpenTelemetry span on that orchestration, with attributes that name the work and the ids needed to explain a miss.
+
+- MUST: `otel.Tracer("github.com/xynova/should-i-read/internal/<pkg>")`, `tracer.Start`, `defer span.End()`
+- MUST: attributes for why/when (job id, object hash, folder, envelope id, status, model)
+- MUST: `span.RecordError(err)` and `span.SetStatus(codes.Error, ...)` on failure; named-return defers use `err =`
+- MUST NOT: ship a new fail-able loop with only a count, SQLite error column, or `tmp/delete-job-*.json`
+- MUST NOT: treat `pimalaya.RunJSON` or Polypus HTTP traces as the only span for a host job
+- NEVER: defer spans to a later cleanup PR
+
+Enforcement: planned `.go` diffs; grep `tracer.Start` / `otel.Tracer` on new orchestration; checklist below
+Violation: STOP, add the span (or turn Olly on for that command), re-verify
+
+Before writing a new or changed function, complete this gate in working memory:
+
+```text
+Candidate: [function or loop]
+Can fail, hang, or call outbound: YES: [quote] / NO
+Already starts a span (or is a child that already carries the failure ids): YES: [quote] / NO
+Decision: ADD SPAN | KEEP | SKIP
+```
+
+IF YES and NO → ADD SPAN. SKIP only for pure helpers, formatters, or `*_test.go` that do not assert telemetry.
+
+CORRECT:
+```go
+ctx, span := tracer.Start(ctx, "maildelete.ApplyJob",
+    trace.WithAttributes(
+        attribute.String("delete.job_id", jobID),
+        attribute.String("delete.folder", folder),
+        attribute.String("delete.envelope_id", env),
+        attribute.String("delete.object_hash", it.ObjectHash),
+    ),
+)
+defer span.End()
+```
+
+PROHIBITED:
+```go
+// maildelete apply calls Himalaya; only pimalaya.RunJSON is spanned.
+// Cart shows "failed 41 / trashed 0" with no host span attributes.
+```
+
+**CONSTRAINT:** While developing a command that can fail, Olly MUST stay on for that command.
+
+- MUST: keep `startTelemetry` for `mail overview serve`, cart apply, and other jobs under debug
+- MUST NOT: add that command to `skipTelemetryForCmd` to make the loop "fast"
+- MUST NOT: treat overview.js overlay as the observability plan
+
+Enforcement: `skipTelemetryForCmd` vs the command being changed; Olly dump dir `logs/failures`
+Violation: STOP, remove the skip (or add a debug override), re-verify
+
+CORRECT:
+```text
+Developing cart apply on overview serve → Olly starts; host apply span exports.
+```
+
+PROHIBITED:
+```text
+skipTelemetryForCmd returns true for overview serve while delete jobs fail closed.
+```
+
+## Pre-change checklist
+
+- [ ] **Host span on the new loop:** Orchestration that can fail starts `tracer.Start`
+      Method: grep the new package for `tracer.Start` (not only `pimalaya.RunJSON`)
+      Pass: span name plus why/when attributes
+      Fail: STOP, add the span
+- [ ] **Olly not skipped:** The command under development still calls `startTelemetry`
+      Method: read `skipTelemetryForCmd` for that leaf
+      Pass: skip is false, or a documented non-fail-able command
+      Fail: STOP, keep Olly on

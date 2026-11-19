@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/behaviorengineering/strop/pkg/integrity"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/behaviorengineering/taxonomy/pkg/tags"
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/hostevent"
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -72,6 +74,8 @@ type polypusEssencer struct {
 	descriptionCosineMin       float64
 	descriptionCosineMode      config.DescriptionCosineMode
 	essenceSemanticMaxAttempts int
+	events                     *hostevent.Bus
+	essenceN                   atomic.Int64
 }
 
 func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (harness.EssenceOut, error) {
@@ -83,6 +87,7 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 	var out harness.EssenceOut
 	var retErr error
 	defer func() { endSeatSpan(span, retErr) }()
+	e.publishEssence(ctx)
 	if e.whyShell == nil || e.tagsShell == nil || e.kindShell == nil {
 		retErr = sirerr.New(sirerr.CodeInvalid, op, "nil essence integrity shell")
 		return harness.EssenceOut{}, retErr
@@ -178,6 +183,19 @@ func (e *polypusEssencer) failSlave(ctx context.Context, op, slave, messageText,
 	return harness.EssenceOut{}, retErr
 }
 
+func (e *polypusEssencer) publishEssence(ctx context.Context) {
+	if e == nil || e.events == nil {
+		return
+	}
+	n := int(e.essenceN.Add(1))
+	e.events.Publish(ctx, hostevent.Event{
+		Source: hostevent.SourceEssence,
+		Kind:   "essence",
+		Line:   fmt.Sprintf("Essence %d", n),
+		Done:   n,
+	})
+}
+
 // SeatsConfig wires Polypus models for taxonomy seats.
 type SeatsConfig struct {
 	Client                     *polypus.Client
@@ -194,6 +212,7 @@ type SeatsConfig struct {
 	DescriptionCosineMin       float64
 	DescriptionCosineMode      config.DescriptionCosineMode
 	EssenceSemanticMaxAttempts int
+	Events                     *hostevent.Bus
 }
 
 // CreateSeats wires Polypus SystemOne Judge and chat Author (optional Essencer/Embedder).
@@ -277,6 +296,7 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 			descriptionCosineMin:       cfg.DescriptionCosineMin,
 			descriptionCosineMode:      cfg.DescriptionCosineMode,
 			essenceSemanticMaxAttempts: cfg.EssenceSemanticMaxAttempts,
+			events:                     cfg.Events,
 		}
 	}
 	out.Embedder = cfg.Embedder

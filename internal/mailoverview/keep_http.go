@@ -36,6 +36,8 @@ type keepResponse struct {
 type OutcomeStore interface {
 	maildelete.OutcomeWriter
 	ListOutcomes(ctx context.Context) ([]hoststore.MessageOutcome, error)
+	GetOutcome(ctx context.Context, objectHash string) (hoststore.MessageOutcome, bool, error)
+	ClearKeptOutcome(ctx context.Context, objectHash string) error
 }
 
 func (s *IntentPageServer) serveKeep(w http.ResponseWriter, r *http.Request) {
@@ -55,8 +57,10 @@ func (s *IntentPageServer) serveKeep(w http.ResponseWriter, r *http.Request) {
 		s.listKeep(ctx, w)
 	case http.MethodPost:
 		s.addKeep(ctx, w, r)
+	case http.MethodDelete:
+		s.removeKeep(ctx, w, r)
 	default:
-		writeKeepJSON(w, http.StatusMethodNotAllowed, keepResponse{Error: "GET or POST required"})
+		writeKeepJSON(w, http.StatusMethodNotAllowed, keepResponse{Error: "GET, POST, or DELETE required"})
 	}
 }
 
@@ -125,6 +129,19 @@ func (s *IntentPageServer) addKeep(ctx context.Context, w http.ResponseWriter, r
 		kept++
 	}
 	s.listKeepAfterPost(ctx, w, skippedActioned, kept)
+}
+
+func (s *IntentPageServer) removeKeep(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	hash := strings.TrimSpace(r.URL.Query().Get("hash"))
+	if hash == "" {
+		writeKeepJSON(w, http.StatusBadRequest, keepResponse{Error: "missing hash"})
+		return
+	}
+	if err := s.Outcomes.ClearKeptOutcome(ctx, hash); err != nil {
+		writeKeepErr(w, err)
+		return
+	}
+	s.listKeep(ctx, w)
 }
 
 func (s *IntentPageServer) listKeepAfterPost(ctx context.Context, w http.ResponseWriter, skippedActioned, added int) {

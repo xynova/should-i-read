@@ -3,7 +3,6 @@ package maildelete
 import (
 	"context"
 	"strconv"
-	"strings"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/pimdir"
@@ -42,8 +41,8 @@ func BindingFromSummary(hash string, sum pimdir.EmailSummary, found bool) hostst
 	}
 	if sum.Seq > 0 {
 		b.EnvelopeID = strconv.FormatInt(sum.Seq, 10)
-	} else if strings.TrimSpace(sum.LinkID) != "" {
-		b.EnvelopeID = strings.TrimSpace(sum.LinkID)
+	} else if id := numericMessageID(sum.LinkID); id != "" {
+		b.EnvelopeID = id
 	} else {
 		b.Status = hoststore.DeleteJobItemUnresolved
 		return b

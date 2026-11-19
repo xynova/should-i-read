@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -247,6 +248,62 @@ func TestCartAddSkipsInCartAndActioned(t *testing.T) {
 	}
 }
 
+func TestCartAddDropsAckCart(t *testing.T) {
+	t.Parallel()
+	cart := newMemCart()
+	ack := newMemAckCart()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := ack.AddAckCart(ctx, []hoststore.AckCartItem{{ObjectHash: "switch", Sender: "stan"}}); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer((&IntentPageServer{
+		HTML:    []byte("h"),
+		Cart:    cart,
+		AckCart: ack,
+	}).Handler())
+	t.Cleanup(ts.Close)
+	body, err := json.Marshal(cartAddRequest{Items: []cartJSONItem{
+		{ObjectHash: "switch", Sender: "stan"},
+		{ObjectHash: "live", Sender: "other"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.Post(ts.URL+"/cart", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	got, err := ack.ListAckCart(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ack cart still has %+v", got)
+	}
+	listed, err := cart.ListDeleteCart(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("delete cart %+v", listed)
+	}
+	have := map[string]struct{}{}
+	for _, item := range listed {
+		have[item.ObjectHash] = struct{}{}
+	}
+	if _, ok := have["switch"]; !ok {
+		t.Fatalf("delete cart missing switch %+v", listed)
+	}
+	if _, ok := have["live"]; !ok {
+		t.Fatalf("delete cart missing live %+v", listed)
+	}
+}
+
 func TestActionedGET(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer((&IntentPageServer{
@@ -285,5 +342,14 @@ func TestCartUnavailableWithoutStore(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status %d", res.StatusCode)
+	}
+}
+
+func TestCartClientErrorHidesStoreOp(t *testing.T) {
+	err := sirerr.New(sirerr.CodeInvalid, "hoststore.Store.CreateDeleteJobFromCart", "too many cart items for job").
+		With("count", "297")
+	got := cartClientError(err)
+	if got == err.Error() || !strings.Contains(got, "297") || strings.Contains(got, "hoststore") {
+		t.Fatalf("%q", got)
 	}
 }

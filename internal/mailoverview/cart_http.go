@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -86,6 +87,9 @@ func (s *IntentPageServer) writeCartList(ctx context.Context, w http.ResponseWri
 }
 
 func (s *IntentPageServer) addCart(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	var err error
+	ctx, span := startCartAddSpan(ctx)
+	defer func() { endOverviewSpan(span, err) }()
 	r.Body = http.MaxBytesReader(w, r.Body, cartMaxBody)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -93,7 +97,7 @@ func (s *IntentPageServer) addCart(ctx context.Context, w http.ResponseWriter, r
 		return
 	}
 	var in cartAddRequest
-	if err := json.Unmarshal(raw, &in); err != nil {
+	if err = json.Unmarshal(raw, &in); err != nil {
 		writeCartJSON(w, http.StatusBadRequest, cartResponse{Error: "cart items must be JSON"})
 		return
 	}
@@ -118,7 +122,8 @@ func (s *IntentPageServer) addCart(ctx context.Context, w http.ResponseWriter, r
 		}
 		items = append(items, item)
 	}
-	existing, err := s.Cart.ListDeleteCart(ctx)
+	var existing []hoststore.DeleteCartItem
+	existing, err = s.Cart.ListDeleteCart(ctx)
 	if err != nil {
 		writeCartErr(w, err)
 		return
@@ -130,16 +135,24 @@ func (s *IntentPageServer) addCart(ctx context.Context, w http.ResponseWriter, r
 		for _, item := range items {
 			hashes = append(hashes, item.ObjectHash)
 		}
-		got, aerr := lookup.LookupActioned(ctx, hashes)
-		if aerr != nil {
-			writeCartErr(w, aerr)
+		var got map[string]maildelete.ActionedInfo
+		got, err = lookup.LookupActioned(ctx, hashes)
+		if err != nil {
+			writeCartErr(w, err)
 			return
 		}
 		actioned = got
 	}
 	toAdd, skippedInCart, skippedActioned := filterCartAdds(existing, items, actioned)
+	var movedFromAck int
+	movedFromAck, err = s.dropAckCartHashes(ctx, objectHashesOfDelete(toAdd))
+	if err != nil {
+		writeCartErr(w, err)
+		return
+	}
+	setCartAddCounts(span, len(items), len(toAdd), movedFromAck)
 	if len(toAdd) > 0 {
-		if err := s.Cart.AddDeleteCart(ctx, toAdd); err != nil {
+		if err = s.Cart.AddDeleteCart(ctx, toAdd); err != nil {
 			writeCartErr(w, err)
 			return
 		}
@@ -176,12 +189,33 @@ func cartItemJSON(item hoststore.DeleteCartItem) cartJSONItem {
 	}
 }
 
+func cartClientError(err error) string {
+	var se *sirerr.Error
+	if errors.As(err, &se) && se != nil && strings.TrimSpace(se.Message) != "" {
+		switch se.Message {
+		case "too many cart items for job":
+			n := se.Fields["count"]
+			if n == "" {
+				return "The deletion cart has too many messages for one Trash job. Remove some folders, then try Apply at source again."
+			}
+			return "The deletion cart has " + n + " messages, too many for one Trash job. Remove some folders, then try Apply at source again."
+		case "too many cart items", "deletion cart is full":
+			return "The deletion cart is full. Remove some folders, then mark fewer messages."
+		case "empty deletion cart", "cart is empty":
+			return "The deletion cart is empty."
+		default:
+			return strings.TrimSpace(se.Message)
+		}
+	}
+	return strings.TrimSpace(err.Error())
+}
+
 func writeCartErr(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	if c, ok := sirerr.AsCode(err); ok && c == sirerr.CodeInvalid {
 		status = http.StatusBadRequest
 	}
-	writeCartJSON(w, status, cartResponse{Error: strings.TrimSpace(err.Error())})
+	writeCartJSON(w, status, cartResponse{Error: cartClientError(err)})
 }
 
 func writeCartJSON(w http.ResponseWriter, status int, body cartResponse) {

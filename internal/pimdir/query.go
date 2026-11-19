@@ -28,9 +28,8 @@ func (r *Reader) FindByObjectHash(hash string) (EmailSummary, error) {
 		return EmailSummary{}, sirerr.New(sirerr.CodeInvalid, op, "empty hash")
 	}
 	q := summarySelect + `
- AND i.object_hash = ?
- LIMIT 1`
-	return r.queryOneSummary(op, q, hash)
+ AND i.object_hash = ?`
+	return r.queryPreferredSummary(op, q, hash)
 }
 
 // FindByMessageID returns the first live item with a body for the given Message-ID.
@@ -71,7 +70,102 @@ func (r *Reader) queryOneSummary(op, q string, arg string) (EmailSummary, error)
 	return s, nil
 }
 
+func (r *Reader) queryPreferredSummary(op, q string, arg string) (EmailSummary, error) {
+	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
+	}
+	rows, err := db.Query(q, arg)
+	if err != nil {
+		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "query mail summary")
+	}
+	defer func() { _ = rows.Close() }()
+	var picked EmailSummary
+	found := false
+	for rows.Next() {
+		s, err := scanEmailSummaryRow(rows)
+		if err != nil {
+			return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan mail summary")
+		}
+		picked = keepPreferredSummary(picked, s, found)
+		found = true
+	}
+	if err := rows.Err(); err != nil {
+		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate mail summary")
+	}
+	if !found {
+		return EmailSummary{}, sirerr.New(sirerr.CodeNotFound, op, "mail summary not found").With("ref", arg)
+	}
+	return picked, nil
+}
+
+// ListLiveObjectHashesForFolder returns live object hashes whose collection is folder
+// (Neverest name, for example INBOX) or ends with /folder (pimdir gmail/imap/INBOX).
+func (r *Reader) ListLiveObjectHashesForFolder(ctx context.Context, folder string) ([]string, error) {
+	const op = "pimdir.ListLiveObjectHashesForFolder"
+	if r == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
+	}
+	if ctx == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing context deadline")
+	}
+	folder = strings.TrimSpace(folder)
+	if folder == "" {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "empty folder")
+	}
+	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
+	}
+	q := `
+SELECT DISTINCT i.object_hash
+FROM items i
+WHERE i.deleted = 0
+  AND i.object_hash IS NOT NULL AND TRIM(i.object_hash) != ''
+  AND (i.collection = ? OR i.collection LIKE '%/' || ?)`
+	rows, err := db.QueryContext(ctx, q, folder, folder)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query hashes")
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	seen := map[string]struct{}{}
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan hash")
+		}
+		hash = strings.TrimSpace(hash)
+		if hash == "" {
+			continue
+		}
+		if _, ok := seen[hash]; ok {
+			continue
+		}
+		seen[hash] = struct{}{}
+		out = append(out, hash)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate hashes")
+	}
+	return out, nil
+}
+
 // SummariesByObjectHash returns one mail summary per object hash when the row is live in pimdir.
+// When a hash is in several folders, INBOX wins over Important over All Mail. Trash loses.
 // Missing hashes are omitted. Duplicate hashes in the input are deduplicated.
 func (r *Reader) SummariesByObjectHash(ctx context.Context, hashes []string) (map[string]EmailSummary, error) {
 	const op = "pimdir.SummariesByObjectHash"
@@ -132,9 +226,11 @@ func (r *Reader) SummariesByObjectHash(ctx context.Context, hashes []string) (ma
 				return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan batch row")
 			}
 			h := strings.TrimSpace(s.ObjectHash)
-			if h != "" {
-				out[h] = s
+			if h == "" {
+				continue
 			}
+			prev, ok := out[h]
+			out[h] = keepPreferredSummary(prev, s, ok)
 		}
 		if err := rows.Err(); err != nil {
 			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate batch")

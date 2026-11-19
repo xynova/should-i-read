@@ -385,8 +385,10 @@ func attentionFromItems(items []enriched) AttentionBlock {
 			a.DecisionList = append(a.DecisionList, messageLineFrom(it))
 		case it.row.Urgency >= urgThreshold:
 			a.UrgentOnly++
+			a.UrgentList = append(a.UrgentList, messageLineFrom(it))
 		default:
 			a.Quiet++
+			a.QuietList = append(a.QuietList, messageLineFrom(it))
 		}
 	}
 	total := len(items)
@@ -409,6 +411,7 @@ func messageLineFrom(it enriched) MessageLine {
 		Sender:     it.email,
 		SenderName: it.name,
 		Subject:    it.summary.Subject,
+		About:      strings.TrimSpace(it.row.About),
 		Theme:      it.theme,
 		Kind:       it.row.Kind,
 		Urgency:    it.row.Urgency,

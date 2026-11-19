@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"strings"
 
 	"github.com/xynova/should-i-read/internal/mailoverview"
 	"github.com/xynova/should-i-read/internal/mailoverview/svg"
@@ -19,12 +20,6 @@ var jsBytes []byte
 
 //go:embed templates/overview.html.tmpl
 var htmlTmpl string
-
-// Chart fills follow the page colour tokens so both themes stay legible.
-const (
-	chartWarm  = "var(--chart-warm)"
-	chartMuted = "var(--chart-muted)"
-)
 
 // HTMLAssets holds inlined CSS and JS for tests and embedding.
 type HTMLAssets struct {
@@ -40,9 +35,9 @@ func LoadHTMLAssets() HTMLAssets {
 	}
 }
 
-// minorMonthMax is the largest message count a month tab can hold and still
-// be grouped with the stray dates after the main tabs.
-const minorMonthMax = 9
+// recentMonthCount is this month plus last month on the main row.
+// Older months go in the Previous pulldown.
+const recentMonthCount = 2
 
 // TabView is one month tab plus precomputed SVG strings for that section.
 type TabView struct {
@@ -50,7 +45,7 @@ type TabView struct {
 	Label string
 	// Count is the number of classified messages in the tab.
 	Count int
-	// Minor is true for the unknown month and months with few messages.
+	// Minor is true for the unknown month and months older than this and last month.
 	Minor bool
 	// Selected is true for the latest main calendar month with mail, else All.
 	Selected bool
@@ -58,6 +53,7 @@ type TabView struct {
 	Section     mailoverview.MonthSection
 	Tiles       []AttentionTile
 	ActionLists []ActionList
+	DeleteList  DeleteListView
 	HasThemes   bool
 	HasFluff    bool
 
@@ -66,13 +62,11 @@ type TabView struct {
 	UrgencyHistSVG    template.HTML
 	HeatmapSVG        template.HTML
 	// KindTree is the folded top kind, area and message type tree.
-	KindTree         *KindNode
-	FluffWeekBarsSVG template.HTML
-	FluffSplitSVG    template.HTML
-	HopFlowSVG       template.HTML
-	SkipRateSVG      template.HTML
-	CosineHistSVG    template.HTML
-	JudgeHistSVG     template.HTML
+	KindTree      *KindNode
+	HopFlowSVG    template.HTML
+	SkipRateSVG   template.HTML
+	CosineHistSVG template.HTML
+	JudgeHistSVG  template.HTML
 
 	UrgencyBucketRows []bucketRow
 	CosineBucketRows  []bucketRow
@@ -84,22 +78,45 @@ type bucketRow struct {
 	Count int
 }
 
+type reportBar struct {
+	Label string
+	Count int
+	Pct   int
+}
+
+func reportBars(counts []mailoverview.NamedCount) []reportBar {
+	max := 1
+	for _, c := range counts {
+		if c.Count > max {
+			max = c.Count
+		}
+	}
+	out := make([]reportBar, 0, len(counts))
+	for _, c := range counts {
+		pct := (c.Count * 100) / max
+		if c.Count > 0 && pct < 2 {
+			pct = 2
+		}
+		out = append(out, reportBar{Label: c.Label, Count: c.Count, Pct: pct})
+	}
+	return out
+}
+
 type pageData struct {
 	Model     mailoverview.Model
 	ModelJSON template.JS
 	Tabs      []TabView
-	// MainTabs and MinorTabs split Tabs for the tab bar.
-	MainTabs  []TabView
-	MinorTabs []TabView
-	Generated string
-	InlineCSS template.CSS
-	InlineJS  template.JS
+	// MainTabs is All plus this month and last month.
+	MainTabs []TabView
+	// MinorTabs are older months, shown in the Previous pulldown.
+	MinorTabs   []TabView
+	Generated   string
+	GeneratedAt string
+	InlineCSS   template.CSS
+	InlineJS    template.JS
 
-	DeleteSec    int
-	KeepExtraSec int
-	UrgThreshold float64
-
-	// Definitions and print strings
+	ActionedOutcome []reportBar
+	ActionedSenders []reportBar
 }
 
 // RenderHTML writes a standalone page.
@@ -115,15 +132,15 @@ func RenderHTML(m mailoverview.Model) (string, error) {
 	}
 	tabs := buildTabs(m)
 	pd := pageData{
-		Model:        m,
-		ModelJSON:    template.JS(raw),
-		Tabs:         tabs,
-		Generated:    generatedLabel(m.GeneratedAt),
-		InlineCSS:    template.CSS(assets.CSS),
-		InlineJS:     template.JS(assets.JS),
-		DeleteSec:    5,
-		KeepExtraSec: 10,
-		UrgThreshold: 0.5,
+		Model:           m,
+		ModelJSON:       template.JS(raw),
+		Tabs:            tabs,
+		Generated:       generatedLabel(m.GeneratedAt),
+		GeneratedAt:     strings.TrimSpace(m.GeneratedAt),
+		InlineCSS:       template.CSS(assets.CSS),
+		InlineJS:        template.JS(assets.JS),
+		ActionedOutcome: reportBars(mailoverview.ActionedOutcomeCounts(m.Actioned)),
+		ActionedSenders: reportBars(mailoverview.ActionedSenderCounts(m.Actioned, 0)),
 	}
 	for _, t := range tabs {
 		if t.Minor {
@@ -145,7 +162,7 @@ func buildTabs(m mailoverview.Model) []TabView {
 	views = append(views, sectionView("all", m.All.Label, m.All, refYear))
 	for _, ms := range m.Months {
 		v := sectionView(ms.Key, ms.Label, ms, refYear)
-		v.Minor = ms.Key == "unknown" || ms.Summary.Classified <= minorMonthMax
+		v.Minor = isMinorTab(ms.Key, m.GeneratedAt)
 		views = append(views, v)
 	}
 	sel := defaultTabKey(views)
@@ -163,8 +180,9 @@ func sectionView(key, label string, sec mailoverview.MonthSection, refYear int) 
 		Section:     sec,
 		Tiles:       attentionTiles(sec.Attention),
 		ActionLists: actionLists(sec.Attention, refYear),
+		DeleteList:  groupDeleteSenders(sec.Attention.QuietList, refYear, key),
 		HasThemes:   len(sec.Themes) > 0 || len(sec.KindTree.Paths) > 0,
-		HasFluff:    len(sec.Fluff.ByWeek) > 0 || len(sec.Fluff.TopSenders) > 0,
+		HasFluff:    len(sec.Fluff.TopSenders) > 0,
 	}
 	// Sparkline: need at least two points
 	if len(sec.Summary.Sparkline) >= 2 {
@@ -229,23 +247,6 @@ func sectionView(key, label string, sec mailoverview.MonthSection, refYear int) 
 		v.HeatmapSVG = template.HTML(svg.HeatmapGrid(1100, 76+float64(len(themes))*28, "Message types by week (week starting Monday)", "Darker cells hold more messages. Types are the last word of each kind path; Other holds every type not listed.", weeks, themes, hm.Cells, hm.CellHashes, hm.ThemeHashes))
 	}
 	v.KindTree = buildKindTree(sec.KindTree.Paths)
-
-	var wkLab []string
-	var wkVal []int
-	for _, w := range sec.Fluff.ByWeek {
-		wkLab = append(wkLab, "Week of "+weekLabel(w.WeekKey))
-		wkVal = append(wkVal, int(w.Minutes*60))
-	}
-	if len(wkLab) > 0 {
-		v.FluffWeekBarsSVG = template.HTML(svg.BarChart(520, 64+float64(len(wkLab))*26, "Triage time by week (seconds)", "seconds", "Counts 5 s to delete each message, plus 10 s when it needs a reply or decision.", wkLab, wkVal, chartWarm))
-	}
-	messagesN := sec.Summary.Classified
-	if messagesN < 1 {
-		messagesN = 1
-	}
-	delSec := messagesN * 5
-	keepSec := int(sec.Fluff.KeepMinutes * 60)
-	v.FluffSplitSVG = template.HTML(svg.StackedBar(520, 100, "Deleting versus acting", "Deleting (5 s each)", "Acting (10 s extra when flagged)", delSec, keepSec, chartMuted, chartWarm))
 
 	// Hop flow
 	var toJev, toEss, jevOut, essOut int

@@ -48,6 +48,34 @@ func TestIntentPageGetAndGuess(t *testing.T) {
 	if !out.OK || out.Intent != "They are scanning the reply list." {
 		t.Fatalf("reply %+v", out)
 	}
+
+	dbody, err := json.Marshal(intentDetailRequest{
+		Month:   "Nov 2026",
+		Summary: "Group TLDR.",
+		Messages: []intentDetailMessageJSON{
+			{Subject: "A", About: "First."},
+			{Subject: "B", About: "Second."},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat.out = "• A: first\n• B: second\nVerdict: deletable."
+	dres, err := http.Post(ts.URL+"/intent/detail", "application/json", bytes.NewReader(dbody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dres.Body.Close()
+	if dres.StatusCode != http.StatusOK {
+		t.Fatalf("detail status %d", dres.StatusCode)
+	}
+	var dout intentDetailResponse
+	if err := json.NewDecoder(dres.Body).Decode(&dout); err != nil {
+		t.Fatal(err)
+	}
+	if !dout.OK || !strings.Contains(dout.Intent, "Verdict:") {
+		t.Fatalf("detail reply %+v", dout)
+	}
 }
 
 func TestIntentPageRejectsEmptySelection(t *testing.T) {

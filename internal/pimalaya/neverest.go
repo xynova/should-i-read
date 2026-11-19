@@ -38,6 +38,15 @@ func (n *Neverest) Check(ctx context.Context) (*Result, error) {
 
 // Sync runs neverest sync for an optional account id.
 func (n *Neverest) Sync(ctx context.Context, account string, excludeCollections []string) (*Result, error) {
+	return n.sync(ctx, account, excludeCollections, false)
+}
+
+// SyncAcceptingAbsences runs neverest sync with --accept-absences for this run.
+func (n *Neverest) SyncAcceptingAbsences(ctx context.Context, account string, excludeCollections []string) (*Result, error) {
+	return n.sync(ctx, account, excludeCollections, true)
+}
+
+func (n *Neverest) sync(ctx context.Context, account string, excludeCollections []string, acceptAbsences bool) (*Result, error) {
 	const op = "pimalaya.Neverest.Sync"
 	if n == nil || n.Runner == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil neverest")
@@ -48,6 +57,9 @@ func (n *Neverest) Sync(ctx context.Context, account string, excludeCollections 
 	}
 	defer func() { n.Runner.Account = prev }()
 	args := []string{"sync"}
+	if acceptAbsences {
+		args = append(args, "--accept-absences")
+	}
 	for _, raw := range excludeCollections {
 		name := strings.TrimSpace(raw)
 		if name == "" {
@@ -77,6 +89,14 @@ func (n *Neverest) Init(ctx context.Context, account string) (*Result, error) {
 		return res, nil
 	}
 	return res, err
+}
+
+// SetStreamLineHook installs a live NDJSON callback on the Neverest runner.
+func (n *Neverest) SetStreamLineHook(fn func([]byte)) {
+	if n == nil || n.Runner == nil {
+		return
+	}
+	n.Runner.OnStreamLine = fn
 }
 
 func replicaAlreadyInitialized(err error, res *Result) bool {

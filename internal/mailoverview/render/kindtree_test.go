@@ -30,6 +30,9 @@ func TestBuildKindTree_nestsSortsAndOpensBusiest(t *testing.T) {
 	if ci.Children[0].HashAttr != "w1,w2" {
 		t.Fatalf("leaf hashes %q", ci.Children[0].HashAttr)
 	}
+	if !ci.Children[0].Leaf || n.Leaf || ci.Leaf {
+		t.Fatalf("leaf flags parent=%v ci=%v wf=%v", n.Leaf, ci.Leaf, ci.Children[0].Leaf)
+	}
 	if n.HashAttr != "w1,w2,p1,b1" {
 		t.Fatalf("parent hashes %q", n.HashAttr)
 	}

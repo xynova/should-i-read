@@ -8,9 +8,35 @@ import (
 	"time"
 
 	"github.com/xynova/should-i-read/internal/mailreport"
+	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
+
+func TestContinueClassifyAfterSyncFetchZero(t *testing.T) {
+	t.Parallel()
+	if !continueClassifyAfterSync(pimalaya.EngineReport{Recognized: true, Fetch: 0}) {
+		t.Fatal("already-synced replica still continues to report")
+	}
+	if continueClassifyAfterSync(pimalaya.EngineReport{Recognized: true, DryRun: true}) {
+		t.Fatal("dry-run must not classify")
+	}
+	if continueClassifyAfterSync(pimalaya.EngineReport{}) {
+		t.Fatal("unrecognized report must not classify")
+	}
+}
+
+func TestDropExcludedItems(t *testing.T) {
+	t.Parallel()
+	items := []mailreport.Item{
+		{ObjectHash: "a", Collection: "INBOX"},
+		{ObjectHash: "b", Collection: "[Gmail]/Spam"},
+	}
+	got := dropExcludedItems(items, []string{"[Gmail]/Spam"})
+	if len(got) != 1 || got[0].ObjectHash != "a" {
+		t.Fatalf("%+v", got)
+	}
+}
 
 func TestIsClassifyUnavailable(t *testing.T) {
 	t.Parallel()

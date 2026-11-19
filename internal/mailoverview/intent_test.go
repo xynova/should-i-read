@@ -79,6 +79,38 @@ func TestGuessRejectsEmptyAndMissingDeadline(t *testing.T) {
 	}
 }
 
+func TestGuessDetailSendsMessages(t *testing.T) {
+	t.Parallel()
+	chat := &stubChat{out: "• 1 Jan · Hi: ping\nVerdict: deletable."}
+	g, err := CreateIntentGuesser(IntentConfig{Chat: chat, Model: "test-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	got, err := g.GuessDetail(ctx, IntentDetailInput{
+		Month:   "Nov 2026",
+		Summary: "GitHub notifications.",
+		Messages: []IntentDetailMessage{
+			{Date: "2026-11-01", Subject: "New follower", About: "Someone followed you."},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "• 1 Jan · Hi: ping\nVerdict: deletable." {
+		t.Fatalf("got %q", got)
+	}
+	user := chat.last.Messages[1].Content
+	if !strings.Contains(user, "GitHub notifications.") || !strings.Contains(user, "New follower") {
+		t.Fatalf("user prompt: %q", user)
+	}
+	sys := chat.last.Messages[0].Content
+	if !strings.Contains(sys, "Routine:") || !strings.Contains(sys, "worth reading or clear outliers") {
+		t.Fatalf("system prompt: %q", sys)
+	}
+}
+
 func TestGuessWrapsChatFailure(t *testing.T) {
 	t.Parallel()
 	chat := &stubChat{err: sirerr.New(sirerr.CodeUnavailable, "stub", "down")}

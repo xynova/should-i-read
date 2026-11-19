@@ -50,6 +50,28 @@ func TestGroupActioned(t *testing.T) {
 	}
 }
 
+func TestActionedOutcomeAndSenderCounts(t *testing.T) {
+	rows := []ActionedRow{
+		{Sender: "a@x", Count: 2, Outcome: maildelete.OutcomeAlreadyInTrash},
+		{Sender: "b@x", Count: 5, Outcome: maildelete.OutcomeTrashedAtSource},
+		{Sender: "a@x", Count: 1, Outcome: maildelete.OutcomeAckedAtSource},
+	}
+	outcomes := ActionedOutcomeCounts(rows)
+	if len(outcomes) != 3 || outcomes[0].Label != maildelete.OutcomeTrashedAtSource || outcomes[0].Count != 5 {
+		t.Fatalf("outcomes %+v", outcomes)
+	}
+	if outcomes[2].Label != maildelete.OutcomeAckedAtSource || outcomes[2].Count != 1 {
+		t.Fatalf("acked %+v", outcomes)
+	}
+	senders := ActionedSenderCounts(rows, 8)
+	if len(senders) != 2 || senders[0].Label != "b@x" || senders[0].Count != 5 {
+		t.Fatalf("senders %+v", senders)
+	}
+	if senders[1].Label != "a@x" || senders[1].Count != 3 {
+		t.Fatalf("a@x %+v", senders[1])
+	}
+}
+
 func TestFilterCartAdds(t *testing.T) {
 	toAdd, inCart, actioned := filterCartAdds(
 		[]hoststore.DeleteCartItem{{ObjectHash: "already"}},

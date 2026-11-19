@@ -9,6 +9,33 @@ import (
 	"github.com/xynova/should-i-read/internal/pimdir"
 )
 
+func TestAttentionFromItems_quietListOmitsReply(t *testing.T) {
+	got := attentionFromItems([]enriched{
+		{
+			row:     hoststore.OverviewRow{ObjectHash: "q1", NeedsReplyNoul: 0.1, InvolvesDecisionNoul: 0.1, Urgency: 0.2},
+			email:   "spam@x",
+			summary: pimdir.EmailSummary{Subject: "Sale", Date: "2026-10-01T00:00:00Z"},
+		},
+		{
+			row:   hoststore.OverviewRow{ObjectHash: "r1", NeedsReplyNoul: 0.9, Urgency: 0.2},
+			email: "a@x",
+		},
+		{
+			row:   hoststore.OverviewRow{ObjectHash: "u1", NeedsReplyNoul: 0.1, InvolvesDecisionNoul: 0.1, Urgency: 0.8},
+			email: "u@x",
+		},
+	})
+	if got.Quiet != 1 || len(got.QuietList) != 1 || got.QuietList[0].ObjectHash != "q1" {
+		t.Fatalf("quiet %+v list %+v", got.Quiet, got.QuietList)
+	}
+	if got.NeedsReply != 1 || len(got.ReplyList) != 1 {
+		t.Fatalf("reply %+v", got.ReplyList)
+	}
+	if got.UrgentOnly != 1 || len(got.UrgentList) != 1 || got.UrgentList[0].ObjectHash != "u1" {
+		t.Fatalf("urgent %+v list %+v", got.UrgentOnly, got.UrgentList)
+	}
+}
+
 func TestBuildModel_twoMonths_unknown_filtered(t *testing.T) {
 	loc := time.Local
 	summaries := map[string]pimdir.EmailSummary{

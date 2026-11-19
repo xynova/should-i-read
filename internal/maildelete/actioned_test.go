@@ -57,6 +57,75 @@ func TestLookupActionedTrashAndFailed(t *testing.T) {
 	}
 }
 
+func TestLookupActionedMissingReplicaIsAlreadyGone(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	pim := &fakePim{m: map[string]pimdir.EmailSummary{
+		"live": {Collection: "INBOX", Sender: "a@x", Seq: 1},
+	}}
+	jobs := map[string]hoststore.DeleteJobItem{
+		"ghost": {Status: hoststore.DeleteJobItemUnresolved, Sender: "(unknown sender)"},
+	}
+	got, err := LookupActioned(ctx, pim, jobs, []string{"live", "ghost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["live"]; ok {
+		t.Fatal("live replica must stay on the board")
+	}
+	if got["ghost"].Outcome != OutcomeAlreadyInTrash {
+		t.Fatalf("missing replica %+v", got["ghost"])
+	}
+}
+
+func TestLookupActionedNilPimDoesNotHideMissing(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	got, err := LookupActioned(ctx, nil, map[string]hoststore.DeleteJobItem{
+		"ghost": {Status: hoststore.DeleteJobItemUnresolved},
+	}, []string{"ghost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["ghost"]; ok {
+		t.Fatalf("nil pimdir must not hide unresolved: %+v", got["ghost"])
+	}
+}
+
+func TestMergeTrashOutcomesHidesLedgerTrash(t *testing.T) {
+	infos := map[string]ActionedInfo{
+		"moved": {ObjectHash: "moved", Outcome: OutcomeTrashedAtSource, Sender: "job@x"},
+	}
+	outcomes := map[string]hoststore.MessageOutcome{
+		"moved":  {ObjectHash: "moved", Outcome: hoststore.OutcomeAlreadyInTrash, Sender: "ledger@x"},
+		"gone":   {ObjectHash: "gone", Outcome: hoststore.OutcomeTrashedAtSource, Sender: "n@github.com"},
+		"kept":   {ObjectHash: "kept", Outcome: hoststore.OutcomeKept, Sender: "keep@x"},
+		"failed": {ObjectHash: "failed", Outcome: hoststore.OutcomeAlreadyInTrash, Sender: "old@x"},
+	}
+	got := MergeTrashOutcomes(infos, outcomes)
+	if got["moved"].Outcome != OutcomeTrashedAtSource || got["moved"].Sender != "job@x" {
+		t.Fatalf("existing classify must win: %+v", got["moved"])
+	}
+	if got["gone"].Outcome != OutcomeTrashedAtSource || got["gone"].Sender != "n@github.com" {
+		t.Fatalf("ledger trash must hide: %+v", got["gone"])
+	}
+	if got["failed"].Outcome != OutcomeAlreadyInTrash {
+		t.Fatalf("already in Trash must hide: %+v", got["failed"])
+	}
+	if _, ok := got["kept"]; ok {
+		t.Fatal("kept must stay live")
+	}
+}
+
+func TestMergeTrashOutcomesHidesAcked(t *testing.T) {
+	got := MergeTrashOutcomes(nil, map[string]hoststore.MessageOutcome{
+		"ack": {ObjectHash: "ack", Outcome: hoststore.OutcomeAcked, Sender: "a@x"},
+	})
+	if got["ack"].Outcome != OutcomeAckedAtSource {
+		t.Fatalf("acked must hide: %+v", got["ack"])
+	}
+}
+
 func TestPersistActionedSkipsFailed(t *testing.T) {
 	st, ctx := testPersistStore(t)
 	ctxLookup, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -95,6 +164,26 @@ func TestPersistActionedReplicaFolder(t *testing.T) {
 	}
 	got, ok, err := st.GetOutcome(ctx, "trash")
 	if err != nil || !ok || got.Source != hoststore.OutcomeSourceReplicaFolder {
+		t.Fatalf("got %+v ok %v err %v", got, ok, err)
+	}
+}
+
+func TestPersistActionedMissingReplica(t *testing.T) {
+	st, ctx := testPersistStore(t)
+	ctxLookup, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	jobs := map[string]hoststore.DeleteJobItem{
+		"ghost": {Status: hoststore.DeleteJobItemUnresolved, Sender: "(unknown sender)"},
+	}
+	infos, err := LookupActioned(ctxLookup, &fakePim{m: map[string]pimdir.EmailSummary{}}, jobs, []string{"ghost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := PersistActioned(ctx, st, jobs, infos); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := st.GetOutcome(ctx, "ghost")
+	if err != nil || !ok || got.Outcome != hoststore.OutcomeAlreadyInTrash || got.Source != hoststore.OutcomeSourceReplicaFolder {
 		t.Fatalf("got %+v ok %v err %v", got, ok, err)
 	}
 }

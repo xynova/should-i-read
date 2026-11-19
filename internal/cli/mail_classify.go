@@ -16,6 +16,7 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/tags"
 	"github.com/xynova/should-i-read/internal/clui"
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/hostevent"
 	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/mailreport"
 	"github.com/xynova/should-i-read/internal/pimalaya"
@@ -37,7 +38,10 @@ type classifyOpts struct {
 	maxBody         int
 	skipAuthorProbe bool
 	skipEmbedProbe  bool
+	Events          *hostevent.Bus
 }
+
+const postSyncReportLimit = 500
 
 func newMailReportCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var (
@@ -217,41 +221,21 @@ func runMailReport(cmd *cobra.Command, opts *rootOptions, repoRoot string, inPat
 
 func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, res *pimalaya.Result, noClassify bool, maxBody int, excludeCollections []string) error {
 	const op = "cli.mail.classifyAfterSync"
-	if noClassify || res == nil || len(res.Raw) == 0 {
-		return nil
-	}
-	rep := pimalaya.SummarizeNeverestJSON(res.Raw)
-	if !rep.Recognized || rep.DryRun || rep.Fetch == 0 {
+	if noClassify {
 		return nil
 	}
 	cfg, err := opts.mustLoad(repoRoot)
 	if err != nil {
 		return err
 	}
-	reader, err := pimdir.OpenStore(cfg.Pimalaya.PimdirPath)
-	if err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "open store")
-	}
-	items, unresolved := itemsFromFetchHunks(reader, pimalaya.FetchedHunks(res.Raw), maxBody, excludeCollections)
-	ctx, cancel, err := classifyJobContext(cmd.Context(), false)
-	if err != nil {
-		return err
-	}
-	defer cancel()
-	runner, err := prepareClassifyRunner(ctx, cfg, repoRoot, classifyOpts{maxBody: maxBody})
-	if err != nil {
-		if isClassifyUnavailable(err) {
-			box := clui.FormatBox("Classify", clui.Muted("Classification skipped (Polypus unavailable)"))
-			if wErr := writeCLILine(cmd.OutOrStdout(), box); wErr != nil {
-				return sirerr.Wrap(wErr, sirerr.CodeFailed, op, "write classify skip")
-			}
-			return nil
+	art, down, err := runPostSyncClassify(cmd.Context(), cfg, repoRoot, res, maxBody, excludeCollections, nil)
+	if down {
+		box := clui.FormatBox("Classify", clui.Muted("Classification skipped (Polypus unavailable)"))
+		if wErr := writeCLILine(cmd.OutOrStdout(), box); wErr != nil {
+			return sirerr.Wrap(wErr, sirerr.CodeFailed, op, "write classify skip")
 		}
-		return err
+		return nil
 	}
-	defer func() { _ = runner.Close() }()
-	items = mailreport.DedupeItemsByHash(items)
-	art, err := runner.Classify(ctx, mailreport.SourceSyncFetch, items)
 	if err != nil {
 		if isClassifyUnavailable(err) {
 			box := clui.FormatBox("Classify", clui.Muted("Classification skipped (Polypus unavailable)"))
@@ -266,39 +250,123 @@ func runMailClassifyAfterSync(cmd *cobra.Command, opts *rootOptions, repoRoot st
 		}
 		return nil
 	}
+	if art.GeneratedAt == "" {
+		return nil
+	}
+	if wantJSON(cmd) {
+		return nil
+	}
+	summary := formatClassifyArtifact(art)
+	if err := writeCLILine(cmd.OutOrStdout(), summary); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write classify summary")
+	}
+	return nil
+}
+
+func continueClassifyAfterSync(rep pimalaya.EngineReport) bool {
+	return rep.Recognized && !rep.DryRun
+}
+
+func classifyEvents(events *hostevent.Bus) *hostevent.Bus {
+	if events != nil {
+		return events
+	}
+	return hostevent.CreateBus()
+}
+
+func postSyncClassifyItems(ctx context.Context, reader *pimdir.Reader, res *pimalaya.Result, rep pimalaya.EngineReport, maxBody int, excludeCollections, collections []string) ([]mailreport.Item, int, string, error) {
+	if rep.Fetch > 0 {
+		items, unresolved := itemsFromFetchHunks(reader, pimalaya.FetchedHunks(res.Raw), maxBody, excludeCollections)
+		return items, unresolved, mailreport.SourceSyncFetch, nil
+	}
+	items, err := loadReportItems(ctx, reader, "", pimdir.DateWindow{}, postSyncReportLimit, true, maxBody, collections)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	return dropExcludedItems(items, excludeCollections), 0, mailreport.SourceReport, nil
+}
+
+func dropExcludedItems(items []mailreport.Item, exclude []string) []mailreport.Item {
+	if len(exclude) == 0 {
+		return items
+	}
+	skip := map[string]struct{}{}
+	for _, raw := range exclude {
+		name := strings.TrimSpace(raw)
+		if name != "" {
+			skip[name] = struct{}{}
+		}
+	}
+	out := make([]mailreport.Item, 0, len(items))
+	for _, it := range items {
+		if _, ok := skip[strings.TrimSpace(it.Collection)]; ok {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+func runPostSyncClassify(parent context.Context, cfg config.Config, repoRoot string, res *pimalaya.Result, maxBody int, excludeCollections []string, events *hostevent.Bus) (mailreport.Artifact, bool, error) {
+	const op = "cli.postSyncClassify"
+	var art mailreport.Artifact
+	if parent == nil {
+		return art, false, sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	if res == nil || len(res.Raw) == 0 {
+		return art, false, nil
+	}
+	rep := pimalaya.SummarizeNeverestJSON(res.Raw)
+	if !continueClassifyAfterSync(rep) {
+		return art, false, nil
+	}
+	reader, err := pimdir.OpenStore(cfg.Pimalaya.PimdirPath)
+	if err != nil {
+		return art, false, sirerr.Wrap(err, sirerr.CodeFailed, op, "open store")
+	}
+	ctx, cancel, err := classifyJobContext(parent, false)
+	if err != nil {
+		return art, false, err
+	}
+	defer cancel()
+	items, unresolved, source, err := postSyncClassifyItems(ctx, reader, res, rep, maxBody, excludeCollections, cfg.Taxonomy.Collections)
+	if err != nil {
+		return art, false, err
+	}
+	runner, err := prepareClassifyRunner(ctx, cfg, repoRoot, classifyOpts{maxBody: maxBody, Events: events})
+	if err != nil {
+		if isClassifyUnavailable(err) {
+			return art, true, nil
+		}
+		return art, false, err
+	}
+	defer func() { _ = runner.Close() }()
+	items = mailreport.DedupeItemsByHash(items)
+	art, err = runner.Classify(ctx, source, items)
+	if err != nil {
+		if isClassifyUnavailable(err) {
+			return art, true, nil
+		}
+		return art, false, err
+	}
 	art.Unresolved += unresolved
 	art, err = runner.ScoreAttention(ctx, art)
 	if err != nil {
 		if isClassifyUnavailable(err) {
-			box := clui.FormatBox("Classify", clui.Muted("Attention scoring failed (Polypus unavailable)"))
-			if wErr := writeCLILine(cmd.OutOrStdout(), box); wErr != nil {
-				return sirerr.Wrap(wErr, sirerr.CodeFailed, op, "write attention skip")
-			}
-		} else {
-			return err
+			return art, true, nil
 		}
+		return art, false, err
 	}
-	var clusterErr error
-	art, clusterErr = runner.Cluster(ctx, art)
+	art, _ = runner.Cluster(ctx, art)
 	if runner.WorthReadPriorEnabled() {
 		art, _ = runner.ScoreWorthReadPrior(ctx, art)
 	}
 	path, werr := writeReportArtifact(repoRoot, "", art)
 	if werr != nil {
-		return sirerr.Wrap(werr, sirerr.CodeFailed, op, "write report")
+		return art, false, sirerr.Wrap(werr, sirerr.CodeFailed, op, "write report")
 	}
 	art.ReportPath = path
-	if wantJSON(cmd) {
-		return nil
-	}
-	summary := formatClassifyArtifact(art)
-	if clusterErr != nil {
-		summary += "\n" + clui.Muted("Cluster persist failed: "+shortClassifyErr(clusterErr))
-	}
-	if err := writeCLILine(cmd.OutOrStdout(), summary); err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write classify summary")
-	}
-	return nil
+	return art, false, nil
 }
 
 func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot string, cOpts classifyOpts) (*mailreport.Runner, error) {
@@ -479,6 +547,7 @@ func prepareClassifyRunner(ctx context.Context, cfg config.Config, repoRoot stri
 		DescriptionCosineMin:       cfg.Taxonomy.DescriptionCosineMin,
 		DescriptionCosineMode:      cfg.Taxonomy.DescriptionCosineMode,
 		EssenceSemanticMaxAttempts: cfg.Taxonomy.EssenceSemanticMaxAttempts,
+		Events:                     classifyEvents(cOpts.Events),
 	})
 	if err != nil {
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "create seats")

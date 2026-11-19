@@ -111,6 +111,79 @@ func GroupActioned(actioned map[string]maildelete.ActionedInfo) []ActionedRow {
 	return out
 }
 
+const actionedSenderBarLimit = 8
+
+// NamedCount is one bar on the Report Actioned charts.
+type NamedCount struct {
+	Label string
+	Count int
+}
+
+// ActionedOutcomeCounts rolls Actioned rows into outcome bars.
+func ActionedOutcomeCounts(rows []ActionedRow) []NamedCount {
+	totals := map[string]int{}
+	for _, row := range rows {
+		label := strings.TrimSpace(row.Outcome)
+		if label == "" || row.Count < 1 {
+			continue
+		}
+		totals[label] += row.Count
+	}
+	order := []string{
+		maildelete.OutcomeTrashedAtSource,
+		maildelete.OutcomeAlreadyInTrash,
+		maildelete.OutcomeAckedAtSource,
+	}
+	out := make([]NamedCount, 0, len(totals))
+	seen := map[string]struct{}{}
+	for _, label := range order {
+		if n := totals[label]; n > 0 {
+			out = append(out, NamedCount{Label: label, Count: n})
+			seen[label] = struct{}{}
+		}
+	}
+	extra := make([]string, 0)
+	for label := range totals {
+		if _, ok := seen[label]; !ok {
+			extra = append(extra, label)
+		}
+	}
+	sort.Strings(extra)
+	for _, label := range extra {
+		out = append(out, NamedCount{Label: label, Count: totals[label]})
+	}
+	return out
+}
+
+// ActionedSenderCounts rolls Actioned rows into the loudest senders.
+func ActionedSenderCounts(rows []ActionedRow, limit int) []NamedCount {
+	if limit < 1 {
+		limit = actionedSenderBarLimit
+	}
+	totals := map[string]int{}
+	for _, row := range rows {
+		sender := strings.TrimSpace(row.Sender)
+		if sender == "" || row.Count < 1 {
+			continue
+		}
+		totals[sender] += row.Count
+	}
+	out := make([]NamedCount, 0, len(totals))
+	for sender, n := range totals {
+		out = append(out, NamedCount{Label: sender, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Label < out[j].Label
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
 func filterCartAdds(existing []hoststore.DeleteCartItem, incoming []hoststore.DeleteCartItem, actioned map[string]maildelete.ActionedInfo) (toAdd []hoststore.DeleteCartItem, skippedInCart, skippedActioned int) {
 	inCart := map[string]struct{}{}
 	for _, item := range existing {

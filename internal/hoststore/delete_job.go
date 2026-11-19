@@ -88,9 +88,10 @@ func (s *Store) CreateDeleteJobFromCart(ctx context.Context, createdAt time.Time
 	if len(cart) == 0 {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "empty deletion cart")
 	}
-	if len(cart) > deleteCartMaxItems {
+	if len(cart) > deleteCartMaxTotal {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "too many cart items for job").
-			With("count", strconv.Itoa(len(cart)))
+			With("count", strconv.Itoa(len(cart))).
+			With("max", strconv.Itoa(deleteCartMaxTotal))
 	}
 	jobID, err := newDeleteCartGroupID()
 	if err != nil {

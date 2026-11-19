@@ -1,9 +1,11 @@
 package pimalaya
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/sirerr"
@@ -79,6 +81,20 @@ func TestCreateHimalayaMissingFile(t *testing.T) {
 	}
 	code, ok := sirerr.AsCode(err)
 	if !ok || code != sirerr.CodeUnavailable {
+		t.Fatalf("code %v err %v", code, err)
+	}
+}
+
+func TestFlagAddRejectsNonSeen(t *testing.T) {
+	h := &Himalaya{Runner: &Runner{Bin: "himalaya"}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := h.FlagAdd(ctx, "INBOX", "1", "junk")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	code, ok := sirerr.AsCode(err)
+	if !ok || code != sirerr.CodeInvalid {
 		t.Fatalf("code %v err %v", code, err)
 	}
 }

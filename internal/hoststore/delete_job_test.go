@@ -2,6 +2,7 @@ package hoststore
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -105,6 +106,35 @@ func TestLatestDeleteJobItemsPrefersNewerJob(t *testing.T) {
 	}
 	if _, ok := got["missing"]; ok {
 		t.Fatal("missing")
+	}
+}
+
+func TestCreateDeleteJobFromCartAllowsAccumulatedAdds(t *testing.T) {
+	st, ctx := testStore(t)
+	first := make([]DeleteCartItem, 0, deleteCartAddMax)
+	for i := 0; i < deleteCartAddMax; i++ {
+		first = append(first, DeleteCartItem{ObjectHash: "a" + strconv.Itoa(i)})
+	}
+	if err := st.AddDeleteCart(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	second := make([]DeleteCartItem, 0, 20)
+	for i := 0; i < 20; i++ {
+		second = append(second, DeleteCartItem{ObjectHash: "b" + strconv.Itoa(i)})
+	}
+	if err := st.AddDeleteCart(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	jobID, err := st.CreateDeleteJobFromCart(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := st.GetDeleteJob(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(job.Items) != deleteCartAddMax+20 {
+		t.Fatalf("items %d", len(job.Items))
 	}
 }
 

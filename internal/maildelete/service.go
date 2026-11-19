@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -92,8 +93,10 @@ func CreateDeleteJobService(cfg DeleteJobConfig) (*Service, error) {
 }
 
 // StartJob snapshots the cart, resolves hashes, writes artifact.
-func (s *Service) StartJob(ctx context.Context) (JobArtifact, error) {
+func (s *Service) StartJob(ctx context.Context) (art JobArtifact, err error) {
 	const op = "maildelete.Service.StartJob"
+	ctx, span := startJobSpan(ctx)
+	defer func() { endDeleteSpan(span, err) }()
 	if s == nil {
 		return JobArtifact{}, sirerr.New(sirerr.CodeInvalid, op, "nil service")
 	}
@@ -101,6 +104,7 @@ func (s *Service) StartJob(ctx context.Context) (JobArtifact, error) {
 	if err != nil {
 		return JobArtifact{}, err
 	}
+	setDeleteJobID(span, jobID)
 	job, err := s.GetJob(ctx, jobID)
 	if err != nil {
 		return JobArtifact{}, err
@@ -193,6 +197,59 @@ func applyMailbox(it hoststore.DeleteJobItem) string {
 	return NormalizeFolder(it.Folder)
 }
 
+// applyEnvelopeID prefers pimdir seq. Himalaya message ids are decimal numbers;
+// RFC Message-ID strings in link_id are rejected.
+func applyEnvelopeID(it hoststore.DeleteJobItem) string {
+	if it.Seq > 0 {
+		return strconv.FormatInt(it.Seq, 10)
+	}
+	if id := numericMessageID(it.EnvelopeID); id != "" {
+		return id
+	}
+	return numericMessageID(it.LinkID)
+}
+
+func numericMessageID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return id
+}
+
+func (s *Service) refreshApplyBindings(ctx context.Context, jobID string, items []hoststore.DeleteJobItem) error {
+	if s == nil || s.pimdir == nil || len(items) == 0 {
+		return nil
+	}
+	hashes := make([]string, 0, len(items))
+	for _, it := range items {
+		hashes = append(hashes, it.ObjectHash)
+	}
+	bindings, err := ResolveJobBindings(ctx, s.pimdir, hashes)
+	if err != nil {
+		return err
+	}
+	out := make([]hoststore.DeleteJobBinding, 0, len(bindings))
+	for _, b := range bindings {
+		if b.Status != hoststore.DeleteJobItemPlanned && b.Status != hoststore.DeleteJobItemRefused {
+			continue
+		}
+		if strings.TrimSpace(b.Folder) == "" && b.Status == hoststore.DeleteJobItemPlanned {
+			continue
+		}
+		out = append(out, b)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return s.store.BindDeleteJobItems(ctx, jobID, out)
+}
+
 // ApplyAsync starts apply in the background (HTTP 202 path).
 func (s *Service) ApplyAsync(jobID, confirm string) error {
 	const op = "maildelete.Service.ApplyAsync"
@@ -218,8 +275,10 @@ func (s *Service) ApplyAsync(jobID, confirm string) error {
 }
 
 // Apply moves planned items to trash via Himalaya.
-func (s *Service) Apply(ctx context.Context, jobID, confirm string) error {
+func (s *Service) Apply(ctx context.Context, jobID, confirm string) (err error) {
 	const op = "maildelete.Service.Apply"
+	ctx, span := startApplySpan(ctx, jobID)
+	defer func() { endDeleteSpan(span, err) }()
 	if confirm != hoststore.DeleteJobConfirmToken {
 		return sirerr.New(sirerr.CodeInvalid, op, "confirm token mismatch")
 	}
@@ -238,6 +297,12 @@ func (s *Service) Apply(ctx context.Context, jobID, confirm string) error {
 	if err != nil {
 		return err
 	}
+	if err := s.refreshApplyBindings(ctx, jobID, items); err == nil {
+		items, err = s.store.ListApplyableDeleteJobItems(ctx, jobID)
+		if err != nil {
+			return err
+		}
+	}
 	var jobErr string
 	for _, it := range items {
 		if err := ctx.Err(); err != nil {
@@ -245,7 +310,7 @@ func (s *Service) Apply(ctx context.Context, jobID, confirm string) error {
 			break
 		}
 		folder := applyMailbox(it)
-		env := strings.TrimSpace(it.EnvelopeID)
+		env := applyEnvelopeID(it)
 		if folder == "" || env == "" {
 			bindings, rerr := ResolveJobBindings(ctx, s.pimdir, []string{it.ObjectHash})
 			if rerr != nil || len(bindings) == 0 {
@@ -260,9 +325,11 @@ func (s *Service) Apply(ctx context.Context, jobID, confirm string) error {
 			}
 		}
 		itemCtx, cancel := context.WithTimeout(ctx, s.itemTimeout)
+		itemCtx, itemSpan := startMessageDeleteSpan(itemCtx, jobID, it.ObjectHash, folder, env)
 		res, derr := s.deleter.MessageDelete(itemCtx, folder, env)
 		cancel()
 		if derr != nil {
+			endDeleteSpan(itemSpan, derr)
 			msg := derr.Error()
 			if code, ok := sirerr.AsCode(derr); ok && code == sirerr.CodeNeedsReview {
 				_ = s.store.SetDeleteJobItemStatus(ctx, jobID, it.ObjectHash, hoststore.DeleteJobItemFailed, msg)
@@ -274,9 +341,11 @@ func (s *Service) Apply(ctx context.Context, jobID, confirm string) error {
 		}
 		action, count, perr := ParseDeleteReport(res.Raw)
 		if perr != nil || !TrashSuccess(action, count) {
+			endDeleteSpan(itemSpan, fmt.Errorf("unexpected delete action"))
 			_ = s.store.SetDeleteJobItemStatus(ctx, jobID, it.ObjectHash, hoststore.DeleteJobItemFailed, "unexpected delete action")
 			continue
 		}
+		endDeleteSpan(itemSpan, nil)
 		_ = s.store.SetDeleteJobItemStatus(ctx, jobID, it.ObjectHash, hoststore.DeleteJobItemTrashed, "")
 		if err := s.store.UpsertOutcome(ctx, hoststore.MessageOutcome{
 			ObjectHash: it.ObjectHash,
@@ -315,7 +384,9 @@ func (s *Service) Apply(ctx context.Context, jobID, confirm string) error {
 	if err != nil {
 		return err
 	}
-	return s.writeArtifact(jobToArtifact(job))
+	art := jobToArtifact(job)
+	setDeleteCounts(span, art.Counts.Failed, art.Counts.Trashed)
+	return s.writeArtifact(art)
 }
 
 func (s *Service) writeArtifact(art JobArtifact) error {

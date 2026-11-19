@@ -1,14 +1,17 @@
 package pimalaya
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"go.opentelemetry.io/otel"
@@ -36,6 +39,8 @@ type Runner struct {
 	ConfigPath string
 	Account    string
 	ExtraEnv   []string
+	// OnStreamLine receives each stdout and stderr line while the command runs.
+	OnStreamLine func([]byte)
 }
 
 // Create builds a Runner after allow-list and path checks.
@@ -127,12 +132,17 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 	cmdArgs = append(cmdArgs, args...)
 
 	cmd := exec.CommandContext(ctx, r.Bin, cmdArgs...)
-	cmd.Env = mergeEnv(os.Environ(), r.ExtraEnv)
+	extraEnv := append([]string{"NO_COLOR=1"}, r.ExtraEnv...)
+	cmd.Env = mergeEnv(os.Environ(), extraEnv)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutW, stopOut := startLineTap(&stdout, r.OnStreamLine)
+	stderrW, stopErr := startLineTap(&stderr, r.OnStreamLine)
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
 
 	err := cmd.Run()
+	stopOut()
+	stopErr()
 	exit := exitCodeFrom(err, cmd)
 	res := &Result{
 		Stdout: stdout.String(),
@@ -171,6 +181,28 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 	return res, nil
 }
 
+const streamLineMax = 8 << 20
+
+func startLineTap(dst *bytes.Buffer, hook func([]byte)) (io.Writer, func()) {
+	if hook == nil {
+		return dst, func() {}
+	}
+	pr, pw := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sc := bufio.NewScanner(pr)
+		sc.Buffer(make([]byte, 0, 64*1024), streamLineMax)
+		for sc.Scan() {
+			hook(append([]byte(nil), sc.Bytes()...))
+		}
+	}()
+	return io.MultiWriter(dst, pw), func() {
+		_ = pw.Close()
+		<-done
+	}
+}
+
 func exitCodeFrom(err error, cmd *exec.Cmd) int {
 	if err == nil {
 		return 0
@@ -195,11 +227,54 @@ func mergeEnv(base, extra []string) []string {
 	return out
 }
 
-func cliDetail(stderr, stdout string) string {
-	if s := strings.TrimSpace(stderr); s != "" {
-		return s
+var (
+	ansiCSI = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
+	ansiOSC = regexp.MustCompile(`\x1b\][^\x07\x1b]*(\x07|\x1b\\)`)
+)
+
+func stripANSI(s string) string {
+	s = ansiCSI.ReplaceAllString(s, "")
+	s = ansiOSC.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
+}
+
+func looksLikeJSON(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
 	}
-	return strings.TrimSpace(stdout)
+	switch s[0] {
+	case '{', '[':
+		return true
+	default:
+		return false
+	}
+}
+
+func cliDetail(stderr, stdout string) string {
+	out := stripANSI(stdout)
+	errS := stripANSI(stderr)
+	if looksLikeJSON(out) {
+		return out
+	}
+	if errS != "" {
+		lines := strings.Split(errS, "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			t := strings.TrimSpace(lines[i])
+			if t == "" {
+				continue
+			}
+			if looksLikeJSON(t) && strings.Contains(t, `"event"`) {
+				continue
+			}
+			return t
+		}
+		if looksLikeJSON(out) {
+			return out
+		}
+		return ""
+	}
+	return out
 }
 
 func truncate(s string, n int) string {

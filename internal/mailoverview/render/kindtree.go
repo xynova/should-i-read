@@ -41,6 +41,8 @@ type KindNode struct {
 	HashAttr string
 	// SmallHashAttr is comma-joined hashes for the folded Small tail.
 	SmallHashAttr string
+	// Leaf is true when this node has no shown or folded children.
+	Leaf bool
 }
 
 type kindBranch struct {
@@ -132,6 +134,7 @@ func foldKindBranch(b *kindBranch, parentCount, maxTop, depth int) ([]*KindNode,
 		}
 		n.Children, n.Small, n.SmallMessages = foldKindBranch(k, k.count, maxTop, depth+1)
 		n.SmallHashAttr = joinNodeHashes(n.Small)
+		n.Leaf = len(n.Children) == 0 && len(n.Small) == 0
 		if i == 0 || (i < kindTreeMaxShown && share >= kindTreeMinShare && k.count >= 2) {
 			shown = append(shown, n)
 			continue

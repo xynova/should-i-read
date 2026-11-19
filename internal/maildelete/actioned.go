@@ -14,6 +14,8 @@ const (
 	OutcomeAlreadyInTrash = "already in Trash"
 	// OutcomeTrashedAtSource is a job item Himalaya moved to Trash.
 	OutcomeTrashedAtSource = "trashed at source"
+	// OutcomeAckedAtSource is a job item Himalaya marked seen.
+	OutcomeAckedAtSource = "marked read at source"
 )
 
 // ActionedInfo is one hash that must leave the live months and stay out of the cart.
@@ -53,9 +55,51 @@ func OutcomeCodeFromHuman(human string) string {
 		return hoststore.OutcomeTrashedAtSource
 	case OutcomeAlreadyInTrash:
 		return hoststore.OutcomeAlreadyInTrash
+	case OutcomeAckedAtSource:
+		return hoststore.OutcomeAcked
 	default:
 		return ""
 	}
+}
+
+// HumanOutcomeFromCode maps store codes to actioned UI labels.
+func HumanOutcomeFromCode(code string) string {
+	switch strings.TrimSpace(code) {
+	case hoststore.OutcomeTrashedAtSource:
+		return OutcomeTrashedAtSource
+	case hoststore.OutcomeAlreadyInTrash:
+		return OutcomeAlreadyInTrash
+	case hoststore.OutcomeAcked:
+		return OutcomeAckedAtSource
+	default:
+		return ""
+	}
+}
+
+// MergeTrashOutcomes hides hashes that already have a trash ledger row.
+func MergeTrashOutcomes(infos map[string]ActionedInfo, outcomes map[string]hoststore.MessageOutcome) map[string]ActionedInfo {
+	if infos == nil {
+		infos = map[string]ActionedInfo{}
+	}
+	for hash, row := range outcomes {
+		h := strings.TrimSpace(hash)
+		if h == "" {
+			continue
+		}
+		if _, ok := infos[h]; ok {
+			continue
+		}
+		human := HumanOutcomeFromCode(row.Outcome)
+		if human == "" {
+			continue
+		}
+		infos[h] = ActionedInfo{
+			ObjectHash: h,
+			Outcome:    human,
+			Sender:     strings.TrimSpace(row.Sender),
+		}
+	}
+	return infos
 }
 
 func outcomeSource(job hoststore.DeleteJobItem, info ActionedInfo) (source, jobID string) {
@@ -64,6 +108,9 @@ func outcomeSource(job hoststore.DeleteJobItem, info ActionedInfo) (source, jobI
 		return hoststore.OutcomeSourceDeleteJob, strings.TrimSpace(job.JobID)
 	}
 	if IsTrashFolder(info.Folder) {
+		return hoststore.OutcomeSourceReplicaFolder, ""
+	}
+	if info.Outcome == OutcomeAlreadyInTrash && strings.TrimSpace(info.Folder) == "" {
 		return hoststore.OutcomeSourceReplicaFolder, ""
 	}
 	return hoststore.OutcomeSourceDeleteJob, strings.TrimSpace(job.JobID)
@@ -128,7 +175,24 @@ func LookupActioned(ctx context.Context, pim PimdirSummaries, jobs map[string]ho
 			continue
 		}
 		job := jobs[h]
-		sum := summaries[h]
+		sum, found := summaries[h]
+		if pim != nil && !found {
+			outcome := ClassifyActioned(job.Status, "")
+			if outcome == "" {
+				outcome = OutcomeAlreadyInTrash
+			}
+			sender := strings.TrimSpace(job.Sender)
+			if sender == "" {
+				sender = "(unknown sender)"
+			}
+			out[h] = ActionedInfo{
+				ObjectHash: h,
+				Outcome:    outcome,
+				Sender:     sender,
+				Subject:    strings.TrimSpace(job.Subject),
+			}
+			continue
+		}
 		col := strings.TrimSpace(sum.Collection)
 		if col == "" {
 			col = job.Folder
@@ -177,5 +241,9 @@ func (s *Service) LookupActioned(ctx context.Context, hashes []string) (map[stri
 	if err := PersistActioned(ctx, s.store, items, infos); err != nil {
 		return infos, err
 	}
-	return infos, nil
+	outcomes, err := s.store.GetOutcomes(ctx, hashes)
+	if err != nil {
+		return nil, err
+	}
+	return MergeTrashOutcomes(infos, outcomes), nil
 }

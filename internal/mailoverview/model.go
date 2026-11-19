@@ -26,7 +26,7 @@ type Model struct {
 	Actioned []ActionedRow `json:"actioned,omitempty"`
 }
 
-// Provenance records paths and counts for the footer.
+// Provenance records paths and counts for the Report snapshot panel.
 type Provenance struct {
 	CompleteRows int    `json:"complete_rows"`
 	MailMatched  int    `json:"mail_matched"`
@@ -70,8 +70,12 @@ type AttentionBlock struct {
 	Decision     int           `json:"decision"`
 	ReplyList    []MessageLine `json:"reply_list"`
 	DecisionList []MessageLine `json:"decision_list"`
-	UrgencyHist  Histogram     `json:"urgency_hist"`
-	Donut        []DonutSlice  `json:"donut"`
+	// UrgentList is high urgency with no reply or decision action.
+	UrgentList []MessageLine `json:"urgent_list,omitempty"`
+	// QuietList is mail below the reply, decision, and urgency thresholds.
+	QuietList   []MessageLine `json:"quiet_list,omitempty"`
+	UrgencyHist Histogram     `json:"urgency_hist"`
+	Donut       []DonutSlice  `json:"donut"`
 }
 
 // Histogram has fixed buckets for urgency.
@@ -216,6 +220,7 @@ type MessageLine struct {
 	Sender     string  `json:"sender"`
 	SenderName string  `json:"sender_name,omitempty"`
 	Subject    string  `json:"subject"`
+	About      string  `json:"about,omitempty"`
 	Theme      string  `json:"theme"`
 	Kind       string  `json:"kind"`
 	Urgency    float64 `json:"urgency"`
