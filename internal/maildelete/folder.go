@@ -10,6 +10,19 @@ func NormalizeFolder(collection string) string {
 }
 
 // IsTrashFolder reports whether collection must not be passed to message delete.
+func numericMessageID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return id
+}
+
 func IsTrashFolder(collection string) bool {
 	c := strings.ToLower(strings.TrimSpace(collection))
 	if c == "" {

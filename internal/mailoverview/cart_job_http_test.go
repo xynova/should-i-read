@@ -254,8 +254,10 @@ func testCartJobServerPim(t *testing.T, deleter maildelete.TrashDeleter, pim mai
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
 	svc, err := maildelete.CreateDeleteJobService(maildelete.DeleteJobConfig{
-		Store: st, Pimdir: pim, Deleter: deleter, Now: time.Now,
+		Store: st, Pimdir: pim, Deleter: deleter, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)

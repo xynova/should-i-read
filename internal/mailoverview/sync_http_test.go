@@ -279,8 +279,10 @@ func testAckJobServer(t *testing.T) (*hoststore.Store, *mailack.Service) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
 	ackSvc, err := mailack.CreateAckJobService(mailack.JobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now,
+		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)

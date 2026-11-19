@@ -274,7 +274,7 @@ func TestRenderHTML_recentLowCountOnMainRow(t *testing.T) {
 	if allIdx < 0 || moreIdx < 0 || novIdx < 0 {
 		t.Fatal("All, Previous, and Nov 2026 must all render")
 	}
-	if !(allIdx < moreIdx && moreIdx < novIdx) {
+	if allIdx >= moreIdx || moreIdx >= novIdx {
 		t.Fatal("earlier months must sit left of this and last month: All, then …, then Oct and Nov")
 	}
 	for _, want := range []string{

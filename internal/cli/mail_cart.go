@@ -168,18 +168,30 @@ func openDeleteJobService(ctx context.Context, opts *rootOptions, repoRoot, ledg
 	if herr == nil && h != nil {
 		deleter = h
 	}
+	applyCtx := ctx
+	var applyCancel context.CancelFunc
+	if _, ok := ctx.Deadline(); !ok {
+		applyCtx, applyCancel = context.WithTimeout(ctx, 2*time.Hour)
+	}
 	svc, err := maildelete.CreateDeleteJobService(maildelete.DeleteJobConfig{
-		Store:    st,
-		Pimdir:   reader,
-		Deleter:  deleter,
-		Now:      time.Now,
-		RepoRoot: repoRoot,
+		Store:        st,
+		Pimdir:       reader,
+		Deleter:      deleter,
+		Now:          time.Now,
+		RepoRoot:     repoRoot,
+		ApplyBaseCtx: applyCtx,
 	})
 	if err != nil {
+		if applyCancel != nil {
+			applyCancel()
+		}
 		_ = st.Close()
 		return nil, nil, wrapCLIHop(err, op, "create delete job service")
 	}
 	cleanup := func() {
+		if applyCancel != nil {
+			applyCancel()
+		}
 		_ = st.Close()
 	}
 	return svc, cleanup, nil

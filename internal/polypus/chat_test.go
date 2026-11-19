@@ -57,7 +57,9 @@ func TestChat_success(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := c.Chat(context.Background(), ChatRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := c.Chat(ctx, ChatRequest{
 		Model: "test-model",
 		Messages: []ChatMessage{
 			{Role: "user", Content: "hello"},
@@ -94,7 +96,9 @@ func TestChat_reasoning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := c.Chat(context.Background(), ChatRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := c.Chat(ctx, ChatRequest{
 		Model:     "test-model",
 		Messages:  []ChatMessage{{Role: RoleUser, Content: "hello"}},
 		Reasoning: &ChatReasoning{Effort: ReasoningEffortHigh},

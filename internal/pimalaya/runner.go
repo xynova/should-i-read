@@ -14,6 +14,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/failsafe-go/failsafe-go"
+	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -41,6 +44,8 @@ type Runner struct {
 	ExtraEnv   []string
 	// OnStreamLine receives each stdout and stderr line while the command runs.
 	OnStreamLine func([]byte)
+	retry        retrypolicy.RetryPolicy[*Result]
+	breaker      circuitbreaker.CircuitBreaker[*Result]
 }
 
 // Create builds a Runner after allow-list and path checks.
@@ -53,7 +58,11 @@ func Create(bin string) (*Runner, error) {
 	if err := AssertAllowed(bin); err != nil {
 		return nil, err
 	}
-	return &Runner{Bin: bin}, nil
+	return &Runner{
+		Bin:     bin,
+		retry:   defaultPimalayaRetry(),
+		breaker: defaultPimalayaBreaker(),
+	}, nil
 }
 
 // ResolveBin finds an executable: explicit path, PATH, then $CARGO_HOME/bin/<name>
@@ -111,6 +120,9 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 	if ctx == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
+	if _, ok := ctx.Deadline(); !ok {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing deadline")
+	}
 
 	tracer := otel.Tracer("github.com/xynova/should-i-read/internal/pimalaya")
 	ctx, span := tracer.Start(ctx, "pimalaya.RunJSON",
@@ -131,6 +143,32 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 	cmdArgs = append(cmdArgs, "--json")
 	cmdArgs = append(cmdArgs, args...)
 
+	retry := r.retry
+	if retry == nil {
+		retry = defaultPimalayaRetry()
+	}
+	breaker := r.breaker
+	if breaker == nil {
+		breaker = defaultPimalayaBreaker()
+	}
+	res, err := failsafe.With(breaker, retry).WithContext(ctx).Get(func() (*Result, error) {
+		return r.runJSONOnce(ctx, cmdArgs)
+	})
+	if err != nil {
+		span.RecordError(err)
+		if code, ok := sirerr.AsCode(err); ok && code == sirerr.CodeNeedsReview {
+			span.SetStatus(codes.Error, "needs_review")
+		} else {
+			span.SetStatus(codes.Error, "exec failed")
+		}
+		return res, err
+	}
+	span.SetStatus(codes.Ok, "")
+	return res, nil
+}
+
+func (r *Runner) runJSONOnce(ctx context.Context, cmdArgs []string) (*Result, error) {
+	const op = "pimalaya.RunJSON"
 	cmd := exec.CommandContext(ctx, r.Bin, cmdArgs...)
 	extraEnv := append([]string{"NO_COLOR=1"}, r.ExtraEnv...)
 	cmd.Env = mergeEnv(os.Environ(), extraEnv)
@@ -149,20 +187,22 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 		Stderr: stderr.String(),
 		Exit:   exit,
 	}
-	if len(bytes.TrimSpace(stdout.Bytes())) > 0 {
-		res.Raw = json.RawMessage(bytes.TrimSpace(stdout.Bytes()))
-		_ = json.Unmarshal(res.Raw, res)
+	if raw := bytes.TrimSpace(stdout.Bytes()); len(raw) > 0 {
+		res.Raw = json.RawMessage(raw)
+		var decoded Result
+		if uerr := json.Unmarshal(raw, &decoded); uerr == nil {
+			res.OK = decoded.OK
+			res.Data = decoded.Data
+			res.Error = decoded.Error
+		}
 	}
 
 	if exit == 2 {
-		span.SetStatus(codes.Error, "needs_review")
 		return res, sirerr.New(sirerr.CodeNeedsReview, op, "pimalaya CLI needs human review").
 			With("exit_code", fmt.Sprintf("%d", exit)).
 			With("stderr", truncate(cliDetail(stderr.String(), stdout.String()), 400))
 	}
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "exec failed")
 		return res, sirerr.Wrap(err, sirerr.CodeFailed, op, "pimalaya CLI failed").
 			With("exit_code", fmt.Sprintf("%d", exit)).
 			With("stderr", truncate(cliDetail(stderr.String(), stdout.String()), 400))
@@ -172,12 +212,10 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 			OK *bool `json:"ok"`
 		}
 		if json.Unmarshal(res.Raw, &probe) == nil && probe.OK != nil && !*probe.OK && exit == 0 {
-			span.SetStatus(codes.Error, "ok=false")
 			return res, sirerr.New(sirerr.CodeFailed, op, "pimalaya CLI reported ok=false").
 				With("exit_code", fmt.Sprintf("%d", exit))
 		}
 	}
-	span.SetStatus(codes.Ok, "")
 	return res, nil
 }
 

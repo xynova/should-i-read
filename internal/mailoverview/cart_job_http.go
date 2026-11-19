@@ -25,14 +25,14 @@ type cartJobApplyRequest struct {
 	Confirm string `json:"confirm"`
 }
 
-func (s *IntentPageServer) serveCartJobs(w http.ResponseWriter, r *http.Request) {
+func (s *cartJobHTTP) serveCartJobs(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.Jobs == nil {
 		writeCartJobJSON(w, http.StatusServiceUnavailable, cartJobResponse{Error: "deletion job needs mail overview serve with pimdir"})
 		return
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeCartJobJSON(w, http.StatusInternalServerError, cartJobResponse{Error: "nil request context"})
+		writeCartJobJSON(w, http.StatusInternalServerError, cartJobResponse{Error: httpErrNilRequestContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)
@@ -47,7 +47,7 @@ func (s *IntentPageServer) serveCartJobs(w http.ResponseWriter, r *http.Request)
 		case http.MethodGet:
 			s.latestCartJob(ctx, w)
 		default:
-			writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: "POST or GET required"})
+			writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: httpErrPOSTOrGETRequired})
 		}
 		return
 	}
@@ -66,13 +66,13 @@ func (s *IntentPageServer) serveCartJobs(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if r.Method != http.MethodGet {
-		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: "GET required"})
+		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: httpErrGETRequired})
 		return
 	}
 	s.getCartJob(ctx, w, id)
 }
 
-func (s *IntentPageServer) createCartJob(ctx context.Context, w http.ResponseWriter) {
+func (s *cartJobHTTP) createCartJob(ctx context.Context, w http.ResponseWriter) {
 	job, err := s.Jobs.StartJob(ctx)
 	if err != nil {
 		writeCartJobErr(w, err)
@@ -81,7 +81,7 @@ func (s *IntentPageServer) createCartJob(ctx context.Context, w http.ResponseWri
 	writeCartJobJSON(w, http.StatusOK, cartJobResponse{OK: true, JobID: job.ID, Status: job.Status, Job: &job})
 }
 
-func (s *IntentPageServer) latestCartJob(ctx context.Context, w http.ResponseWriter) {
+func (s *cartJobHTTP) latestCartJob(ctx context.Context, w http.ResponseWriter) {
 	job, err := s.Jobs.LatestJob(ctx)
 	if err != nil {
 		if c, ok := sirerr.AsCode(err); ok && c == sirerr.CodeNotFound {
@@ -94,7 +94,7 @@ func (s *IntentPageServer) latestCartJob(ctx context.Context, w http.ResponseWri
 	writeCartJobJSON(w, http.StatusOK, cartJobResponse{OK: true, JobID: job.ID, Status: job.Status, Job: &job})
 }
 
-func (s *IntentPageServer) getCartJob(ctx context.Context, w http.ResponseWriter, id string) {
+func (s *cartJobHTTP) getCartJob(ctx context.Context, w http.ResponseWriter, id string) {
 	job, err := s.Jobs.GetJob(ctx, id)
 	if err != nil {
 		writeCartJobErr(w, err)
@@ -103,17 +103,17 @@ func (s *IntentPageServer) getCartJob(ctx context.Context, w http.ResponseWriter
 	writeCartJobJSON(w, http.StatusOK, cartJobResponse{OK: true, JobID: job.ID, Status: job.Status, Job: &job})
 }
 
-func (s *IntentPageServer) serveCartCheckout(w http.ResponseWriter, r *http.Request) {
+func (s *cartJobHTTP) serveCartCheckout(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.Jobs == nil {
 		writeCartJobJSON(w, http.StatusServiceUnavailable, cartJobResponse{Error: "deletion job needs mail overview serve with pimdir"})
 		return
 	}
 	if r.Method == http.MethodGet {
-		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: "POST required"})
+		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: httpErrPOSTRequired})
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: "POST required"})
+		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: httpErrPOSTRequired})
 		return
 	}
 	if s.Sync != nil && s.Sync.Running() {
@@ -122,7 +122,7 @@ func (s *IntentPageServer) serveCartCheckout(w http.ResponseWriter, r *http.Requ
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeCartJobJSON(w, http.StatusInternalServerError, cartJobResponse{Error: "nil request context"})
+		writeCartJobJSON(w, http.StatusInternalServerError, cartJobResponse{Error: httpErrNilRequestContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)
@@ -160,13 +160,13 @@ func (s *IntentPageServer) serveCartCheckout(w http.ResponseWriter, r *http.Requ
 	writeCartJobJSON(w, status, cartJobResponse{OK: true, JobID: job.ID, Status: job.Status, Job: &job})
 }
 
-func (s *IntentPageServer) applyCartJob(ctx context.Context, w http.ResponseWriter, r *http.Request, id string) {
+func (s *cartJobHTTP) applyCartJob(ctx context.Context, w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method == http.MethodGet {
-		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: "POST required"})
+		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: httpErrPOSTRequired})
 		return
 	}
 	if r.Method != http.MethodPost {
-		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: "POST required"})
+		writeCartJobJSON(w, http.StatusMethodNotAllowed, cartJobResponse{Error: httpErrPOSTRequired})
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, cartMaxBody)

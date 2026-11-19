@@ -17,7 +17,8 @@ func ctxWithDeadline(t *testing.T) context.Context {
 }
 
 func TestDeleteJobRoundTrip(t *testing.T) {
-	st, ctx := testStore(t)
+	st, _ := testStore(t)
+	ctx := ctxWithDeadline(t)
 	now := time.Now().UTC()
 	if err := st.AddDeleteCart(ctx, []DeleteCartItem{
 		{ObjectHash: "hash-a", Sender: "a@x", Subject: "A"},

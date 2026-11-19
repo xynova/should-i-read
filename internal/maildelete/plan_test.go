@@ -97,8 +97,9 @@ func TestStartJobDropsAlreadyTrashCart(t *testing.T) {
 			"keep-planned":  {Collection: "gmail/imap/[Gmail]/All Mail", Seq: 11},
 			"already-trash": {Collection: "gmail/imap/[Gmail]/Trash", Seq: 22},
 		}},
-		Now:         time.Now,
-		ItemTimeout: time.Second,
+		Now:          time.Now,
+		ItemTimeout:  time.Second,
+		ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)

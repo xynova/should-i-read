@@ -93,7 +93,10 @@ func TestSyncControllerStartRunsOnce(t *testing.T) {
 
 func TestSyncControllerLineFromEvents(t *testing.T) {
 	t.Parallel()
-	bus := hostevent.CreateBus()
+	bus, berr := hostevent.CreateBus(hostevent.BusConfig{Now: time.Now})
+	if berr != nil {
+		t.Fatal(berr)
+	}
 	block := make(chan struct{})
 	ctl, err := CreateSyncController(SyncConfig{
 		Runner:       &holdSyncer{block: block},

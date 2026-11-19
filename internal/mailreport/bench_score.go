@@ -53,7 +53,7 @@ type BenchScore struct {
 // LoadBenchLabels reads labels JSON and validates revision when expectedRev is non-empty.
 func LoadBenchLabels(path, expectedRev string) (BenchLabelsFile, error) {
 	const op = "mailreport.LoadBenchLabels"
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: operator-supplied bench labels path.
 	if err != nil {
 		return BenchLabelsFile{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "read labels")
 	}

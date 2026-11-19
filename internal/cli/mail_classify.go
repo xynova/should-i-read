@@ -271,7 +271,11 @@ func classifyEvents(events *hostevent.Bus) *hostevent.Bus {
 	if events != nil {
 		return events
 	}
-	return hostevent.CreateBus()
+	b, err := hostevent.CreateBus(hostevent.BusConfig{Now: time.Now})
+	if err != nil {
+		return events
+	}
+	return b
 }
 
 func postSyncClassifyItems(ctx context.Context, reader *pimdir.Reader, res *pimalaya.Result, rep pimalaya.EngineReport, maxBody int, excludeCollections, collections []string) ([]mailreport.Item, int, string, error) {

@@ -15,9 +15,25 @@ func TestPublishNilBus(t *testing.T) {
 	}
 }
 
+func testBus(t *testing.T) *Bus {
+	t.Helper()
+	b, err := CreateBus(BusConfig{Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestCreateBusRejectsNilClock(t *testing.T) {
+	t.Parallel()
+	if _, err := CreateBus(BusConfig{}); err == nil {
+		t.Fatal("expected nil clock")
+	}
+}
+
 func TestSubscribeReceivesPublish(t *testing.T) {
 	t.Parallel()
-	b := CreateBus()
+	b := testBus(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ch := b.Subscribe(ctx)
@@ -37,7 +53,7 @@ func TestSubscribeReceivesPublish(t *testing.T) {
 
 func TestSubscribeReplaysLast(t *testing.T) {
 	t.Parallel()
-	b := CreateBus()
+	b := testBus(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b.Publish(ctx, Event{Line: "Essence 4", Source: SourceEssence})
@@ -54,7 +70,7 @@ func TestSubscribeReplaysLast(t *testing.T) {
 
 func TestPublishCanceledContextDropped(t *testing.T) {
 	t.Parallel()
-	b := CreateBus()
+	b := testBus(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	b.Publish(ctx, Event{Line: "nope"})
@@ -65,7 +81,7 @@ func TestPublishCanceledContextDropped(t *testing.T) {
 
 func TestSubscribeNilContextClosed(t *testing.T) {
 	t.Parallel()
-	b := CreateBus()
+	b := testBus(t)
 	var ctx context.Context
 	ch := b.Subscribe(ctx)
 	if _, ok := <-ch; ok {

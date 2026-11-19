@@ -41,9 +41,10 @@ func TestCheckoutClearsCartAndApplies(t *testing.T) {
 			"keep-planned":  {Collection: "gmail/imap/[Gmail]/All Mail", Seq: 11},
 			"already-trash": {Collection: "gmail/imap/[Gmail]/Trash", Seq: 22},
 		}},
-		Deleter:     hold,
-		Now:         time.Now,
-		ItemTimeout: time.Second,
+		Deleter:      hold,
+		Now:          time.Now,
+		ItemTimeout:  time.Second,
+		ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +71,7 @@ func TestCheckoutClearsCartAndApplies(t *testing.T) {
 func TestCheckoutConfirmMismatch(t *testing.T) {
 	st, ctx := openTestStore(t)
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &fakePim{}, Now: time.Now,
+		Store: st, Pimdir: &fakePim{}, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +89,7 @@ func TestCheckoutConfirmMismatch(t *testing.T) {
 func TestCheckoutEmptyCartNoJob(t *testing.T) {
 	st, ctx := openTestStore(t)
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &fakePim{}, Now: time.Now,
+		Store: st, Pimdir: &fakePim{}, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +127,7 @@ func TestCheckoutEmptyCartRetriesFailedJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &fakePim{}, Deleter: hold, Now: time.Now, ItemTimeout: time.Second,
+		Store: st, Pimdir: &fakePim{}, Deleter: hold, Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -159,8 +160,9 @@ func TestCheckoutAllRefusedSkipsApply(t *testing.T) {
 		Pimdir: &fakePim{m: map[string]pimdir.EmailSummary{
 			"already-trash": {Collection: "gmail/imap/[Gmail]/Trash", Seq: 22},
 		}},
-		Now:         time.Now,
-		ItemTimeout: time.Second,
+		Now:          time.Now,
+		ItemTimeout:  time.Second,
+		ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)

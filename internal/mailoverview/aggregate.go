@@ -17,6 +17,14 @@ const (
 	keepFluffSecs   = 15
 	hopsPerSkip     = 3
 	urgThreshold    = 0.5
+
+	monthKeyUnknown   = "unknown"
+	monthKeyAll       = "all"
+	emptyKindLabel    = "(empty)"
+	hopNodeMessages   = "Messages"
+	hopNodeJevSkip    = "Jev_skip"
+	hopNodeEssence    = "Essence"
+	hopNodeClassified = "Classified"
 )
 
 // enriched joins one ledger row with optional mail metadata.
@@ -50,7 +58,7 @@ func BuildModel(
 	var items []enriched
 	for _, r := range rows {
 		sum, ok := summaries[r.ObjectHash]
-		month := "unknown"
+		month := monthKeyUnknown
 		var wk time.Time
 		if ok {
 			if t, ok := ParseMailDate(sum.Date, loc); ok {
@@ -88,7 +96,7 @@ func BuildModel(
 	}
 	var monthKeys []string
 	for m := range monthSet {
-		if inRangeMonth(m, in.SinceMonth, in.UntilMonth) && m != "unknown" {
+		if inRangeMonth(m, in.SinceMonth, in.UntilMonth) && m != monthKeyUnknown {
 			monthKeys = append(monthKeys, m)
 		}
 	}
@@ -96,7 +104,7 @@ func BuildModel(
 
 	seriesByMonth := map[string]int{}
 	for _, it := range items {
-		if it.month != "unknown" {
+		if it.month != monthKeyUnknown {
 			seriesByMonth[it.month]++
 		}
 	}
@@ -108,10 +116,10 @@ func BuildModel(
 		prevKey := prevCalendarMonthKey(mk)
 		sections = append(sections, buildMonthSection(mk, monthLabel(mk), flt, prevKey, sparkMonths, seriesByMonth, in))
 	}
-	if unknown := filterMonth(items, "unknown"); len(unknown) > 0 && inRangeMonth("unknown", in.SinceMonth, in.UntilMonth) {
-		sections = append(sections, buildMonthSection("unknown", "Unknown month", unknown, "", sparkMonths, seriesByMonth, in))
+	if unknown := filterMonth(items, monthKeyUnknown); len(unknown) > 0 && inRangeMonth(monthKeyUnknown, in.SinceMonth, in.UntilMonth) {
+		sections = append(sections, buildMonthSection(monthKeyUnknown, "Unknown month", unknown, "", sparkMonths, seriesByMonth, in))
 	}
-	allSec := buildMonthSection("all", "All", items, "", sparkMonths, seriesByMonth, in)
+	allSec := buildMonthSection(monthKeyAll, "All", items, "", sparkMonths, seriesByMonth, in)
 
 	shapeOut := make([]ShapeInfo, 0, len(shapes))
 	promptHashes := map[string]int{}
@@ -208,7 +216,7 @@ func errorGroupsFromRows(errRows []hoststore.ErrorRow) []ErrorGroup {
 }
 
 func inRangeMonth(m, since, until string) bool {
-	if m == "unknown" {
+	if m == monthKeyUnknown {
 		return since == "" && until == ""
 	}
 	if since != "" && m < since {
@@ -231,10 +239,10 @@ func filterMonth(items []enriched, month string) []enriched {
 }
 
 func monthLabel(monthKey string) string {
-	if monthKey == "unknown" {
+	if monthKey == monthKeyUnknown {
 		return "Unknown month"
 	}
-	if monthKey == "all" {
+	if monthKey == monthKeyAll {
 		return "All"
 	}
 	if len(monthKey) >= 7 {
@@ -278,7 +286,7 @@ func buildMonthSection(
 	kt := kindTreeFromItems(items, key)
 	sec.KindTree = kt
 	sec.Pipeline = pipelineFromItems(items)
-	if key == "all" {
+	if key == monthKeyAll {
 		// PromptHashes set on Model after build
 	} else {
 		sec.Pipeline.PromptHashes = map[string]int{}
@@ -346,7 +354,7 @@ func summaryFromItems(
 		s.SparkMonths = append(s.SparkMonths, m)
 		s.Sparkline = append(s.Sparkline, seriesByMonth[m])
 	}
-	if monthKey != "all" && monthKey != "unknown" && monthKey != "" {
+	if monthKey != monthKeyAll && monthKey != monthKeyUnknown && monthKey != "" {
 		cur := len(items)
 		prev := 0
 		if prevMonthKey != "" {
@@ -538,12 +546,12 @@ func kindTreeFromItems(items []enriched, viewKey string) KindTreeBlock {
 	for _, it := range items {
 		f := firstKindSegment(it.row.Kind)
 		if f == "" {
-			f = "(empty)"
+			f = emptyKindLabel
 		}
 		firstCount[f]++
 		p := strings.TrimSpace(it.row.Kind)
 		if p == "" {
-			p = "(empty)"
+			p = emptyKindLabel
 		}
 		pathCount[p]++
 		if h := strings.TrimSpace(it.row.ObjectHash); h != "" {
@@ -578,7 +586,7 @@ func kindTreeFromItems(items []enriched, viewKey string) KindTreeBlock {
 		for _, it := range items {
 			f := firstKindSegment(it.row.Kind)
 			if f == "" {
-				f = "(empty)"
+				f = emptyKindLabel
 			}
 			if f == slot {
 				kindPath = strings.TrimSpace(it.row.Kind)
@@ -602,7 +610,7 @@ func kindTreeFromItems(items []enriched, viewKey string) KindTreeBlock {
 	for _, p := range paths {
 		f := firstKindSegment(p)
 		if f == "" {
-			f = "(empty)"
+			f = emptyKindLabel
 		}
 		why := ""
 		if firstCount[f] == 1 {
@@ -669,7 +677,7 @@ func pipelineFromItems(items []enriched) PipelineBlock {
 	p.ModelsEmbed = map[string]int{}
 	p.PromptHashes = map[string]int{}
 	p.HopFlow = HopFlow{
-		Nodes: []string{"Messages", "Jev_skip", "Essence", "Classified"},
+		Nodes: []string{hopNodeMessages, hopNodeJevSkip, hopNodeEssence, hopNodeClassified},
 	}
 	skipStrat := mailreport.StrategyShapeConfirm
 	jev := 0
@@ -696,10 +704,10 @@ func pipelineFromItems(items []enriched) PipelineBlock {
 		weekSkip[wk] = w
 	}
 	p.HopFlow.Edges = []HopEdge{
-		{From: "Messages", To: "Jev_skip", Count: jev},
-		{From: "Messages", To: "Essence", Count: essence},
-		{From: "Jev_skip", To: "Classified", Count: jev},
-		{From: "Essence", To: "Classified", Count: essence},
+		{From: hopNodeMessages, To: hopNodeJevSkip, Count: jev},
+		{From: hopNodeMessages, To: hopNodeEssence, Count: essence},
+		{From: hopNodeJevSkip, To: hopNodeClassified, Count: jev},
+		{From: hopNodeEssence, To: hopNodeClassified, Count: essence},
 	}
 	var wks []string
 	for k := range weekSkip {
@@ -784,11 +792,11 @@ func messageRows(items []enriched, viewKey string, kt KindTreeBlock) []MessageRo
 	for _, it := range items {
 		f := firstKindSegment(it.row.Kind)
 		if f == "" {
-			f = "(empty)"
+			f = emptyKindLabel
 		}
 		kindPath := strings.TrimSpace(it.row.Kind)
 		if kindPath == "" {
-			kindPath = "(empty)"
+			kindPath = emptyKindLabel
 		}
 		why := ""
 		if firstCount[f] == 1 {

@@ -72,7 +72,7 @@ func writeOutcomesCSV(path string, rows []hoststore.MessageOutcome) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "mkdir")
 	}
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // G304: operator-supplied outcomes CSV path.
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "create file")
 	}

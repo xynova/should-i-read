@@ -42,14 +42,14 @@ type AckCartStore interface {
 	RemoveAckCart(ctx context.Context, objectHash string) error
 }
 
-func (s *IntentPageServer) serveAck(w http.ResponseWriter, r *http.Request) {
+func (s *ackHTTP) serveAck(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.AckCart == nil {
 		writeAckJSON(w, http.StatusServiceUnavailable, ackResponse{Error: "ack cart needs mail overview serve"})
 		return
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeAckJSON(w, http.StatusInternalServerError, ackResponse{Error: "ack request needs a context"})
+		writeAckJSON(w, http.StatusInternalServerError, ackResponse{Error: httpErrAckNeedsContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)
@@ -66,11 +66,11 @@ func (s *IntentPageServer) serveAck(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *IntentPageServer) listAck(ctx context.Context, w http.ResponseWriter) {
+func (s *ackHTTP) listAck(ctx context.Context, w http.ResponseWriter) {
 	s.writeAckList(ctx, w, 0, 0)
 }
 
-func (s *IntentPageServer) writeAckList(ctx context.Context, w http.ResponseWriter, skippedInCart, skippedActioned int) {
+func (s *ackHTTP) writeAckList(ctx context.Context, w http.ResponseWriter, skippedInCart, skippedActioned int) {
 	items, err := s.AckCart.ListAckCart(ctx)
 	if err != nil {
 		writeAckErr(w, err)
@@ -92,7 +92,7 @@ func (s *IntentPageServer) writeAckList(ctx context.Context, w http.ResponseWrit
 	})
 }
 
-func (s *IntentPageServer) addAck(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+func (s *ackHTTP) addAck(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, cartMaxBody)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -168,7 +168,7 @@ func (s *IntentPageServer) addAck(ctx context.Context, w http.ResponseWriter, r 
 	s.writeAckList(ctx, w, skippedInCart, skippedActioned)
 }
 
-func (s *IntentPageServer) removeAck(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+func (s *ackHTTP) removeAck(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	hash := strings.TrimSpace(r.URL.Query().Get("hash"))
 	if err := s.AckCart.RemoveAckCart(ctx, hash); err != nil {
 		writeAckErr(w, err)
@@ -207,7 +207,7 @@ type ackJobResponse struct {
 	Error  string               `json:"error,omitempty"`
 }
 
-func (s *IntentPageServer) serveAckCheckout(w http.ResponseWriter, r *http.Request) {
+func (s *ackHTTP) serveAckCheckout(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.AckJobs == nil {
 		writeAckJobJSON(w, http.StatusServiceUnavailable, ackJobResponse{Error: "ack job needs mail overview serve with pimdir"})
 		return
@@ -222,7 +222,7 @@ func (s *IntentPageServer) serveAckCheckout(w http.ResponseWriter, r *http.Reque
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeAckJobJSON(w, http.StatusInternalServerError, ackJobResponse{Error: "ack request needs a context"})
+		writeAckJobJSON(w, http.StatusInternalServerError, ackJobResponse{Error: httpErrAckNeedsContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)
@@ -260,14 +260,14 @@ func (s *IntentPageServer) serveAckCheckout(w http.ResponseWriter, r *http.Reque
 	writeAckJobJSON(w, status, ackJobResponse{OK: true, JobID: job.ID, Status: job.Status, Job: &job})
 }
 
-func (s *IntentPageServer) serveAckJobs(w http.ResponseWriter, r *http.Request) {
+func (s *ackHTTP) serveAckJobs(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.AckJobs == nil {
 		writeAckJobJSON(w, http.StatusServiceUnavailable, ackJobResponse{Error: "ack job needs mail overview serve with pimdir"})
 		return
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeAckJobJSON(w, http.StatusInternalServerError, ackJobResponse{Error: "ack request needs a context"})
+		writeAckJobJSON(w, http.StatusInternalServerError, ackJobResponse{Error: httpErrAckNeedsContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)

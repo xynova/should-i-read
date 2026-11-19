@@ -50,7 +50,7 @@ func FreezeBenchInput(exportPath, outDir, gitSHA string) (BenchFreezeResult, err
 	if exportPath == "" || outDir == "" {
 		return BenchFreezeResult{}, sirerr.New(sirerr.CodeInvalid, op, "export path and out dir required")
 	}
-	raw, err := os.ReadFile(exportPath)
+	raw, err := os.ReadFile(exportPath) //nolint:gosec // G304: operator-supplied bench export path.
 	if err != nil {
 		return BenchFreezeResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "read export")
 	}
@@ -153,7 +153,7 @@ func writeBenchJSON(path string, env BenchExportEnvelope) error {
 
 func fileSHA256(path string) (string, error) {
 	const op = "mailreport.fileSHA256"
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: path is a file this freeze pass just wrote.
 	if err != nil {
 		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "read file")
 	}
@@ -173,7 +173,7 @@ func buildInputRevision(now time.Time, storeDir, contentSHA, gitSHA string) stri
 // ReadInputRevision loads the revision string from input-rev.txt.
 func ReadInputRevision(path string) (string, error) {
 	const op = "mailreport.ReadInputRevision"
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: operator-supplied input-rev.txt path.
 	if err != nil {
 		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "read revision")
 	}

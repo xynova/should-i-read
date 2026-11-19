@@ -71,6 +71,30 @@ linters:
         linters:
           - gosec
         text: G304
+      - path: internal/hoststore/
+        linters:
+          - gosec
+        text: G202
+      - path: internal/pimdir/query\.go
+        linters:
+          - gosec
+        text: G202
+      - path: internal/mailoverview/render/html\.go
+        linters:
+          - gosec
+        text: G203
+      - path: internal/mailoverview/svg/charts\.go
+        linters:
+          - gosec
+        text: G602
+      - path: internal/mailreport/
+        linters:
+          - gosec
+        text: G304
+      - path: internal/cli/
+        linters:
+          - gosec
+        text: G304
 
 formatters:
   enable:

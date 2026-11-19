@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	// embedChunkSize caps each Polypus embeddings POST (homelab n=32 is ~10-15s).
+	// Size cap for each Polypus embeddings POST (homelab n=32 is ~10-15s).
 	embedChunkSize = 32
 
 	embedTimeoutBase    = 8 * time.Second

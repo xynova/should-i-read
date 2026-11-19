@@ -6,18 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/maildelete"
+	"github.com/xynova/should-i-read/internal/mailjob"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 const (
-	defaultItemTimeout  = 30 * time.Second
 	himalayaMissingHint = "install Himalaya and set pimalaya.himalaya_config via should-i-read configure"
 )
 
@@ -62,14 +60,12 @@ type JobConfig struct {
 
 // Service runs Acked mark-read jobs.
 type Service struct {
-	store        *hoststore.Store
-	pimdir       maildelete.PimdirSummaries
-	flagger      FlagAdder
-	now          func() time.Time
-	itemTimeout  time.Duration
-	repoRoot     string
-	applyBaseCtx context.Context
-	applyMu      sync.Mutex
+	store    *hoststore.Store
+	pimdir   maildelete.PimdirSummaries
+	flagger  FlagAdder
+	now      func() time.Time
+	repoRoot string
+	runner   *mailjob.Runner
 }
 
 // CreateAckJobService builds a Service.
@@ -78,18 +74,29 @@ func CreateAckJobService(cfg JobConfig) (*Service, error) {
 	if cfg.Store == nil || cfg.Pimdir == nil || cfg.Now == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing dependencies")
 	}
-	to := cfg.ItemTimeout
-	if to <= 0 {
-		to = defaultItemTimeout
+	var hopper mailjob.Hopper
+	if cfg.Flagger != nil {
+		hopper = seenHopper{flagger: cfg.Flagger}
+	}
+	runner, err := mailjob.CreateRunner(mailjob.Config{
+		Store:        mailjob.NewAckStore(cfg.Store),
+		Resolver:     pimdirResolver{pim: cfg.Pimdir},
+		Hopper:       hopper,
+		Spec:         mailjob.SeenSpec(),
+		Now:          cfg.Now,
+		ApplyBaseCtx: cfg.ApplyBaseCtx,
+		ItemTimeout:  cfg.ItemTimeout,
+	})
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "create apply runner")
 	}
 	return &Service{
-		store:        cfg.Store,
-		pimdir:       cfg.Pimdir,
-		flagger:      cfg.Flagger,
-		now:          cfg.Now,
-		itemTimeout:  to,
-		repoRoot:     strings.TrimSpace(cfg.RepoRoot),
-		applyBaseCtx: cfg.ApplyBaseCtx,
+		store:    cfg.Store,
+		pimdir:   cfg.Pimdir,
+		flagger:  cfg.Flagger,
+		now:      cfg.Now,
+		repoRoot: strings.TrimSpace(cfg.RepoRoot),
+		runner:   runner,
 	}, nil
 }
 
@@ -103,7 +110,7 @@ func (s *Service) StartJob(ctx context.Context) (art JobArtifact, err error) {
 	}
 	jobID, err := s.store.CreateAckJobFromCart(ctx, s.now())
 	if err != nil {
-		return JobArtifact{}, err
+		return JobArtifact{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "create ack job from cart")
 	}
 	setAckJobID(span, jobID)
 	job, err := s.GetJob(ctx, jobID)
@@ -116,10 +123,10 @@ func (s *Service) StartJob(ctx context.Context) (art JobArtifact, err error) {
 	}
 	bindings, err := maildelete.ResolveJobBindings(ctx, s.pimdir, hashes)
 	if err != nil {
-		return JobArtifact{}, err
+		return JobArtifact{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "resolve job bindings")
 	}
 	if err := s.store.BindAckJobItems(ctx, jobID, toAckBindings(bindings)); err != nil {
-		return JobArtifact{}, err
+		return JobArtifact{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "bind ack job items")
 	}
 	job, err = s.GetJob(ctx, jobID)
 	if err != nil {
@@ -141,13 +148,14 @@ func toAckBindings(in []hoststore.DeleteJobBinding) []hoststore.AckJobBinding {
 
 // GetJob loads a job as artifact shape.
 func (s *Service) GetJob(ctx context.Context, jobID string) (JobArtifact, error) {
+	const op = "mailack.Service.GetJob"
 	job, err := s.store.GetAckJob(ctx, jobID)
 	if err != nil {
-		return JobArtifact{}, err
+		return JobArtifact{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "get ack job")
 	}
 	job, err = s.recoverStuckApply(ctx, job)
 	if err != nil {
-		return JobArtifact{}, err
+		return JobArtifact{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "recover stuck apply")
 	}
 	return jobToArtifact(job), nil
 }
@@ -177,68 +185,6 @@ func (s *Service) recoverStuckApply(ctx context.Context, job hoststore.AckJob) (
 
 func (s *Service) markHimalayaMissing(ctx context.Context, jobID string) error {
 	return s.store.SetAckJobStatus(ctx, jobID, hoststore.DeleteJobStatusPlanned, himalayaMissingHint, nil)
-}
-
-func himalayaUnavailable(op string) error {
-	return sirerr.New(sirerr.CodeUnavailable, op, himalayaMissingHint)
-}
-
-func applyMailbox(it hoststore.AckJobItem) string {
-	if folder := maildelete.NormalizeFolder(it.Collection); folder != "" {
-		return folder
-	}
-	return maildelete.NormalizeFolder(it.Folder)
-}
-
-func applyEnvelopeID(it hoststore.AckJobItem) string {
-	if it.Seq > 0 {
-		return strconv.FormatInt(it.Seq, 10)
-	}
-	if id := numericMessageID(it.EnvelopeID); id != "" {
-		return id
-	}
-	return numericMessageID(it.LinkID)
-}
-
-func numericMessageID(id string) string {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return ""
-	}
-	for _, r := range id {
-		if r < '0' || r > '9' {
-			return ""
-		}
-	}
-	return id
-}
-
-func (s *Service) refreshApplyBindings(ctx context.Context, jobID string, items []hoststore.AckJobItem) error {
-	if s == nil || s.pimdir == nil || len(items) == 0 {
-		return nil
-	}
-	hashes := make([]string, 0, len(items))
-	for _, it := range items {
-		hashes = append(hashes, it.ObjectHash)
-	}
-	bindings, err := maildelete.ResolveJobBindings(ctx, s.pimdir, hashes)
-	if err != nil {
-		return err
-	}
-	out := make([]hoststore.AckJobBinding, 0, len(bindings))
-	for _, b := range toAckBindings(bindings) {
-		if b.Status != hoststore.AckJobItemPlanned && b.Status != hoststore.AckJobItemRefused {
-			continue
-		}
-		if strings.TrimSpace(b.Folder) == "" && b.Status == hoststore.AckJobItemPlanned {
-			continue
-		}
-		out = append(out, b)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return s.store.BindAckJobItems(ctx, jobID, out)
 }
 
 func (s *Service) writeArtifact(art JobArtifact) error {

@@ -15,7 +15,7 @@ const benchLabelSubsetCount = 20
 // WriteBenchLabelStub writes labels-20.json with subject hints for human review of expected_leaf and required_terms.
 func WriteBenchLabelStub(input100Path, revision, outPath string) error {
 	const op = "mailreport.WriteBenchLabelStub"
-	raw, err := os.ReadFile(input100Path)
+	raw, err := os.ReadFile(input100Path) //nolint:gosec // G304: operator-supplied bench input-100 path.
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "read input")
 	}

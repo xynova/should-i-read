@@ -13,7 +13,7 @@ import (
 
 const eventsHeartbeat = 15 * time.Second
 
-func (s *IntentPageServer) serveEvents(w http.ResponseWriter, r *http.Request) {
+func (s *eventsHTTP) serveEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

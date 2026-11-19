@@ -10,7 +10,10 @@ import (
 
 func TestPolypusEssencerPublishEssence(t *testing.T) {
 	t.Parallel()
-	bus := hostevent.CreateBus()
+	bus, err := hostevent.CreateBus(hostevent.BusConfig{Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ch := bus.Subscribe(ctx)

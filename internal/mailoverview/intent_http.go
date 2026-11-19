@@ -68,22 +68,7 @@ func (s *IntentPageServer) ReplacePage(html []byte, hashes []string) {
 // Handler returns the overview mux.
 func (s *IntentPageServer) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", s.servePage)
-	mux.HandleFunc("/intent", s.serveIntent)
-	mux.HandleFunc("/intent/detail", s.serveIntentDetail)
-	mux.HandleFunc("/cart", s.serveCart)
-	mux.HandleFunc("/cart/checkout", s.serveCartCheckout)
-	mux.HandleFunc("/cart/jobs", s.serveCartJobs)
-	mux.HandleFunc("/cart/jobs/", s.serveCartJobs)
-	mux.HandleFunc("/ack", s.serveAck)
-	mux.HandleFunc("/ack/checkout", s.serveAckCheckout)
-	mux.HandleFunc("/ack/jobs", s.serveAckJobs)
-	mux.HandleFunc("/ack/jobs/", s.serveAckJobs)
-	mux.HandleFunc("/actioned", s.serveActioned)
-	mux.HandleFunc("/keep", s.serveKeep)
-	mux.HandleFunc("/preview", s.servePreview)
-	mux.HandleFunc("/sync", s.serveSync)
-	mux.HandleFunc("/events", s.serveEvents)
+	s.mountHandlers(mux)
 	return mux
 }
 
@@ -100,7 +85,7 @@ func (s *IntentPageServer) actionedLookup() ActionedLookup {
 	return nil
 }
 
-func (s *IntentPageServer) servePage(w http.ResponseWriter, r *http.Request) {
+func (s *pageHTTP) servePage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -151,9 +136,9 @@ type intentDetailResponse struct {
 	Error  string `json:"error,omitempty"`
 }
 
-func (s *IntentPageServer) serveIntent(w http.ResponseWriter, r *http.Request) {
+func (s *intentHTTP) serveIntent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeIntentJSON(w, http.StatusMethodNotAllowed, intentResponse{Error: "POST required"})
+		writeIntentJSON(w, http.StatusMethodNotAllowed, intentResponse{Error: httpErrPOSTRequired})
 		return
 	}
 	if s == nil || s.Guess == nil {
@@ -173,12 +158,12 @@ func (s *IntentPageServer) serveIntent(w http.ResponseWriter, r *http.Request) {
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeIntentJSON(w, http.StatusInternalServerError, intentResponse{Error: "nil request context"})
+		writeIntentJSON(w, http.StatusInternalServerError, intentResponse{Error: httpErrNilRequestContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, intentHTTPTimeout)
 	defer cancel()
-	intent, err := s.Guess.Guess(ctx, IntentInput{Month: in.Month, Text: in.Text})
+	intent, err := s.Guess.Guess(ctx, IntentInput(in))
 	if err != nil {
 		status := http.StatusInternalServerError
 		if c, ok := sirerr.AsCode(err); ok {
@@ -199,9 +184,9 @@ func (s *IntentPageServer) serveIntent(w http.ResponseWriter, r *http.Request) {
 	writeIntentJSON(w, http.StatusOK, intentResponse{OK: true, Intent: intent})
 }
 
-func (s *IntentPageServer) serveIntentDetail(w http.ResponseWriter, r *http.Request) {
+func (s *intentHTTP) serveIntentDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeIntentDetailJSON(w, http.StatusMethodNotAllowed, intentDetailResponse{Error: "POST required"})
+		writeIntentDetailJSON(w, http.StatusMethodNotAllowed, intentDetailResponse{Error: httpErrPOSTRequired})
 		return
 	}
 	if s == nil || s.Guess == nil {
@@ -221,21 +206,11 @@ func (s *IntentPageServer) serveIntentDetail(w http.ResponseWriter, r *http.Requ
 	}
 	msgs := make([]IntentDetailMessage, 0, len(in.Messages))
 	for _, m := range in.Messages {
-		msgs = append(msgs, IntentDetailMessage{
-			Date:         m.Date,
-			Sender:       m.Sender,
-			Subject:      m.Subject,
-			About:        m.About,
-			Snippet:      m.Snippet,
-			NeedsReply:   m.NeedsReply,
-			Decision:     m.Decision,
-			Urgency:      m.Urgency,
-			OutlierFirst: m.OutlierFirst,
-		})
+		msgs = append(msgs, IntentDetailMessage(m))
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeIntentDetailJSON(w, http.StatusInternalServerError, intentDetailResponse{Error: "nil request context"})
+		writeIntentDetailJSON(w, http.StatusInternalServerError, intentDetailResponse{Error: httpErrNilRequestContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, intentDetailHTTPTimeout)

@@ -8,8 +8,8 @@ import (
 	"github.com/xynova/should-i-read/internal/mailoverview"
 )
 
-func TestRenderHTML_sections_and_no_external_refs(t *testing.T) {
-	m := mailoverview.Model{
+func sampleBoardModel() mailoverview.Model {
+	return mailoverview.Model{
 		SchemaVersion: mailoverview.SchemaVersion,
 		GeneratedAt:   "2025-01-01T00:00:00Z",
 		LedgerPath:    "/x/ledger.db",
@@ -86,10 +86,19 @@ func TestRenderHTML_sections_and_no_external_refs(t *testing.T) {
 		},
 		Shapes: []mailoverview.ShapeInfo{{Fingerprint: "f", Status: hoststore.ShapeStatusActive}},
 	}
+}
+
+func mustRenderHTML(t *testing.T, m mailoverview.Model) string {
+	t.Helper()
 	html, err := RenderHTML(m)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return html
+}
+
+func TestRenderHTML_sections_kind_and_fluff(t *testing.T) {
+	html := mustRenderHTML(t, sampleBoardModel())
 	for _, id := range []string{"sec-summary-all", "sec-attention-all", "sec-themes-all", "sec-fluff-all", "sec-pipeline-all", "sec-trust-all", "sec-messages-all"} {
 		if !strings.Contains(html, `id="`+id+`"`) {
 			t.Fatalf("missing %s", id)
@@ -159,6 +168,10 @@ func TestRenderHTML_sections_and_no_external_refs(t *testing.T) {
 	if !strings.Contains(html, `data-month="2025-10" aria-selected="true"`) {
 		t.Fatal("expected latest calendar month tab selected")
 	}
+}
+
+func TestRenderHTML_header_pages_and_report(t *testing.T) {
+	html := mustRenderHTML(t, sampleBoardModel())
 	needIdx := strings.Index(html, "What needs you")
 	jevIdx := strings.Index(html, "Jev skips")
 	if needIdx < 0 || jevIdx < 0 || needIdx > jevIdx {
@@ -189,7 +202,7 @@ func TestRenderHTML_sections_and_no_external_refs(t *testing.T) {
 	if brandEnd < 0 || pageIdx < 0 || actionsIdx < 0 || monthIdx < 0 || whenIdx < 0 {
 		t.Fatal("missing header brand, page tabs, actions, months, or Sync time")
 	}
-	if !(brandEnd < pageIdx && pageIdx < actionsIdx && actionsIdx < whenIdx && whenIdx < monthIdx) {
+	if brandEnd >= pageIdx || pageIdx >= actionsIdx || actionsIdx >= whenIdx || whenIdx >= monthIdx {
 		t.Fatal("Mail overview tabs must sit right of the logo; generated time must sit in Sync")
 	}
 	if strings.Contains(html, `class="brand"`) {
@@ -213,6 +226,10 @@ func TestRenderHTML_sections_and_no_external_refs(t *testing.T) {
 	if strings.Contains(html, `id="highlight-rect"`) || strings.Contains(html, `id="highlight-toggle"`) {
 		t.Fatal("highlight drag box should be gone")
 	}
+}
+
+func TestRenderHTML_intent_panel(t *testing.T) {
+	html := mustRenderHTML(t, sampleBoardModel())
 	if !strings.Contains(html, `id="intent-panel"`) || !strings.Contains(html, "function openActionRow") {
 		t.Fatal("Reply and Decide rows must open a message preview")
 	}
@@ -278,6 +295,10 @@ func TestRenderHTML_sections_and_no_external_refs(t *testing.T) {
 	if strings.Contains(html, "Start deletion job") || strings.Contains(html, "id=\"cart-job-start\"") {
 		t.Fatal("checkout should not keep a Start button")
 	}
+}
+
+func TestRenderHTML_apply_cart_and_actioned(t *testing.T) {
+	html := mustRenderHTML(t, sampleBoardModel())
 	if !strings.Contains(html, "Apply at source") || !strings.Contains(html, "trash-at-source") || !strings.Contains(html, "seen-at-source") {
 		t.Fatal("missing combined Apply at source checkout")
 	}
@@ -374,7 +395,7 @@ func TestRenderHTML_headerSync(t *testing.T) {
 	if strings.Contains(month, `id="mail-sync-when"`) || strings.Contains(month, "Generated ") {
 		t.Fatal("generated time must sit inside Sync, not on the month row")
 	}
-	if !(ackIdx < cartIdx) {
+	if ackIdx >= cartIdx {
 		t.Fatal("Acked then Cart must sit together on the month row")
 	}
 	if !strings.Contains(month, `id="apply-source"`) {

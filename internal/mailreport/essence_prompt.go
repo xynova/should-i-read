@@ -31,7 +31,7 @@ const (
 	essenceFieldKindLong     = "kind_long"
 	essenceFieldKindShortYes = "1"
 
-	// essenceKindLevels is the required KIND / catalog PATH depth.
+	// Required KIND / catalog PATH depth.
 	essenceKindLevels = 3
 
 	// EssenceErrWhy1Empty is the validate message when WHY1 is missing (stable for dumps and CLI gloss).

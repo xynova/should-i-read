@@ -7,7 +7,15 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func neverestCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	return ctx
+}
 
 func TestNeverestSyncUsesAccountFlagNotPositional(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -28,7 +36,7 @@ exit 0
 		t.Fatal(err)
 	}
 	n := &Neverest{Runner: runner}
-	res, err := n.Sync(context.Background(), "gmail", nil)
+	res, err := n.Sync(neverestCtx(t), "gmail", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +74,7 @@ exit 0
 		t.Fatal(err)
 	}
 	n := &Neverest{Runner: runner}
-	res, err := n.Sync(context.Background(), "gmail", []string{"[Gmail]/Spam", "", "[Gmail]/Trash"})
+	res, err := n.Sync(neverestCtx(t), "gmail", []string{"[Gmail]/Spam", "", "[Gmail]/Trash"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +106,7 @@ exit 0
 		t.Fatal(err)
 	}
 	n := &Neverest{Runner: runner}
-	res, err := n.SyncAcceptingAbsences(context.Background(), "gmail", []string{"[Gmail]/Spam"})
+	res, err := n.SyncAcceptingAbsences(neverestCtx(t), "gmail", []string{"[Gmail]/Spam"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +114,7 @@ exit 0
 	if !strings.Contains(argsLine, "--accept-absences") {
 		t.Fatalf("expected --accept-absences in argv: %q", argsLine)
 	}
-	plain, err := n.Sync(context.Background(), "gmail", nil)
+	plain, err := n.Sync(neverestCtx(t), "gmail", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

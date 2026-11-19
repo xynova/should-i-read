@@ -28,7 +28,10 @@ func TestEventsHTTPUnavailable(t *testing.T) {
 
 func TestEventsHTTPWritesConnected(t *testing.T) {
 	t.Parallel()
-	bus := hostevent.CreateBus()
+	bus, err := hostevent.CreateBus(hostevent.BusConfig{Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ts := httptest.NewServer((&IntentPageServer{HTML: []byte("h"), Events: bus}).Handler())
 	t.Cleanup(ts.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -56,7 +59,10 @@ func TestEventsHTTPWritesConnected(t *testing.T) {
 
 func TestEventsHTTPStreamsPublish(t *testing.T) {
 	t.Parallel()
-	bus := hostevent.CreateBus()
+	bus, err := hostevent.CreateBus(hostevent.BusConfig{Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
 	bus.Publish(context.Background(), hostevent.Event{
 		Source: hostevent.SourceSync,
 		Kind:   "scan-progressed",

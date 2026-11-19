@@ -175,7 +175,10 @@ func (h *hookEngine) Sync(ctx context.Context, account string, excludeCollection
 
 func TestAbsenceRunnerPublishesScanProgress(t *testing.T) {
 	t.Parallel()
-	bus := hostevent.CreateBus()
+	bus, err := hostevent.CreateBus(hostevent.BusConfig{Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	ch := bus.Subscribe(ctx)

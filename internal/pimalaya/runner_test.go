@@ -8,9 +8,17 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
+
+func runJSONCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	return ctx
+}
 
 func TestResolveBinCargoHomeFallback(t *testing.T) {
 	dir := t.TempDir()
@@ -48,6 +56,17 @@ func TestAssertAllowed(t *testing.T) {
 	}
 }
 
+func TestRunJSONRejectsMissingDeadline(t *testing.T) {
+	t.Parallel()
+	r, err := Create("neverest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RunJSON(context.Background(), "check"); err == nil {
+		t.Fatal("expected missing deadline")
+	}
+}
+
 func TestRunJSONNeedsReviewExit2(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script helper")
@@ -65,7 +84,7 @@ exit 2
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, runErr := r.RunJSON(context.Background(), "check")
+	_, runErr := r.RunJSON(runJSONCtx(t), "check")
 	if runErr == nil {
 		t.Fatal("expected error")
 	}
@@ -118,7 +137,7 @@ exit 2
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, runErr := r.RunJSON(context.Background(), "sync")
+	_, runErr := r.RunJSON(runJSONCtx(t), "sync")
 	if runErr == nil {
 		t.Fatal("expected error")
 	}
@@ -152,7 +171,7 @@ exit 1
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, runErr := r.RunJSON(context.Background(), "message", "delete")
+	_, runErr := r.RunJSON(runJSONCtx(t), "message", "delete")
 	if runErr == nil {
 		t.Fatal("expected error")
 	}
@@ -186,7 +205,7 @@ echo '{"ok":true}'
 		got = append(got, string(line))
 		mu.Unlock()
 	}
-	res, runErr := r.RunJSON(context.Background(), "sync")
+	res, runErr := r.RunJSON(runJSONCtx(t), "sync")
 	if runErr != nil {
 		t.Fatal(runErr)
 	}

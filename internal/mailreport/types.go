@@ -14,6 +14,9 @@ const (
 	SourceBench     = "bench"
 )
 
+// ModeReportOnly is the classify artifact mode (no mailbox mutation).
+const ModeReportOnly = "report_only"
+
 // Item is one message to classify.
 type Item struct {
 	ObjectHash string

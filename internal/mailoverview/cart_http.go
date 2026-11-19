@@ -42,14 +42,14 @@ type cartResponse struct {
 	Error           string         `json:"error,omitempty"`
 }
 
-func (s *IntentPageServer) serveCart(w http.ResponseWriter, r *http.Request) {
+func (s *cartHTTP) serveCart(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.Cart == nil {
 		writeCartJSON(w, http.StatusServiceUnavailable, cartResponse{Error: "deletion cart needs mail overview serve"})
 		return
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeCartJSON(w, http.StatusInternalServerError, cartResponse{Error: "nil request context"})
+		writeCartJSON(w, http.StatusInternalServerError, cartResponse{Error: httpErrNilRequestContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)
@@ -66,11 +66,11 @@ func (s *IntentPageServer) serveCart(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *IntentPageServer) listCart(ctx context.Context, w http.ResponseWriter) {
+func (s *cartHTTP) listCart(ctx context.Context, w http.ResponseWriter) {
 	s.writeCartList(ctx, w, 0, 0)
 }
 
-func (s *IntentPageServer) writeCartList(ctx context.Context, w http.ResponseWriter, skippedInCart, skippedActioned int) {
+func (s *cartHTTP) writeCartList(ctx context.Context, w http.ResponseWriter, skippedInCart, skippedActioned int) {
 	items, err := s.Cart.ListDeleteCart(ctx)
 	if err != nil {
 		writeCartErr(w, err)
@@ -86,7 +86,7 @@ func (s *IntentPageServer) writeCartList(ctx context.Context, w http.ResponseWri
 	})
 }
 
-func (s *IntentPageServer) addCart(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+func (s *cartHTTP) addCart(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	var err error
 	ctx, span := startCartAddSpan(ctx)
 	defer func() { endOverviewSpan(span, err) }()
@@ -160,7 +160,7 @@ func (s *IntentPageServer) addCart(ctx context.Context, w http.ResponseWriter, r
 	s.writeCartList(ctx, w, skippedInCart, skippedActioned)
 }
 
-func (s *IntentPageServer) removeCart(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+func (s *cartHTTP) removeCart(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	group := strings.TrimSpace(r.URL.Query().Get("group"))
 	hash := strings.TrimSpace(r.URL.Query().Get("hash"))
 	var err error

@@ -80,9 +80,9 @@ func (p PimdirPreview) MessagePreview(ctx context.Context, hash string) (Message
 	}, nil
 }
 
-func (s *IntentPageServer) servePreview(w http.ResponseWriter, r *http.Request) {
+func (s *previewHTTP) servePreview(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writePreviewJSON(w, http.StatusMethodNotAllowed, previewResponse{Error: "GET required"})
+		writePreviewJSON(w, http.StatusMethodNotAllowed, previewResponse{Error: httpErrGETRequired})
 		return
 	}
 	if s == nil || s.Preview == nil {
@@ -91,7 +91,7 @@ func (s *IntentPageServer) servePreview(w http.ResponseWriter, r *http.Request) 
 	}
 	parent := r.Context()
 	if parent == nil {
-		writePreviewJSON(w, http.StatusInternalServerError, previewResponse{Error: "nil request context"})
+		writePreviewJSON(w, http.StatusInternalServerError, previewResponse{Error: httpErrNilRequestContext})
 		return
 	}
 	hash := strings.TrimSpace(r.URL.Query().Get("hash"))

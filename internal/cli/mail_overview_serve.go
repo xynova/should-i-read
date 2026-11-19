@@ -84,7 +84,7 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 	if err != nil {
 		return wrapCLIHop(err, op, "create intent guesser")
 	}
-	applyCtx, applyCancel := context.WithCancel(context.Background())
+	applyCtx, applyCancel := context.WithTimeout(cmd.Context(), 2*time.Hour)
 	defer applyCancel()
 	var jobs *maildelete.Service
 	var ackJobs *mailack.Service
@@ -116,7 +116,10 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 	if mail != nil {
 		preview = mailoverview.PimdirPreview{Reader: mail}
 	}
-	events := hostevent.CreateBus()
+	events, err := hostevent.CreateBus(hostevent.BusConfig{Now: time.Now})
+	if err != nil {
+		return wrapCLIHop(err, op, "create event bus")
+	}
 	var nev mailoverview.MailSyncer
 	if n, nerr := pimalaya.CreateNeverest(cfg); nerr == nil {
 		nev = &mailsync.AbsenceRunner{Engine: n, Store: st, Mail: mail, Events: events}
@@ -134,6 +137,29 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 		Hashes:   page.Hashes,
 		Events:   events,
 	}
+	after, aerr := mailoverview.CreateAfterSync(mailoverview.AfterSyncConfig{
+		Classify: func(ctx context.Context, res *pimalaya.Result) (int, bool, error) {
+			art, down, err := runPostSyncClassify(ctx, cfg, repoRoot, res, 8192, cfg.Pimalaya.SyncExcludeCollections, events)
+			if err != nil {
+				return 0, down, err
+			}
+			return art.NewlyClassified, down, nil
+		},
+		Rebuild: func(ctx context.Context) ([]byte, []string, error) {
+			next, berr := buildOverviewPage(ctx, repoRoot, cfg, f)
+			if berr != nil {
+				return nil, nil, berr
+			}
+			if werr := writeOverviewFiles(repoRoot, f.outPath, &next); werr != nil {
+				return nil, nil, werr
+			}
+			return []byte(next.HTML), next.Hashes, nil
+		},
+		Page: pageSrv,
+	})
+	if aerr != nil {
+		return wrapCLIHop(aerr, op, "create after-sync")
+	}
 	syncCtl, err := mailoverview.CreateSyncController(mailoverview.SyncConfig{
 		Runner:       nev,
 		Account:      cfg.Pimalaya.DefaultAccount,
@@ -143,9 +169,7 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 		Jobs:         jobs,
 		AckJobs:      ackJobs,
 		Events:       events,
-		AfterSync: func(ctx context.Context, res *pimalaya.Result) (string, error) {
-			return runOverviewAfterSync(ctx, repoRoot, cfg, f, events, res, pageSrv)
-		},
+		AfterSync:    after.Run,
 	})
 	if err != nil {
 		return wrapCLIHop(err, op, "create mail sync controller")
@@ -194,37 +218,4 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "listen after shutdown")
 	}
 	return nil
-}
-
-func runOverviewAfterSync(ctx context.Context, repoRoot string, cfg config.Config, f mailOverviewFlags, events *hostevent.Bus, res *pimalaya.Result, pageSrv *mailoverview.IntentPageServer) (string, error) {
-	fetch, del := 0, 0
-	var rep pimalaya.EngineReport
-	if res != nil && len(res.Raw) > 0 {
-		rep = pimalaya.SummarizeNeverestJSON(res.Raw)
-		if rep.Recognized {
-			fetch, del = rep.Fetch, rep.Delete
-		}
-	}
-	if !continueClassifyAfterSync(rep) {
-		return mailoverview.FormatSyncLine(fetch, del), nil
-	}
-	art, down, err := runPostSyncClassify(ctx, cfg, repoRoot, res, 8192, cfg.Pimalaya.SyncExcludeCollections, events)
-	if down {
-		return mailoverview.FormatSyncReportLine(fetch, del, 0, true), nil
-	}
-	if err != nil {
-		return mailoverview.FormatSyncReportLine(fetch, del, 0, false), err
-	}
-	line := mailoverview.FormatSyncReportLine(fetch, del, art.NewlyClassified, false)
-	next, berr := buildOverviewPage(ctx, repoRoot, cfg, f)
-	if berr != nil {
-		return line, nil
-	}
-	if werr := writeOverviewFiles(repoRoot, f.outPath, &next); werr != nil {
-		return line, nil
-	}
-	if pageSrv != nil {
-		pageSrv.ReplacePage([]byte(next.HTML), next.Hashes)
-	}
-	return line, nil
 }

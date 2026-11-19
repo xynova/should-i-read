@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 const (
@@ -29,11 +31,21 @@ type Bus struct {
 	next    int
 	last    Event
 	hasLast bool
+	now     func() time.Time
 }
 
-// CreateBus builds an empty bus.
-func CreateBus() *Bus {
-	return &Bus{subs: make(map[int]chan Event)}
+// BusConfig wires a Bus.
+type BusConfig struct {
+	Now func() time.Time
+}
+
+// CreateBus builds an empty bus. Now is required.
+func CreateBus(cfg BusConfig) (*Bus, error) {
+	const op = "hostevent.CreateBus"
+	if cfg.Now == nil {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil clock")
+	}
+	return &Bus{subs: make(map[int]chan Event), now: cfg.Now}, nil
 }
 
 // Publish fans out ev. Slow subscribers are skipped. A nil bus is ignored.
@@ -47,7 +59,7 @@ func (b *Bus) Publish(ctx context.Context, ev Event) {
 		}
 	}
 	if ev.At.IsZero() {
-		ev.At = time.Now().UTC()
+		ev.At = b.now().UTC()
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()

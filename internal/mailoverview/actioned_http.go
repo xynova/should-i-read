@@ -16,14 +16,14 @@ type actionedResponse struct {
 	Error string        `json:"error,omitempty"`
 }
 
-func (s *IntentPageServer) serveActioned(w http.ResponseWriter, r *http.Request) {
+func (s *actionedHTTP) serveActioned(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeActionedJSON(w, http.StatusMethodNotAllowed, actionedResponse{Error: "GET required"})
+		writeActionedJSON(w, http.StatusMethodNotAllowed, actionedResponse{Error: httpErrGETRequired})
 		return
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeActionedJSON(w, http.StatusInternalServerError, actionedResponse{Error: "nil request context"})
+		writeActionedJSON(w, http.StatusInternalServerError, actionedResponse{Error: httpErrNilRequestContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)

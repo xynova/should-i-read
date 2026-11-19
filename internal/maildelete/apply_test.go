@@ -66,7 +66,7 @@ func TestApplyTrashSuccessRemovesCart(t *testing.T) {
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
 		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &recordingDeleter{},
-		Now: time.Now, ItemTimeout: time.Second,
+		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func TestApplyTrashSuccessUpsertsOutcome(t *testing.T) {
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
 		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &recordingDeleter{},
-		Now: time.Now, ItemTimeout: time.Second,
+		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ exit 0
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
 		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &fakeDeleter{script: script},
-		Now: time.Now, ItemTimeout: time.Second,
+		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +196,7 @@ exit 0
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
 		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &fakeDeleter{script: script},
-		Now: time.Now, ItemTimeout: time.Second,
+		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func TestApplyRecordsFailedItemSpan(t *testing.T) {
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
 		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &errDeleter{msg: "No message deleted: no id matched in the mailbox"},
-		Now: time.Now, ItemTimeout: time.Second,
+		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +282,7 @@ func TestApplyConfirmMismatch(t *testing.T) {
 	st, ctx := openTestStore(t)
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
 		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &fakeDeleter{script: "/bin/false"},
-		Now: time.Now,
+		Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +309,7 @@ func TestApplyMissingHimalayaRevertsApplying(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now,
+		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -355,7 +355,7 @@ func TestApplyPrefersCollectionMailbox(t *testing.T) {
 	})
 	rec := &recordingDeleter{}
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Deleter: rec, Now: time.Now,
+		Store: st, Pimdir: &pimdir.Reader{}, Deleter: rec, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -393,7 +393,7 @@ func TestApplyFailedRetryUsesSeqNotMessageID(t *testing.T) {
 		Pimdir: &fakePim{m: map[string]pimdir.EmailSummary{
 			"h1": {Collection: "gmail/imap/INBOX", Seq: 478, LinkID: "behaviorengineering/blog/pull/64/c6675222988@github.com"},
 		}},
-		Deleter: rec, Now: time.Now,
+		Deleter: rec, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -421,7 +421,7 @@ func TestGetJobRecoversStuckApplying(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now,
+		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -9,6 +9,15 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+func startGuessSpan(ctx context.Context, name, model string) (context.Context, trace.Span) {
+	tracer := otel.Tracer("github.com/xynova/should-i-read/internal/mailoverview")
+	return tracer.Start(ctx, name,
+		trace.WithAttributes(
+			attribute.String("polypus.model", model),
+		),
+	)
+}
+
 func startCartAddSpan(ctx context.Context) (context.Context, trace.Span) {
 	tracer := otel.Tracer("github.com/xynova/should-i-read/internal/mailoverview")
 	return tracer.Start(ctx, "mailoverview.AddCart")

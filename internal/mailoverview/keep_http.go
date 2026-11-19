@@ -28,6 +28,7 @@ type keepResponse struct {
 	OK              bool           `json:"ok"`
 	Items           []keepJSONItem `json:"items,omitempty"`
 	Count           int            `json:"count"`
+	Added           int            `json:"added,omitempty"`
 	SkippedActioned int            `json:"skipped_actioned,omitempty"`
 	Error           string         `json:"error,omitempty"`
 }
@@ -40,14 +41,14 @@ type OutcomeStore interface {
 	ClearKeptOutcome(ctx context.Context, objectHash string) error
 }
 
-func (s *IntentPageServer) serveKeep(w http.ResponseWriter, r *http.Request) {
+func (s *keepHTTP) serveKeep(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.Outcomes == nil {
 		writeKeepJSON(w, http.StatusServiceUnavailable, keepResponse{Error: "keep labels need mail overview serve with ledger"})
 		return
 	}
 	parent := r.Context()
 	if parent == nil {
-		writeKeepJSON(w, http.StatusInternalServerError, keepResponse{Error: "nil request context"})
+		writeKeepJSON(w, http.StatusInternalServerError, keepResponse{Error: httpErrNilRequestContext})
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)
@@ -64,7 +65,7 @@ func (s *IntentPageServer) serveKeep(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *IntentPageServer) listKeep(ctx context.Context, w http.ResponseWriter) {
+func (s *keepHTTP) listKeep(ctx context.Context, w http.ResponseWriter) {
 	rows, err := s.Outcomes.ListOutcomes(ctx)
 	if err != nil {
 		writeKeepErr(w, err)
@@ -80,7 +81,7 @@ func (s *IntentPageServer) listKeep(ctx context.Context, w http.ResponseWriter) 
 	writeKeepJSON(w, http.StatusOK, keepResponse{OK: true, Items: out, Count: len(out)})
 }
 
-func (s *IntentPageServer) addKeep(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+func (s *keepHTTP) addKeep(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, cartMaxBody)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -131,7 +132,7 @@ func (s *IntentPageServer) addKeep(ctx context.Context, w http.ResponseWriter, r
 	s.listKeepAfterPost(ctx, w, skippedActioned, kept)
 }
 
-func (s *IntentPageServer) removeKeep(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+func (s *keepHTTP) removeKeep(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	hash := strings.TrimSpace(r.URL.Query().Get("hash"))
 	if hash == "" {
 		writeKeepJSON(w, http.StatusBadRequest, keepResponse{Error: "missing hash"})
@@ -144,7 +145,7 @@ func (s *IntentPageServer) removeKeep(ctx context.Context, w http.ResponseWriter
 	s.listKeep(ctx, w)
 }
 
-func (s *IntentPageServer) listKeepAfterPost(ctx context.Context, w http.ResponseWriter, skippedActioned, added int) {
+func (s *keepHTTP) listKeepAfterPost(ctx context.Context, w http.ResponseWriter, skippedActioned, added int) {
 	rows, err := s.Outcomes.ListOutcomes(ctx)
 	if err != nil {
 		writeKeepErr(w, err)
@@ -157,9 +158,8 @@ func (s *IntentPageServer) listKeepAfterPost(ctx context.Context, w http.Respons
 		}
 		out = append(out, keepJSONItem{ObjectHash: row.ObjectHash, Sender: row.Sender})
 	}
-	_ = added
 	writeKeepJSON(w, http.StatusOK, keepResponse{
-		OK: true, Items: out, Count: len(out), SkippedActioned: skippedActioned,
+		OK: true, Items: out, Count: len(out), Added: added, SkippedActioned: skippedActioned,
 	})
 }
 

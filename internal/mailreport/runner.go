@@ -248,7 +248,7 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 		return Artifact{}, sirerr.New(sirerr.CodeInvalid, op, "nil store")
 	}
 	art := Artifact{
-		Mode:           "report_only",
+		Mode:           ModeReportOnly,
 		PolypusBaseURL: r.polypusURL,
 		JudgeModel:     r.judgeModel,
 		AuthorModel:    r.authorModel,

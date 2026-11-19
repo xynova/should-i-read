@@ -23,7 +23,7 @@ type syncResponse struct {
 	Line    string `json:"line,omitempty"`
 }
 
-func (s *IntentPageServer) serveSync(w http.ResponseWriter, r *http.Request) {
+func (s *syncHTTP) serveSync(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.Sync == nil {
 		writeSyncJSON(w, http.StatusServiceUnavailable, syncResponse{Error: "mail sync needs neverest"})
 		return
@@ -37,14 +37,14 @@ func (s *IntentPageServer) serveSync(w http.ResponseWriter, r *http.Request) {
 		s.postSync(w, r)
 		return
 	default:
-		writeSyncJSON(w, http.StatusMethodNotAllowed, syncResponse{Error: "GET or POST required"})
+		writeSyncJSON(w, http.StatusMethodNotAllowed, syncResponse{Error: httpErrGETOrPOSTRequired})
 	}
 }
 
-func (s *IntentPageServer) postSync(w http.ResponseWriter, r *http.Request) {
+func (s *syncHTTP) postSync(w http.ResponseWriter, r *http.Request) {
 	parent := r.Context()
 	if parent == nil {
-		writeSyncJSON(w, http.StatusInternalServerError, syncResponse{Error: "nil request context"})
+		writeSyncJSON(w, http.StatusInternalServerError, syncResponse{Error: httpErrNilRequestContext})
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, intentMaxBody)

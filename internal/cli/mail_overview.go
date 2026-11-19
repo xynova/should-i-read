@@ -226,7 +226,7 @@ func hashList(rows []hoststore.OverviewRow) []string {
 }
 
 func gitRevision(repoRoot string) string {
-	out, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--short", "HEAD").Output()
+	out, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--short", "HEAD").Output() //nolint:gosec // G204: git argv is fixed; repoRoot is the operator checkout.
 	if err != nil {
 		return ""
 	}

@@ -75,7 +75,7 @@ type IntentDetailInput struct {
 }
 
 // Guess returns a short intent reading of the selection.
-func (g *IntentGuesser) Guess(ctx context.Context, in IntentInput) (string, error) {
+func (g *IntentGuesser) Guess(ctx context.Context, in IntentInput) (out string, err error) {
 	const op = "mailoverview.IntentGuesser.Guess"
 	if g == nil {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "nil guesser")
@@ -90,8 +90,10 @@ func (g *IntentGuesser) Guess(ctx context.Context, in IntentInput) (string, erro
 	if selected == "" {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "selected text is empty")
 	}
+	ctx, span := startGuessSpan(ctx, op, g.model)
+	defer func() { endOverviewSpan(span, err) }()
 	user := formatIntentUser(in.Month, selected)
-	out, err := g.chat.Chat(ctx, polypus.ChatRequest{
+	out, err = g.chat.Chat(ctx, polypus.ChatRequest{
 		Model:       g.model,
 		Temperature: 0.2,
 		Messages: []polypus.ChatMessage{
@@ -104,13 +106,14 @@ func (g *IntentGuesser) Guess(ctx context.Context, in IntentInput) (string, erro
 	}
 	out = strings.TrimSpace(out)
 	if out == "" {
-		return "", sirerr.New(sirerr.CodeFailed, op, "empty intent reply")
+		err = sirerr.New(sirerr.CodeFailed, op, "empty intent reply")
+		return "", err
 	}
 	return out, nil
 }
 
 // GuessDetail returns per-message TLDR lines for a bundled overview selection.
-func (g *IntentGuesser) GuessDetail(ctx context.Context, in IntentDetailInput) (string, error) {
+func (g *IntentGuesser) GuessDetail(ctx context.Context, in IntentDetailInput) (out string, err error) {
 	const op = "mailoverview.IntentGuesser.GuessDetail"
 	if g == nil {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "nil guesser")
@@ -125,8 +128,10 @@ func (g *IntentGuesser) GuessDetail(ctx context.Context, in IntentDetailInput) (
 	if len(msgs) == 0 {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "no messages in selection")
 	}
+	ctx, span := startGuessSpan(ctx, op, g.model)
+	defer func() { endOverviewSpan(span, err) }()
 	user := formatIntentDetailUser(in.Month, in.Summary, msgs)
-	out, err := g.chat.Chat(ctx, polypus.ChatRequest{
+	out, err = g.chat.Chat(ctx, polypus.ChatRequest{
 		Model:       g.model,
 		Temperature: 0.2,
 		Messages: []polypus.ChatMessage{
@@ -139,7 +144,8 @@ func (g *IntentGuesser) GuessDetail(ctx context.Context, in IntentDetailInput) (
 	}
 	out = strings.TrimSpace(out)
 	if out == "" {
-		return "", sirerr.New(sirerr.CodeFailed, op, "empty intent detail reply")
+		err = sirerr.New(sirerr.CodeFailed, op, "empty intent detail reply")
+		return "", err
 	}
 	return out, nil
 }

@@ -193,7 +193,7 @@ func runMailBenchVariant(cmd *cobra.Command, opts *rootOptions, repoRoot string,
 		reader = nil
 	}
 	wallStart := time.Now()
-	merged := mailreport.Artifact{Mode: "report_only", Source: mailreport.SourceBench}
+	merged := mailreport.Artifact{Mode: mailreport.ModeReportOnly, Source: mailreport.SourceBench}
 	chunkRuntimes := map[string]time.Duration{}
 	cOpts := classifyOpts{noApply: true, maxBody: run.maxBody, skipAuthorProbe: true, skipEmbedProbe: true}
 	for i, chunkFile := range chunkFiles {
@@ -287,7 +287,7 @@ func fmtChunkLedger(i int) string {
 }
 
 func gitHeadSHA(repoRoot string) string {
-	out, err := exec.Command("git", "-C", repoRoot, "rev-parse", "HEAD").Output()
+	out, err := exec.Command("git", "-C", repoRoot, "rev-parse", "HEAD").Output() //nolint:gosec // G204: git argv is fixed; repoRoot is the operator checkout.
 	if err != nil {
 		return "unknown"
 	}

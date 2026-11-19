@@ -46,7 +46,7 @@ func TestApplySeenSuccessUpsertsOutcome(t *testing.T) {
 	flagger := &recordingFlagger{}
 	svc, err := CreateAckJobService(JobConfig{
 		Store: st, Pimdir: &pimdir.Reader{}, Flagger: flagger,
-		Now: time.Now, ItemTimeout: time.Second,
+		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestApplyRecordsFlagAddSpan(t *testing.T) {
 	})
 	svc, err := CreateAckJobService(JobConfig{
 		Store: st, Pimdir: &pimdir.Reader{}, Flagger: &recordingFlagger{},
-		Now: time.Now, ItemTimeout: time.Second,
+		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestApplyRejectsWrongConfirm(t *testing.T) {
 	st, ctx := openTestStore(t)
 	svc, err := CreateAckJobService(JobConfig{
 		Store: st, Pimdir: &pimdir.Reader{}, Flagger: &recordingFlagger{},
-		Now: time.Now, ItemTimeout: time.Second,
+		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
