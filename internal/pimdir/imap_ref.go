@@ -1,10 +1,9 @@
 package pimdir
 
 import (
+	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -12,7 +11,7 @@ import (
 )
 
 // FindByIMAPRef resolves a Neverest hunk (collection + uid) to a live item summary.
-func (r *Reader) FindByIMAPRef(collection, uid string) (EmailSummary, error) {
+func (r *Reader) FindByIMAPRef(ctx context.Context, collection, uid string) (EmailSummary, error) {
 	const op = "pimdir.FindByIMAPRef"
 	if r == nil {
 		return EmailSummary{}, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
@@ -29,7 +28,7 @@ func (r *Reader) FindByIMAPRef(collection, uid string) (EmailSummary, error) {
 	seq, seqErr := strconv.ParseInt(uid, 10, 64)
 	for _, col := range candidates {
 		if seqErr == nil {
-			s, err := r.querySummary(op, summarySelect+`
+			s, err := r.querySummary(ctx, op, summarySelect+`
  AND i.collection = ?
  AND i.seq = ?
  LIMIT 1`, col, seq)
@@ -40,7 +39,7 @@ func (r *Reader) FindByIMAPRef(collection, uid string) (EmailSummary, error) {
 				return EmailSummary{}, err
 			}
 		}
-		s, err := r.querySummary(op, summarySelect+`
+		s, err := r.querySummary(ctx, op, summarySelect+`
  AND i.collection = ?
  AND i.link_id = ?
  LIMIT 1`, col, uid)
@@ -55,17 +54,13 @@ func (r *Reader) FindByIMAPRef(collection, uid string) (EmailSummary, error) {
 		With("collection", collection).With("uid", uid)
 }
 
-func (r *Reader) querySummary(op, q string, args ...any) (EmailSummary, error) {
-	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
-	db, err := sql.Open("sqlite", dsn)
+func (r *Reader) querySummary(ctx context.Context, op, q string, args ...any) (EmailSummary, error) {
+	db, err := r.openRo(ctx, op)
 	if err != nil {
-		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+		return EmailSummary{}, err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
-		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
-	}
-	row := db.QueryRow(q, args...)
+	row := db.QueryRowContext(ctx, q, args...)
 	s, err := scanEmailSummary(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

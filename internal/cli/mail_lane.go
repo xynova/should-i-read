@@ -14,6 +14,8 @@ import (
 
 	"github.com/xynova/should-i-read/internal/clui"
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/mailsync"
 	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/sirerr"
@@ -30,7 +32,13 @@ func newMailReadinessCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 }
 
 func runMailReadiness(cmd *cobra.Command, opts *rootOptions, repoRoot string) error {
+	const op = "cli.mail.readiness"
 	ctx := cmd.Context()
+	if ctx == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	cfg, err := opts.mustLoad(repoRoot)
 	if err != nil {
 		return err
@@ -62,7 +70,13 @@ func newMailSyncCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 }
 
 func runMailSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, account string, noClassify bool, flagExcludes []string) error {
+	const op = "cli.mail.sync"
 	ctx := cmd.Context()
+	if ctx == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
+	defer cancel()
 	cfg, err := opts.mustLoad(repoRoot)
 	if err != nil {
 		return err
@@ -76,7 +90,15 @@ func runMailSync(cmd *cobra.Command, opts *rootOptions, repoRoot string, account
 	if err != nil {
 		return err
 	}
-	res, err := nev.Sync(ctx, acct, excludes)
+	absences := &mailsync.AbsenceRunner{Engine: nev}
+	if st, serr := hoststore.CreateStore(hoststore.StoreConfig{Path: cfg.StorePath, Now: time.Now().UTC()}); serr == nil {
+		defer func() { _ = st.Close() }()
+		absences.Store = st
+	}
+	if reader, rerr := pimdir.OpenStore(cfg.Pimalaya.PimdirPath); rerr == nil {
+		absences.Mail = reader
+	}
+	res, err := absences.Sync(ctx, acct, excludes)
 	if err != nil {
 		return finishPimalaya(cmd, opts, res, err, acct)
 	}
@@ -221,7 +243,14 @@ func newMailShowCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 
 func runMailShow(ctx context.Context, out io.Writer, storeDir, ref string, rawOut bool, maxBody int) error {
 	const op = "cli.mail.show"
-	_ = ctx
+	if ctx == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, hostStoreOpTimeout)
+		defer cancel()
+	}
 	if out == nil {
 		out = os.Stdout
 	}
@@ -229,7 +258,7 @@ func runMailShow(ctx context.Context, out io.Writer, storeDir, ref string, rawOu
 	if err != nil {
 		return err
 	}
-	summary, hash, err := reader.ResolveShowRef(ref)
+	summary, hash, err := reader.ResolveShowRef(ctx, ref)
 	if err != nil {
 		return err
 	}

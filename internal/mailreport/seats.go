@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/behaviorengineering/strop/pkg/integrity"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/behaviorengineering/taxonomy/pkg/tags"
 	"github.com/xynova/should-i-read/internal/config"
+	"github.com/xynova/should-i-read/internal/hostevent"
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -72,6 +74,8 @@ type polypusEssencer struct {
 	descriptionCosineMin       float64
 	descriptionCosineMode      config.DescriptionCosineMode
 	essenceSemanticMaxAttempts int
+	events                     *hostevent.Bus
+	essenceN                   atomic.Int64
 }
 
 func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (harness.EssenceOut, error) {
@@ -83,6 +87,7 @@ func (e *polypusEssencer) Essence(ctx context.Context, in harness.EssenceIn) (ha
 	var out harness.EssenceOut
 	var retErr error
 	defer func() { endSeatSpan(span, retErr) }()
+	e.publishEssence(ctx)
 	if e.whyShell == nil || e.tagsShell == nil || e.kindShell == nil {
 		retErr = sirerr.New(sirerr.CodeInvalid, op, "nil essence integrity shell")
 		return harness.EssenceOut{}, retErr
@@ -178,6 +183,19 @@ func (e *polypusEssencer) failSlave(ctx context.Context, op, slave, messageText,
 	return harness.EssenceOut{}, retErr
 }
 
+func (e *polypusEssencer) publishEssence(ctx context.Context) {
+	if e == nil || e.events == nil {
+		return
+	}
+	n := int(e.essenceN.Add(1))
+	e.events.Publish(ctx, hostevent.Event{
+		Source: hostevent.SourceEssence,
+		Kind:   "essence",
+		Line:   fmt.Sprintf("Essence %d", n),
+		Done:   n,
+	})
+}
+
 // SeatsConfig wires Polypus models for taxonomy seats.
 type SeatsConfig struct {
 	Client                     *polypus.Client
@@ -194,6 +212,7 @@ type SeatsConfig struct {
 	DescriptionCosineMin       float64
 	DescriptionCosineMode      config.DescriptionCosineMode
 	EssenceSemanticMaxAttempts int
+	Events                     *hostevent.Bus
 }
 
 // CreateSeats wires Polypus SystemOne Judge and chat Author (optional Essencer/Embedder).
@@ -220,67 +239,95 @@ func CreateSeats(cfg SeatsConfig) (Seats, error) {
 		Author: &polypusAuthor{client: cfg.Client, model: authorModel},
 	}
 	if essenceModel != "" {
-		if err := validateBenchFeedbackEnv(); err != nil {
-			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "bench feedback knob")
-		}
-		escalateModel := EffectiveEssenceEscalateModel(essenceModel, cfg.EssenceEscalateModel)
-		SetEssenceTagCatalog(cfg.TagCatalog)
-		prompts := cfg.EssencePrompts
-		if strings.TrimSpace(prompts.Why) == "" {
-			active := []string{}
-			if cfg.TagCatalog != nil {
-				active = cfg.TagCatalog.ActiveIDs()
-			}
-			prompts = BuildEssencePrompts(active)
-		}
-		whyShell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, essenceWhyShellHooks(cfg.TagCatalog))
+		essencer, err := createEssenceSeats(cfg, essenceModel)
 		if err != nil {
-			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence why shell")
+			return Seats{}, err
 		}
-		tagsShell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, essenceTagsShellHooks(cfg.TagCatalog))
-		if err != nil {
-			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence tags shell")
-		}
-		kindShell, err := createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, essenceKindShellHooks(cfg.TagCatalog))
-		if err != nil {
-			return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence kind shell")
-		}
-		var whyEscalateShell, tagsEscalateShell, kindEscalateShell *integrity.Shell
-		if escalateModel != "" {
-			whyEscalateShell, err = createEssenceIntegrityShellPolypus(cfg.Client, escalateModel, "", essenceWhyShellHooks(cfg.TagCatalog))
-			if err != nil {
-				return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence why escalation shell")
-			}
-			tagsEscalateShell, err = createEssenceIntegrityShellPolypus(cfg.Client, escalateModel, "", essenceTagsShellHooks(cfg.TagCatalog))
-			if err != nil {
-				return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence tags escalation shell")
-			}
-			kindEscalateShell, err = createEssenceIntegrityShellPolypus(cfg.Client, escalateModel, "", essenceKindShellHooks(cfg.TagCatalog))
-			if err != nil {
-				return Seats{}, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence kind escalation shell")
-			}
-		}
-		out.Essencer = &polypusEssencer{
-			client:                     cfg.Client,
-			model:                      essenceModel,
-			escalateModel:              escalateModel,
-			prompts:                    prompts,
-			dump:                       CreateEssenceDumper(EssenceDumpConfig{Dir: cfg.EssenceDumpDir, Now: cfg.Now}),
-			whyShell:                   whyShell,
-			tagsShell:                  tagsShell,
-			kindShell:                  kindShell,
-			whyEscalateShell:           whyEscalateShell,
-			tagsEscalateShell:          tagsEscalateShell,
-			kindEscalateShell:          kindEscalateShell,
-			tagCatalog:                 cfg.TagCatalog,
-			embedder:                   cfg.Embedder,
-			descriptionCosineMin:       cfg.DescriptionCosineMin,
-			descriptionCosineMode:      cfg.DescriptionCosineMode,
-			essenceSemanticMaxAttempts: cfg.EssenceSemanticMaxAttempts,
-		}
+		out.Essencer = essencer
 	}
 	out.Embedder = cfg.Embedder
 	return out, nil
+}
+
+func createEssenceSeats(cfg SeatsConfig, essenceModel string) (*polypusEssencer, error) {
+	const op = "mailreport.CreateSeats"
+	if err := validateBenchFeedbackEnv(); err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "bench feedback knob")
+	}
+	escalateModel := EffectiveEssenceEscalateModel(essenceModel, cfg.EssenceEscalateModel)
+	SetEssenceTagCatalog(cfg.TagCatalog)
+	prompts := cfg.EssencePrompts
+	if strings.TrimSpace(prompts.Why) == "" {
+		active := []string{}
+		if cfg.TagCatalog != nil {
+			active = cfg.TagCatalog.ActiveIDs()
+		}
+		prompts = BuildEssencePrompts(active)
+	}
+	whyShell, tagsShell, kindShell, err := createEssenceBaseShells(cfg, essenceModel)
+	if err != nil {
+		return nil, err
+	}
+	whyEscalateShell, tagsEscalateShell, kindEscalateShell, err := createEssenceEscalateShells(cfg, escalateModel)
+	if err != nil {
+		return nil, err
+	}
+	return &polypusEssencer{
+		client:                     cfg.Client,
+		model:                      essenceModel,
+		escalateModel:              escalateModel,
+		prompts:                    prompts,
+		dump:                       CreateEssenceDumper(EssenceDumpConfig{Dir: cfg.EssenceDumpDir, Now: cfg.Now}),
+		whyShell:                   whyShell,
+		tagsShell:                  tagsShell,
+		kindShell:                  kindShell,
+		whyEscalateShell:           whyEscalateShell,
+		tagsEscalateShell:          tagsEscalateShell,
+		kindEscalateShell:          kindEscalateShell,
+		tagCatalog:                 cfg.TagCatalog,
+		embedder:                   cfg.Embedder,
+		descriptionCosineMin:       cfg.DescriptionCosineMin,
+		descriptionCosineMode:      cfg.DescriptionCosineMode,
+		essenceSemanticMaxAttempts: cfg.EssenceSemanticMaxAttempts,
+		events:                     cfg.Events,
+	}, nil
+}
+
+func createEssenceBaseShells(cfg SeatsConfig, essenceModel string) (why, tags, kind *integrity.Shell, err error) {
+	const op = "mailreport.CreateSeats"
+	why, err = createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, essenceWhyShellHooks(cfg.TagCatalog))
+	if err != nil {
+		return nil, nil, nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence why shell")
+	}
+	tags, err = createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, essenceTagsShellHooks(cfg.TagCatalog))
+	if err != nil {
+		return nil, nil, nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence tags shell")
+	}
+	kind, err = createEssenceIntegrityShellPolypus(cfg.Client, essenceModel, cfg.EssenceEscalateModel, essenceKindShellHooks(cfg.TagCatalog))
+	if err != nil {
+		return nil, nil, nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence kind shell")
+	}
+	return why, tags, kind, nil
+}
+
+func createEssenceEscalateShells(cfg SeatsConfig, escalateModel string) (why, tags, kind *integrity.Shell, err error) {
+	const op = "mailreport.CreateSeats"
+	if escalateModel == "" {
+		return nil, nil, nil, nil
+	}
+	why, err = createEssenceIntegrityShellPolypus(cfg.Client, escalateModel, "", essenceWhyShellHooks(cfg.TagCatalog))
+	if err != nil {
+		return nil, nil, nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence why escalation shell")
+	}
+	tags, err = createEssenceIntegrityShellPolypus(cfg.Client, escalateModel, "", essenceTagsShellHooks(cfg.TagCatalog))
+	if err != nil {
+		return nil, nil, nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence tags escalation shell")
+	}
+	kind, err = createEssenceIntegrityShellPolypus(cfg.Client, escalateModel, "", essenceKindShellHooks(cfg.TagCatalog))
+	if err != nil {
+		return nil, nil, nil, sirerr.Wrap(err, sirerr.CodeInvalid, op, "essence kind escalation shell")
+	}
+	return why, tags, kind, nil
 }
 
 // CreatePolypusJudge builds a SystemOne Judge for a specific model id (for example alias-owner Mercury).
@@ -319,13 +366,29 @@ func (j *polypusJudge) BatchDecide(ctx context.Context, items []JudgeBatchItem) 
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
 	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 45*time.Second)
-		defer cancel()
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing deadline")
 	}
 	if len(items) == 0 {
 		return nil, nil
 	}
+	rows, rowMeta, err := judgeBatchRows(items)
+	if err != nil {
+		return nil, err
+	}
+	world := strings.TrimSpace(items[0].In.WorldContext)
+	reqs, err := jev.BatchRows(rows, world, jev.DefaultMaxQuestions)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeAI, op, "batch rows")
+	}
+	answersByRow, err := j.evalJudgeBatch(ctx, reqs)
+	if err != nil {
+		return nil, err
+	}
+	return assembleJudgeOuts(rowMeta, answersByRow)
+}
+
+func judgeBatchRows(items []JudgeBatchItem) ([]jev.Row, []judgeBatchMeta, error) {
+	const op = "mailreport.polypusJudge.BatchDecide"
 	rows := make([]jev.Row, 0, len(items))
 	rowMeta := make([]judgeBatchMeta, 0, len(items))
 	for _, it := range items {
@@ -335,14 +398,13 @@ func (j *polypusJudge) BatchDecide(ctx context.Context, items []JudgeBatchItem) 
 		}
 		in := it.In
 		if len(in.Options) == 0 {
-			return nil, sirerr.New(sirerr.CodeInvalid, op, "no packed options")
+			return nil, nil, sirerr.New(sirerr.CodeInvalid, op, "no packed options")
 		}
 		allowed, criteria := packedCriteria(in.Options)
-		questions := noulQuestions(in.Options, criteria)
 		rows = append(rows, jev.Row{
 			ID:          rowID,
 			StateSuffix: strings.TrimSpace(in.Text),
-			Questions:   questions,
+			Questions:   noulQuestions(in.Options, criteria),
 		})
 		rowMeta = append(rowMeta, judgeBatchMeta{
 			rowID:      rowID,
@@ -351,11 +413,11 @@ func (j *polypusJudge) BatchDecide(ctx context.Context, items []JudgeBatchItem) 
 			preferSkip: !isGateOptions(in.Options),
 		})
 	}
-	world := strings.TrimSpace(items[0].In.WorldContext)
-	reqs, err := jev.BatchRows(rows, world, jev.DefaultMaxQuestions)
-	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeAI, op, "batch rows")
-	}
+	return rows, rowMeta, nil
+}
+
+func (j *polypusJudge) evalJudgeBatch(ctx context.Context, reqs []jev.Request) (map[string]map[string]jev.Answer, error) {
+	const op = "mailreport.polypusJudge.BatchDecide"
 	answersByRow := map[string]map[string]jev.Answer{}
 	for _, req := range reqs {
 		req.Model = j.model
@@ -366,19 +428,28 @@ func (j *polypusJudge) BatchDecide(ctx context.Context, items []JudgeBatchItem) 
 			}
 			return nil, sirerr.Wrap(err, sirerr.CodeAI, op, "jev eval")
 		}
-		for key, ans := range raw {
-			rowID, choice, serr := jev.SplitKey(key)
-			if serr != nil {
-				continue
-			}
-			m := answersByRow[rowID]
-			if m == nil {
-				m = map[string]jev.Answer{}
-				answersByRow[rowID] = m
-			}
-			m[choice] = ans
-		}
+		mergeJudgeAnswers(answersByRow, raw)
 	}
+	return answersByRow, nil
+}
+
+func mergeJudgeAnswers(answersByRow map[string]map[string]jev.Answer, raw map[string]jev.Answer) {
+	for key, ans := range raw {
+		rowID, choice, serr := jev.SplitKey(key)
+		if serr != nil {
+			continue
+		}
+		m := answersByRow[rowID]
+		if m == nil {
+			m = map[string]jev.Answer{}
+			answersByRow[rowID] = m
+		}
+		m[choice] = ans
+	}
+}
+
+func assembleJudgeOuts(rowMeta []judgeBatchMeta, answersByRow map[string]map[string]jev.Answer) ([]harness.DecideOut, error) {
+	const op = "mailreport.polypusJudge.BatchDecide"
 	outs := make([]harness.DecideOut, 0, len(rowMeta))
 	for _, meta := range rowMeta {
 		sys := jevAnswersToSystemOne(answersByRow[meta.rowID], meta.options)

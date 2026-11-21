@@ -56,11 +56,75 @@ func (c *cachingEmbedder) Embed(ctx context.Context, texts []string) ([][]float6
 		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "embed canceled")
 	}
 	out := make([][]float64, len(texts))
-	type miss struct {
-		text string
-		sha  string
+	misses, err := c.collectEmbedMisses(ctx, texts, out)
+	if err != nil {
+		return nil, err
 	}
-	var misses []miss
+	if len(misses) == 0 {
+		return out, nil
+	}
+	uniqueTexts := make([]string, len(misses))
+	for i, m := range misses {
+		uniqueTexts[i] = m.text
+	}
+	vecs, err := c.inner.Embed(ctx, uniqueTexts)
+	if err != nil {
+		return nil, sirerr.Wrap(err, sirerr.CodeAI, op, "inner embed")
+	}
+	if len(vecs) != len(uniqueTexts) {
+		return nil, sirerr.New(sirerr.CodeFailed, op, "inner embed length mismatch")
+	}
+	if err := c.persistMissVecs(ctx, misses, vecs); err != nil {
+		return nil, err
+	}
+	if err := fillEmbedOut(texts, out, c); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cachingEmbedder) persistMissVecs(ctx context.Context, misses []embedMiss, vecs [][]float64) error {
+	const op = "mailreport.cachingEmbedder.Embed"
+	for i, vec := range vecs {
+		if err := validateEmbedVec(vec); err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "invalid embed vector")
+		}
+		vec = copyVec(vec)
+		c.storeMem(cacheTextKey(c.model, misses[i].text), vec)
+		if c.store == nil {
+			continue
+		}
+		if err := c.store.PutEmbedText(ctx, misses[i].sha, c.model, vec); err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "put embed text cache")
+		}
+	}
+	return nil
+}
+
+func fillEmbedOut(texts []string, out [][]float64, c *cachingEmbedder) error {
+	const op = "mailreport.cachingEmbedder.Embed"
+	for i, text := range texts {
+		if out[i] != nil {
+			continue
+		}
+		key := cacheTextKey(c.model, strings.TrimSpace(text))
+		vec, ok := c.lookupMem(key)
+		if !ok {
+			return sirerr.New(sirerr.CodeFailed, op, "cache fill incomplete")
+		}
+		out[i] = copyVec(vec)
+	}
+	return nil
+}
+
+type embedMiss struct {
+	text string
+	sha  string
+}
+
+func (c *cachingEmbedder) collectEmbedMisses(ctx context.Context, texts []string, out [][]float64) ([]embedMiss, error) {
+	const op = "mailreport.cachingEmbedder.Embed"
+	var misses []embedMiss
 	seenMiss := map[string]int{}
 	for i, text := range texts {
 		text = strings.TrimSpace(text)
@@ -86,48 +150,10 @@ func (c *cachingEmbedder) Embed(ctx context.Context, texts []string) ([][]float6
 		}
 		if _, ok := seenMiss[text]; !ok {
 			seenMiss[text] = len(misses)
-			misses = append(misses, miss{text: text, sha: sha})
+			misses = append(misses, embedMiss{text: text, sha: sha})
 		}
 	}
-	if len(misses) == 0 {
-		return out, nil
-	}
-	uniqueTexts := make([]string, len(misses))
-	for i, m := range misses {
-		uniqueTexts[i] = m.text
-	}
-	vecs, err := c.inner.Embed(ctx, uniqueTexts)
-	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeAI, op, "inner embed")
-	}
-	if len(vecs) != len(uniqueTexts) {
-		return nil, sirerr.New(sirerr.CodeFailed, op, "inner embed length mismatch")
-	}
-	for i, vec := range vecs {
-		if err := validateEmbedVec(vec); err != nil {
-			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "invalid embed vector")
-		}
-		vec = copyVec(vec)
-		c.storeMem(cacheTextKey(c.model, misses[i].text), vec)
-		if c.store != nil {
-			if err := c.store.PutEmbedText(ctx, misses[i].sha, c.model, vec); err != nil {
-				return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "put embed text cache")
-			}
-		}
-	}
-	for i, text := range texts {
-		if out[i] != nil {
-			continue
-		}
-		text = strings.TrimSpace(text)
-		key := cacheTextKey(c.model, text)
-		if vec, ok := c.lookupMem(key); ok {
-			out[i] = copyVec(vec)
-			continue
-		}
-		return nil, sirerr.New(sirerr.CodeFailed, op, "cache fill incomplete")
-	}
-	return out, nil
+	return misses, nil
 }
 
 func (c *cachingEmbedder) lookupMem(key string) ([]float64, bool) {

@@ -15,6 +15,10 @@ import (
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
+func testNow() time.Time {
+	return time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+}
+
 func testLedger(t *testing.T) *hoststore.Store {
 	t.Helper()
 	st, err := hoststore.CreateStore(hoststore.StoreConfig{
@@ -115,19 +119,15 @@ func TestRunner_Classify_useLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipe, err := CreatePipeline(PipelineConfig{Harness: h, Seats: seats})
-	if err != nil {
-		t.Fatal(err)
-	}
 	runner, err := CreateRunner(RunnerConfig{
 		Harness:      h,
 		Seats:        seats,
-		Pipeline:     pipe,
 		CatalogPath:  filepath.Join(t.TempDir(), "catalog.yaml"),
 		ApplyCatalog: false,
 		Store:        testLedger(t),
 		ClassifyMax:  10,
 		PolypusURL:   "http://127.0.0.1:1320",
+		Now:          testNow(),
 	}, vocab, cat)
 	if err != nil {
 		t.Fatal(err)
@@ -166,19 +166,15 @@ func TestRunner_Classify_unavailableFailsRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipe, err := CreatePipeline(PipelineConfig{Harness: h, Seats: seats})
-	if err != nil {
-		t.Fatal(err)
-	}
 	runner, err := CreateRunner(RunnerConfig{
 		Harness:      h,
 		Seats:        seats,
-		Pipeline:     pipe,
 		CatalogPath:  filepath.Join(t.TempDir(), "catalog.yaml"),
 		ApplyCatalog: false,
 		Store:        testLedger(t),
 		ClassifyMax:  10,
 		PolypusURL:   "http://127.0.0.1:1320",
+		Now:          testNow(),
 	}, vocab, cat)
 	if err != nil {
 		t.Fatal(err)
@@ -213,9 +209,23 @@ func TestCreateRunnerNilStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = CreateRunner(RunnerConfig{Harness: h, Seats: seats, ClassifyMax: 1}, vocab, cat)
+	_, err = CreateRunner(RunnerConfig{Harness: h, Seats: seats, ClassifyMax: 1, Now: testNow()}, vocab, cat)
 	if err == nil {
 		t.Fatal("expected nil store error")
+	}
+}
+
+func TestCreateRunnerZeroNow(t *testing.T) {
+	vocab := testInboxVocab()
+	cat := testInboxCatalog(t)
+	seats := Seats{Judge: &stubJudge{}, Author: &stubAuthor{}}
+	h, err := harness.CreateHarness(harness.Config{Judge: seats.Judge, Author: seats.Author})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = CreateRunner(RunnerConfig{Harness: h, Seats: seats, Store: testLedger(t), ClassifyMax: 1}, vocab, cat)
+	if err == nil {
+		t.Fatal("expected zero Now error")
 	}
 }
 
@@ -235,14 +245,11 @@ func TestRunner_Classify_skipsCompleteHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipe, err := CreatePipeline(PipelineConfig{Harness: h, Seats: seats})
-	if err != nil {
-		t.Fatal(err)
-	}
 	store := testLedger(t)
 	runner, err := CreateRunner(RunnerConfig{
-		Harness: h, Seats: seats, Pipeline: pipe, Store: store, ClassifyMax: 10, PolypusURL: "http://127.0.0.1:1320",
+		Harness: h, Seats: seats, Store: store, ClassifyMax: 10, PolypusURL: "http://127.0.0.1:1320",
 		CatalogPath: filepath.Join(t.TempDir(), "c.yaml"),
+		Now:         testNow(),
 	}, vocab, cat)
 	if err != nil {
 		t.Fatal(err)
@@ -281,15 +288,12 @@ func TestRunner_Classify_persistsCanonicalEmbedding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipe, err := CreatePipeline(PipelineConfig{Harness: h, Seats: seats})
-	if err != nil {
-		t.Fatal(err)
-	}
 	store := testLedger(t)
 	runner, err := CreateRunner(RunnerConfig{
-		Harness: h, Seats: seats, Pipeline: pipe, Store: store, ClassifyMax: 10,
+		Harness: h, Seats: seats, Store: store, ClassifyMax: 10,
 		PolypusURL: "http://127.0.0.1:1320", EmbedModel: "test-embed",
 		CatalogPath: filepath.Join(t.TempDir(), "c.yaml"),
+		Now:         testNow(),
 	}, vocab, cat)
 	if err != nil {
 		t.Fatal(err)
@@ -326,15 +330,12 @@ func TestRunner_Classify_embedPersistFailsRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipe, err := CreatePipeline(PipelineConfig{Harness: h, Seats: seats})
-	if err != nil {
-		t.Fatal(err)
-	}
 	store := testLedger(t)
 	runner, err := CreateRunner(RunnerConfig{
-		Harness: h, Seats: seats, Pipeline: pipe, Store: store, ClassifyMax: 10,
+		Harness: h, Seats: seats, Store: store, ClassifyMax: 10,
 		PolypusURL: "http://127.0.0.1:1320", EmbedModel: "test-embed",
 		CatalogPath: filepath.Join(t.TempDir(), "c.yaml"),
+		Now:         testNow(),
 	}, vocab, cat)
 	if err != nil {
 		t.Fatal(err)

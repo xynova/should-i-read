@@ -129,6 +129,29 @@ tasks:
     cmds:
       - "{{.BIN}} mail export {{.CLI_ARGS}}"
 
+  mail:cart-job:
+    desc: Snapshot deletion cart into a trash-at-source job
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail cart job {{.CLI_ARGS}}"
+
+  mail:cart-apply:
+    desc: Apply a deletion job (requires --confirm trash-at-source)
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail cart apply {{.CLI_ARGS}}"
+
+  mail:overview:
+    desc: Offline HTML + JSON mail overview (read-only ledger + pimdir)
+    summary: |
+      Builds the CLI if needed, then runs mail overview.
+      Pass flags after -- (for example --since 2025-10 --until 2025-11 --max-rows 2000).
+      Writes tmp/mail-overview-<ts>.html and .json; no Polypus or network.
+      Highlight intent: go tool task mail:overview -- serve
+    deps: [build]
+    cmds:
+      - "{{.BIN}} mail overview {{.CLI_ARGS}}"
+
   mail:report:
     desc: Classify mail (report-only)
     summary: |

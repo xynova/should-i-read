@@ -92,6 +92,43 @@ func TestCollectStatusAllFlags(t *testing.T) {
 	}
 }
 
+func TestCollectStatusHimalayaMissingDoesNotClearReady(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	mailPath := filepath.Join(dir, "mail-sync.toml")
+	if err := os.WriteFile(mailPath, []byte(`[accounts.gmail]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(dir, "store")
+	if err := os.MkdirAll(store, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(store, "pimdir.db")
+	if err := os.WriteFile(dbPath, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{}
+	cfg.Pimalaya.NeverestConfig = mailPath
+	cfg.Pimalaya.PimdirPath = store
+	cfg.Pimalaya.DefaultAccount = "gmail"
+	cfg.Pimalaya.HimalayaConfig = filepath.Join(dir, "missing-himalaya.toml")
+
+	st, err := CollectStatus(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.ConfigOK || !st.StoreOK {
+		t.Fatalf("config=%v store=%v", st.ConfigOK, st.StoreOK)
+	}
+	if st.HimalayaConfigOK {
+		t.Fatal("expected himalaya_config_ok false")
+	}
+	wantReady := st.DepOK && st.ConfigOK && st.TokenOK && st.StoreOK
+	if st.Ready != wantReady {
+		t.Fatalf("ready=%v want %v", st.Ready, wantReady)
+	}
+}
+
 func TestProductNextStepsNoPim(t *testing.T) {
 	t.Parallel()
 	for _, step := range productNextSteps(Status{ConfigOK: false}) {

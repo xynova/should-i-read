@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -62,11 +61,8 @@ func (c *Client) ProbeChat(ctx context.Context, model string) error {
 	if c == nil {
 		return sirerr.New(sirerr.CodeInvalid, op, "nil client")
 	}
-	if ctx == nil {
-		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return sirerr.New(sirerr.CodeInvalid, op, "context must have a deadline")
+	if err := requireDeadline(ctx, op); err != nil {
+		return err
 	}
 	_, err := c.Chat(ctx, ChatRequest{
 		Model:       strings.TrimSpace(model),
@@ -79,13 +75,13 @@ func (c *Client) ProbeChat(ctx context.Context, model string) error {
 }
 
 // Chat posts to /v1/chat/completions and returns assistant content.
-func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
+func (c *Client) Chat(ctx context.Context, req ChatRequest) (content string, err error) {
 	const op = "polypus.Client.Chat"
 	if c == nil {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "nil client")
 	}
-	if ctx == nil {
-		return "", sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	if err = requireDeadline(ctx, op); err != nil {
+		return "", err
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
@@ -94,36 +90,13 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 	if len(req.Messages) == 0 {
 		return "", sirerr.New(sirerr.CodeInvalid, op, "messages required")
 	}
-	const maxAttempts = 2
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
-			if err := sleepContext(ctx, 2*time.Second); err != nil {
-				return "", sirerr.Wrap(err, sirerr.CodeUnavailable, op, "chat retry wait")
-			}
-		}
-		content, retry, err := c.chatOnce(ctx, model, req)
-		if err == nil {
-			return content, nil
-		}
-		lastErr = err
-		if !retry || attempt+1 >= maxAttempts {
-			return "", err
-		}
-	}
-	return "", lastErr
-}
-
-func sleepContext(ctx context.Context, d time.Duration) error {
-	const op = "polypus.sleepContext"
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return sirerr.Wrap(ctx.Err(), sirerr.CodeUnavailable, op, "retry wait")
-	case <-t.C:
-		return nil
-	}
+	ctx, span := hopSpan(ctx, "polypus.Client.Chat", model, "/v1/chat/completions")
+	defer func() { endHopSpan(span, err) }()
+	content, err = runHop(ctx, func() (string, error) {
+		out, _, onceErr := c.chatOnce(ctx, model, req)
+		return out, onceErr
+	})
+	return content, err
 }
 
 func (c *Client) chatOnce(ctx context.Context, model string, req ChatRequest) (content string, retry bool, err error) {

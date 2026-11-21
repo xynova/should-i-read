@@ -25,7 +25,6 @@ const (
 type RunnerConfig struct {
 	Harness                    *harness.Harness
 	Seats                      Seats
-	Pipeline                   *Pipeline
 	CatalogPath                string
 	ApplyCatalog               bool
 	Store                      *hoststore.Store
@@ -62,28 +61,26 @@ type RunnerConfig struct {
 	ShapeAllowedLeaves         []string
 	// EssenceSystemPrompt is the joined WHY/TAGS/KIND text used by essence_cache.
 	// Empty uses DefaultEssenceSystemPrompt (tests).
-	EssenceSystemPrompt string
-	Now                 time.Time
+	EssenceSystemPrompt   string
+	Now                   time.Time
+	WorthReadPrior        bool
+	WorthReadMinNeighbors int
+	WorthReadMinCosine    float64
+	WorthReadSimilarK     int
 }
 
 // Runner classifies items with taxonomy Operate.
 type Runner struct {
+	PostPasses
 	h                          *harness.Harness
-	seats                      Seats
-	pipe                       *Pipeline
 	catalogPath                string
 	apply                      bool
-	store                      *hoststore.Store
-	max                        int
 	polypusURL                 string
-	judgeModel                 string
 	authorModel                string
 	authorOnSkip               bool
 	vocab                      catalog.Vocabulary
 	cat                        *catalog.Catalog
 	strategy                   string
-	embedModel                 string
-	attachMinCosine            float64
 	walkReinforceMin           float64
 	operateWorld               string
 	essenceBatch               ChatLineRunner
@@ -91,29 +88,14 @@ type Runner struct {
 	essenceEscalateModel       string
 	essenceBatchSize           int
 	prefetchByHash             map[string]*harness.EssenceOut
-	tldrBatch                  ChatLineRunner
-	tldrModel                  string
-	clusterMinCosine           float64
-	quarantineTerms            []string
-	attention                  AttentionClient
-	attentionTrueMin           float64
 	essenceDumpDir             string
-	tagCatalog                 *tags.Catalog
-	tagCurator                 *TagCurator
 	aliasJudge                 harness.Judge
 	minJudgeScore              float64
 	descriptionCosineMin       float64
 	descriptionCosineMode      config.DescriptionCosineMode
 	essenceSemanticMaxAttempts int
-	shapeConfirm               bool
-	shapeMinRepeats            int
-	shapeConfirmMin            float64
-	shapeAllowedLeaves         []string
-	subjectTemplater           *SubjectTemplater
 	currentPromptHash          string
 	shapeSkipByHash            map[string]shapeConfirmDecision
-	aiHops                     int
-	now                        time.Time
 }
 
 // CreateRunner builds a Runner after catalog is loaded.
@@ -128,9 +110,6 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 	if cfg.Store == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil store")
 	}
-	if cfg.Pipeline != nil && cfg.Pipeline.Jobs == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "pipeline missing job runner")
-	}
 	max := cfg.ClassifyMax
 	if max <= 0 {
 		max = 50
@@ -143,9 +122,8 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 	if config.IsAttachStrategy(strategy) {
 		world = WorldContextAttach
 	}
-	now := cfg.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
+	if cfg.Now.IsZero() {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "zero Now")
 	}
 	templater, err := CreateSubjectTemplater(SubjectTemplaterConfig{})
 	if err != nil {
@@ -164,50 +142,60 @@ func CreateRunner(cfg RunnerConfig, vocab catalog.Vocabulary, cat *catalog.Catal
 		shapeConfirmMin = 0.90
 	}
 	return &Runner{
+		PostPasses: PostPasses{
+			store:                 cfg.Store,
+			seats:                 cfg.Seats,
+			max:                   max,
+			judgeModel:            strings.TrimSpace(cfg.JudgeModel),
+			embedModel:            strings.TrimSpace(cfg.EmbedModel),
+			attachMinCosine:       cfg.AttachMinCosine,
+			now:                   cfg.Now.UTC(),
+			tldrBatch:             cfg.TldrBatch,
+			tldrModel:             strings.TrimSpace(cfg.TldrModel),
+			clusterMinCosine:      cfg.ClusterMinCosine,
+			quarantineTerms:       append([]string{}, cfg.QuarantineTerms...),
+			attention:             cfg.Attention,
+			attentionTrueMin:      cfg.AttentionTrueMin,
+			tagCatalog:            cfg.TagCatalog,
+			tagCurator:            cfg.TagCurator,
+			shapeConfirm:          cfg.ShapeConfirm,
+			shapeMinRepeats:       shapeMinRepeats,
+			shapeConfirmMin:       shapeConfirmMin,
+			shapeAllowedLeaves:    allowedLeaves,
+			subjectTemplater:      templater,
+			worthReadPrior:        cfg.WorthReadPrior,
+			worthReadMinNeighbors: cfg.WorthReadMinNeighbors,
+			worthReadMinCosine:    cfg.WorthReadMinCosine,
+			worthReadSimilarK:     cfg.WorthReadSimilarK,
+		},
 		h:                          cfg.Harness,
-		seats:                      cfg.Seats,
-		pipe:                       cfg.Pipeline,
 		catalogPath:                cfg.CatalogPath,
 		apply:                      cfg.ApplyCatalog,
-		store:                      cfg.Store,
-		max:                        max,
 		polypusURL:                 cfg.PolypusURL,
-		judgeModel:                 strings.TrimSpace(cfg.JudgeModel),
 		authorModel:                strings.TrimSpace(cfg.AuthorModel),
-		embedModel:                 strings.TrimSpace(cfg.EmbedModel),
 		authorOnSkip:               cfg.AuthorOnSkip,
 		vocab:                      vocab,
 		cat:                        cat,
 		strategy:                   strategy,
-		attachMinCosine:            cfg.AttachMinCosine,
 		walkReinforceMin:           cfg.WalkReinforceMin,
 		operateWorld:               world,
 		essenceBatch:               cfg.EssenceBatch,
 		essenceModel:               strings.TrimSpace(cfg.EssenceModel),
 		essenceEscalateModel:       EffectiveEssenceEscalateModel(cfg.EssenceModel, cfg.EssenceEscalateModel),
 		essenceBatchSize:           cfg.EssenceBatchSize,
-		tldrBatch:                  cfg.TldrBatch,
-		tldrModel:                  strings.TrimSpace(cfg.TldrModel),
-		clusterMinCosine:           cfg.ClusterMinCosine,
-		quarantineTerms:            append([]string{}, cfg.QuarantineTerms...),
-		attention:                  cfg.Attention,
-		attentionTrueMin:           cfg.AttentionTrueMin,
 		essenceDumpDir:             strings.TrimSpace(cfg.EssenceDumpDir),
-		tagCatalog:                 cfg.TagCatalog,
-		tagCurator:                 cfg.TagCurator,
 		aliasJudge:                 cfg.AliasJudge,
 		minJudgeScore:              cfg.MinJudgeScore,
 		descriptionCosineMin:       cfg.DescriptionCosineMin,
 		descriptionCosineMode:      cfg.DescriptionCosineMode,
 		essenceSemanticMaxAttempts: cfg.EssenceSemanticMaxAttempts,
-		shapeConfirm:               cfg.ShapeConfirm,
-		shapeMinRepeats:            shapeMinRepeats,
-		shapeConfirmMin:            shapeConfirmMin,
-		shapeAllowedLeaves:         allowedLeaves,
-		subjectTemplater:           templater,
 		currentPromptHash:          EssencePromptHash(cfg.EssenceSystemPrompt),
-		now:                        now,
 	}, nil
+}
+
+// WorthReadPriorEnabled reports whether outcome-based priors run on mail report.
+func (r *PostPasses) WorthReadPriorEnabled() bool {
+	return r != nil && r.worthReadPrior
 }
 
 // Close closes the injected store.
@@ -230,8 +218,9 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	if r.store == nil {
 		return Artifact{}, sirerr.New(sirerr.CodeInvalid, op, "nil store")
 	}
+	ctx = WithPaceGate(ctx, CreatePaceGate(paceMaxRPS))
 	art := Artifact{
-		Mode:           "report_only",
+		Mode:           ModeReportOnly,
 		PolypusBaseURL: r.polypusURL,
 		JudgeModel:     r.judgeModel,
 		AuthorModel:    r.authorModel,
@@ -254,31 +243,14 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 	prefetchPending := pending
 	r.shapeSkipByHash = nil
 	if r.shapeConfirmEnabled(source) {
-		prefetchPending, r.shapeSkipByHash = r.planShapeSkips(ctx, pending)
+		var skipErr error
+		prefetchPending, r.shapeSkipByHash, skipErr = r.planShapeSkips(ctx, pending)
+		if skipErr != nil {
+			return art, skipErr
+		}
 	}
-	r.prefetchByHash = map[string]*harness.EssenceOut{}
-	if r.h != nil && config.IsAttachStrategy(r.strategy) && len(prefetchPending) > 0 {
-		ops := make([]harness.Op, 0, len(prefetchPending))
-		for _, item := range prefetchPending {
-			hash := strings.TrimSpace(item.ObjectHash)
-			if hash == "" {
-				continue
-			}
-			ops = append(ops, harness.Op{
-				EssenceKey:   hash,
-				WorldContext: r.operateWorld,
-				Text:         formatItemText(item),
-				Catalog:      r.cat,
-			})
-		}
-		if err := r.h.PrefetchEssence(ctx, ops); err != nil {
-			return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "prefetch essence")
-		}
-		for _, op := range ops {
-			if op.Essence != nil && strings.TrimSpace(op.EssenceKey) != "" {
-				r.prefetchByHash[op.EssenceKey] = op.Essence
-			}
-		}
+	if err := r.prefetchAttachEssence(ctx, prefetchPending); err != nil {
+		return art, err
 	}
 	r.aiHops = 0
 	for _, item := range items {
@@ -293,7 +265,7 @@ func (r *Runner) Classify(ctx context.Context, source string, items []Item) (Art
 }
 
 // RunTagPass regenerates the tag register and runs tag curation after classify waves.
-func (r *Runner) RunTagPass(ctx context.Context, art *Artifact) {
+func (r *PostPasses) RunTagPass(ctx context.Context, art *Artifact) {
 	if r == nil || art == nil {
 		return
 	}
@@ -439,6 +411,41 @@ func storeWriteContext(parent context.Context) (context.Context, context.CancelF
 	return context.WithTimeout(base, storeWriteTimeout)
 }
 
+func (r *Runner) prefetchAttachEssence(ctx context.Context, prefetchPending []Item) error {
+	const op = "mailreport.Runner.Classify"
+	r.prefetchByHash = map[string]*harness.EssenceOut{}
+	if r.h == nil || !config.IsAttachStrategy(r.strategy) || len(prefetchPending) == 0 {
+		return nil
+	}
+	ops := make([]harness.Op, 0, len(prefetchPending))
+	for _, item := range prefetchPending {
+		hash := strings.TrimSpace(item.ObjectHash)
+		if hash == "" {
+			continue
+		}
+		ops = append(ops, harness.Op{
+			EssenceKey:   hash,
+			WorldContext: r.operateWorld,
+			Text:         formatItemText(item),
+			Catalog:      r.cat,
+		})
+	}
+	if err := r.h.PrefetchEssence(ctx, ops); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "prefetch essence")
+	}
+	for _, hop := range ops {
+		if hop.Essence != nil && strings.TrimSpace(hop.EssenceKey) != "" {
+			r.prefetchByHash[hop.EssenceKey] = hop.Essence
+		}
+	}
+	return nil
+}
+
+func (r *Runner) failClassifyRow(storeCtx context.Context, hash, token string, row MessageRow, art *Artifact) error {
+	art.Messages = append(art.Messages, row)
+	return r.store.Fail(storeCtx, hash, token, row.Error)
+}
+
 func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item Item, art *Artifact) error {
 	row := MessageRow{ObjectHash: hash, Subject: item.Subject, Sender: item.Sender}
 	if dec, ok := r.midWaveShapeDecision(ctx, item); ok {
@@ -451,8 +458,7 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 	defer storeCancel()
 	if opErr != nil {
 		row.Error = formatRowError(opErr)
-		art.Messages = append(art.Messages, row)
-		if failErr := r.store.Fail(storeCtx, hash, token, row.Error); failErr != nil {
+		if failErr := r.failClassifyRow(storeCtx, hash, token, row, art); failErr != nil {
 			return failErr
 		}
 		if ctx != nil && ctx.Err() != nil {
@@ -465,11 +471,7 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 	if res.Draft != nil && res.Draft.Kind == harness.DraftKindBreadcrumb && res.DraftAccepted {
 		if bcErr := validateBreadcrumbCatalogInput(res.About, res.Shape); bcErr != nil {
 			row.Error = formatRowError(bcErr)
-			art.Messages = append(art.Messages, row)
-			if failErr := r.store.Fail(storeCtx, hash, token, row.Error); failErr != nil {
-				return failErr
-			}
-			return nil
+			return r.failClassifyRow(storeCtx, hash, token, row, art)
 		}
 	}
 	r.applyAcceptedDraft(opCtx, art, &row, res)
@@ -478,30 +480,18 @@ func (r *Runner) operateAndPersist(ctx context.Context, hash, token string, item
 	clipCatalogTermToKindDepth(r.cat, &row)
 	if pathErr := validateAssignmentPath(row); pathErr != nil {
 		row.Error = formatRowError(pathErr)
-		art.Messages = append(art.Messages, row)
-		if failErr := r.store.Fail(storeCtx, hash, token, row.Error); failErr != nil {
-			return failErr
-		}
-		return nil
+		return r.failClassifyRow(storeCtx, hash, token, row, art)
 	}
 	if !assignmentComplete(row) {
 		if row.Error == "" {
 			row.Error = "empty assignment"
 		}
-		art.Messages = append(art.Messages, row)
-		if failErr := r.store.Fail(storeCtx, hash, token, row.Error); failErr != nil {
-			return failErr
-		}
-		return nil
+		return r.failClassifyRow(storeCtx, hash, token, row, art)
 	}
 	emb, embErr := r.canonicalEmbedding(ctx, row)
 	if embErr != nil {
 		row.Error = formatRowError(embErr)
-		art.Messages = append(art.Messages, row)
-		if failErr := r.store.Fail(storeCtx, hash, token, row.Error); failErr != nil {
-			return failErr
-		}
-		return nil
+		return r.failClassifyRow(storeCtx, hash, token, row, art)
 	}
 	if err := r.store.Complete(storeCtx, hash, token, stateFromRow(row, r.vocab.ID, r.judgeModel, r.embedModel), emb); err != nil {
 		return err
@@ -554,46 +544,7 @@ func (r *Runner) applyAcceptedDraft(ctx context.Context, art *Artifact, row *Mes
 	termsBefore := len(r.vocab.Terms)
 	vocab, applyErr := harness.Apply(r.vocab, res)
 	if applyErr != nil {
-		if res.Draft != nil &&
-			res.Draft.Kind == harness.DraftKindAlias &&
-			catalog.CodeOf(applyErr) == catalog.CodeAliasCollision {
-			alias := strings.TrimSpace(res.Draft.Alias)
-			challenger := strings.TrimSpace(res.Draft.LeafID)
-			owner, hasOwner := catalog.AliasOwner(r.vocab, alias)
-			if r.aliasJudge == nil || ctx == nil || ctx.Err() != nil ||
-				!hasOwner || alias == "" || challenger == "" || owner == challenger {
-				row.Error = ""
-				return
-			}
-			winnerID, decided := decideAliasOwner(ctx, r.aliasJudge, r.cat, alias, challenger, owner, r.minJudgeScore)
-			if !decided {
-				row.Error = ""
-				return
-			}
-			next, transferErr := catalog.TransferAlias(r.vocab, alias, winnerID)
-			if transferErr != nil {
-				row.Error = ""
-				return
-			}
-			cat, persistErr := persistCatalogIfBuildable(r.catalogPath, next)
-			if persistErr != nil {
-				row.Error = ""
-				return
-			}
-			r.vocab = next
-			r.cat = cat
-			rt, ok := r.cat.PreferLeaf(winnerID)
-			if !ok || rt == nil {
-				row.Error = ""
-				return
-			}
-			row.TermID = rt.ID
-			row.Label = rt.Label
-			row.Path = rt.Path
-			row.CanonicalTermID = rt.ID
-			row.CatalogApplied = true
-			art.AliasesAdded++
-			row.Error = ""
+		if r.applyAliasCollision(ctx, art, row, res, applyErr) {
 			return
 		}
 		row.Error = formatRowError(applyErr)
@@ -620,6 +571,50 @@ func (r *Runner) applyAcceptedDraft(ctx context.Context, art *Artifact, row *Mes
 		}
 		art.LeavesAdded += added
 	}
+}
+
+func (r *Runner) applyAliasCollision(ctx context.Context, art *Artifact, row *MessageRow, res harness.Result, applyErr error) bool {
+	if res.Draft == nil || res.Draft.Kind != harness.DraftKindAlias || catalog.CodeOf(applyErr) != catalog.CodeAliasCollision {
+		return false
+	}
+	alias := strings.TrimSpace(res.Draft.Alias)
+	challenger := strings.TrimSpace(res.Draft.LeafID)
+	owner, hasOwner := catalog.AliasOwner(r.vocab, alias)
+	if r.aliasJudge == nil || ctx == nil || ctx.Err() != nil ||
+		!hasOwner || alias == "" || challenger == "" || owner == challenger {
+		row.Error = ""
+		return true
+	}
+	winnerID, decided := decideAliasOwner(ctx, r.aliasJudge, r.cat, alias, challenger, owner, r.minJudgeScore)
+	if !decided {
+		row.Error = ""
+		return true
+	}
+	next, transferErr := catalog.TransferAlias(r.vocab, alias, winnerID)
+	if transferErr != nil {
+		row.Error = ""
+		return true
+	}
+	cat, persistErr := persistCatalogIfBuildable(r.catalogPath, next)
+	if persistErr != nil {
+		row.Error = ""
+		return true
+	}
+	r.vocab = next
+	r.cat = cat
+	rt, ok := r.cat.PreferLeaf(winnerID)
+	if !ok || rt == nil {
+		row.Error = ""
+		return true
+	}
+	row.TermID = rt.ID
+	row.Label = rt.Label
+	row.Path = rt.Path
+	row.CanonicalTermID = rt.ID
+	row.CatalogApplied = true
+	art.AliasesAdded++
+	row.Error = ""
+	return true
 }
 
 func assignmentComplete(row MessageRow) bool {
@@ -749,23 +744,8 @@ func (r *Runner) runOperate(ctx context.Context, item Item) (harness.Result, err
 	if ess := r.prefetchByHash[hash]; ess != nil {
 		opSpec.Essence = ess
 	}
-	var res harness.Result
-	var opErr error
-	if r.pipe == nil || r.pipe.Jobs == nil {
-		r.seats.BindCatalog(r.cat)
-		res, opErr = r.h.Operate(ctx, opSpec)
-	} else {
-		r.seats.BindCatalog(r.cat)
-		r.pipe.SetPending(r.h, opSpec)
-		_, genErr := r.pipe.Jobs.Generate(ctx, classifyGenerationConfig(), CreateClassifyInput(item.ObjectHash, text), nil)
-		if genErr != nil {
-			if isUnavailable(genErr) {
-				return harness.Result{}, sirerr.Wrap(genErr, sirerr.CodeUnavailable, op, "job runner generate")
-			}
-			return harness.Result{}, sirerr.Wrap(genErr, sirerr.CodeFailed, op, "job runner generate")
-		}
-		res, opErr = r.pipe.TakeOutcome()
-	}
+	r.seats.BindCatalog(r.cat)
+	res, opErr := r.h.Operate(ctx, opSpec)
 	if opErr != nil {
 		if !r.authorOnSkip && harness.CodeOf(opErr) == harness.CodeInvalidDraft {
 			return harness.Result{}, nil
@@ -799,6 +779,8 @@ func sourceFromOperateResult(res harness.Result) string {
 			return "alias"
 		case harness.DraftKindBreadcrumb:
 			return "breadcrumb"
+		case harness.DraftKindNewLeaf:
+			return "new_leaf"
 		}
 	}
 	return "judge"

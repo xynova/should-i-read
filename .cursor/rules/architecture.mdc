@@ -10,7 +10,7 @@ alwaysApply: true
 
 **Moral:** This repo consumes providers. It does not fork them. Host logic is Go. AI exits only through Polypus.
 
-Detail lives in [docs/ai-provider-seam.md](docs/ai-provider-seam.md), [docs/pimalaya-setup.md](docs/pimalaya-setup.md), and [docs/report-only-eval.md](docs/report-only-eval.md). Go quality: skill `golang-quality`. Operator workflow: skill `should-i-read-operator`. Operator home config: skill `operator-config` (`go tool task init` → `~/.config/should-i-read/config.yaml`).
+Detail lives in [docs/ai-provider-seam.md](docs/ai-provider-seam.md), [docs/pimalaya-setup.md](docs/pimalaya-setup.md), and [docs/report-only-eval.md](docs/report-only-eval.md). Go quality: skill `golang-quality`. Observability while writing: rule `otel-instrument`. Operator workflow: skill `should-i-read-operator`. Operator home config: skill `operator-config` (`go tool task init` → `~/.config/should-i-read/config.yaml`).
 
 ## Provider boundaries
 
@@ -87,10 +87,12 @@ Set OPENROUTER_API_KEY so in-app classify "just works" against openrouter.ai
 
 - MUST: produce decisions, clusters, and TLDRs as host artifacts (for example under `tmp/`)
 - MUST: keep Jev as typed decisions via Polypus; keep TLDR on a chat model via Polypus
-- MUST NOT: delete, trash, spam-folder, or mark-read mail as part of the first milestone
+- MUST NOT: delete, trash, spam-folder, or mark-read mail from classify, `mail report`, overview **Mark**, or intent guess (report-only paths)
 - MUST NOT: call Jev/TypeSafe directly without Polypus
+- MAY: move messages to Trash at the mail source only via the confirmed deletion-cart job (`should-i-read mail cart apply --confirm trash-at-source` or overview **Move to Trash at source** checkout), which calls Himalaya `message delete` through host `internal/pimalaya` (not bare `himalaya` for product workflows)
+- MAY: mark messages Seen at the mail source via the confirmed Acked job (overview **Mark as read at source** checkout with confirm token `seen-at-source`), which calls Himalaya `flag add --flag seen` through host `internal/pimalaya`. Messages stay in Inbox.
 
-Enforcement: no mailbox-mutation calls in the report pipeline; mode flag `report_only`
+Enforcement: no mailbox-mutation calls in the report pipeline or cart staging; mode flag `report_only` on classify; trash apply requires literal confirm token `trash-at-source`; Acked apply requires `seen-at-source`
 Violation: STOP, remove mutation, keep report artifact only
 
 CORRECT:
@@ -110,7 +112,9 @@ Auto-move high-confidence spam to Trash from the first Jev integration
 | Use host `configure` / `go tool task mail:readiness|mail:sync|mail:export` for mail | Patch nested providers for host needs |
 | Write host orchestration in Go | Put product logic in provider trees |
 | Send all AI through Polypus (`POLYPUS_BASE_URL` / config) | Point clients at leaf AI vendors |
-| Keep unwanted-mail report-only until eval | Delete or quarantine mail early |
+| Keep classify/report Mark intent report-only until eval | Auto-delete or quarantine from Jev scores |
+| Confirmed cart Trash apply via `mail cart apply`; Acked seen via overview checkout | Bare `himalaya` as the product path |
+| Span host jobs while writing them (rule `otel-instrument`) | Ship a loop with only counts or leaf CLI traces |
 
 ## Pre-change checklist
 
@@ -130,3 +134,7 @@ Auto-move high-confidence spam to Trash from the first Jev integration
       Method: Scan for trash/spam/delete/mark-read in the new path
       Pass: Artifact output only
       Fail: STOP, strip mutations
+- [ ] **Instrumented:** New fail-able host Go starts OTEL spans with why/when attributes
+      Method: Rule `otel-instrument`; grep `tracer.Start` on the new loop; `skipTelemetryForCmd` is false for that command
+      Pass: Host orchestration span plus failure ids (not only Himalaya or Polypus HTTP)
+      Fail: STOP, add spans (or keep Olly on), re-verify

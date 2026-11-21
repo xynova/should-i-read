@@ -25,6 +25,70 @@ func newTokenCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	return cmd
 }
 
+func runTokenProviderLogin(cmd *cobra.Command, opts *rootOptions, repoRoot, account string, mkBroker func(config.Config, string) token.Provider) error {
+	cfg, err := opts.mustLoad(repoRoot)
+	if err != nil {
+		return err
+	}
+	broker := mkBroker(cfg, account)
+	if err := broker.Login(cmd.Context()); err != nil {
+		return err
+	}
+	if wantJSON(cmd) {
+		fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"account\":%q}\n", account)
+		return nil
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Logged in (%s)\n", account)
+	return nil
+}
+
+func runTokenProviderLogout(cmd *cobra.Command, opts *rootOptions, repoRoot, account string, mkBroker func(config.Config, string) token.Provider) error {
+	cfg, err := opts.mustLoad(repoRoot)
+	if err != nil {
+		return err
+	}
+	broker := mkBroker(cfg, account)
+	if err := broker.Logout(cmd.Context()); err != nil {
+		return err
+	}
+	if wantJSON(cmd) {
+		fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"deleted\":true}\n")
+		return nil
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Logged out (keyring)")
+	return nil
+}
+
+func runTokenProviderStatus(cmd *cobra.Command, opts *rootOptions, repoRoot, account string, mkBroker func(config.Config, string) token.Provider) error {
+	cfg, err := opts.mustLoad(repoRoot)
+	if err != nil {
+		return err
+	}
+	broker := mkBroker(cfg, account)
+	st := broker.Status()
+	if wantJSON(cmd) {
+		return printJSON(cmd.OutOrStdout(), st)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), formatTokenStatus(st))
+	return nil
+}
+
+func runTokenProviderAccess(cmd *cobra.Command, opts *rootOptions, repoRoot, account string, mkBroker func(config.Config, string) token.Provider) error {
+	cfg, err := opts.mustLoad(repoRoot)
+	if err != nil {
+		return err
+	}
+	broker := mkBroker(cfg, account)
+	access, err := broker.AccessToken(cmd.Context())
+	if err != nil {
+		return err
+	}
+	if err := writeCLIString(cmd.OutOrStdout(), access); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, "cli.token.access", "write access token")
+	}
+	return nil
+}
+
 func newTokenProviderCmd(
 	opts *rootOptions,
 	repoRoot string,
@@ -43,74 +107,26 @@ func newTokenProviderCmd(
 		Use:   VerbLogin,
 		Short: "Browser login; store tokens in OS keyring",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := opts.mustLoad(repoRoot)
-			if err != nil {
-				return err
-			}
-			broker := mkBroker(cfg, account)
-			if err := broker.Login(cmd.Context()); err != nil {
-				return err
-			}
-			if wantJSON(cmd) {
-				fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"account\":%q}\n", account)
-				return nil
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Logged in (%s)\n", account)
-			return nil
+			return runTokenProviderLogin(cmd, opts, repoRoot, account, mkBroker)
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:   "logout",
 		Short: "Remove stored OAuth material from keyring",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := opts.mustLoad(repoRoot)
-			if err != nil {
-				return err
-			}
-			broker := mkBroker(cfg, account)
-			if err := broker.Logout(cmd.Context()); err != nil {
-				return err
-			}
-			if wantJSON(cmd) {
-				fmt.Fprintf(cmd.OutOrStdout(), "{\"ok\":true,\"deleted\":true}\n")
-				return nil
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Logged out (keyring)")
-			return nil
+			return runTokenProviderLogout(cmd, opts, repoRoot, account, mkBroker)
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:   VerbStatus,
 		Short: "Redacted client and token storage status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := opts.mustLoad(repoRoot)
-			if err != nil {
-				return err
-			}
-			broker := mkBroker(cfg, account)
-			st := broker.Status()
-			if wantJSON(cmd) {
-				return printJSON(cmd.OutOrStdout(), st)
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), formatTokenStatus(st))
-			return nil
+			return runTokenProviderStatus(cmd, opts, repoRoot, account, mkBroker)
 		},
 	})
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		cfg, err := opts.mustLoad(repoRoot)
-		if err != nil {
-			return err
-		}
-		broker := mkBroker(cfg, account)
-		access, err := broker.AccessToken(cmd.Context())
-		if err != nil {
-			return err
-		}
-		if err := writeCLIString(cmd.OutOrStdout(), access); err != nil {
-			return sirerr.Wrap(err, sirerr.CodeFailed, "cli.token.access", "write access token")
-		}
-		return nil
+		return runTokenProviderAccess(cmd, opts, repoRoot, account, mkBroker)
 	}
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)

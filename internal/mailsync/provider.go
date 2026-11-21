@@ -34,10 +34,21 @@ func (p Provider) imapServer() string {
 	case ProviderOutlook:
 		return "outlook.office365.com"
 	default:
-		return "imap.gmail.com"
+		return ""
 	}
 }
 
 func (p Provider) tokenSubcommand() string {
 	return string(p)
+}
+
+func (p Provider) trashMailbox() string {
+	switch p {
+	case ProviderGmail:
+		return "[Gmail]/Trash"
+	case ProviderOutlook:
+		return "Deleted Items"
+	default:
+		return ""
+	}
 }

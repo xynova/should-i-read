@@ -25,7 +25,12 @@ func newMailCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd.AddCommand(newMailBenchCmd(opts, repoRoot))
 	cmd.AddCommand(newMailSimilarCmd(opts, repoRoot))
 	cmd.AddCommand(newMailShowCmd(opts, repoRoot))
+	cmd.AddCommand(newMailCartCmd(opts, repoRoot))
+	overview := newMailOverviewCmd(opts, repoRoot)
+	overview.AddCommand(newMailOverviewServeCmd(opts, repoRoot))
+	cmd.AddCommand(overview)
 	cmd.AddCommand(newMailTagsCmd(opts, repoRoot))
+	cmd.AddCommand(newMailOutcomesCmd(opts, repoRoot))
 	return cmd
 }
 
@@ -70,6 +75,25 @@ type mailSetupFlags struct {
 	force, skipLogin                    bool
 }
 
+func emitMailSetupResult(cmd *cobra.Command, res mailsync.SetupResult) error {
+	if wantJSON(cmd) {
+		return printJSON(cmd.OutOrStdout(), res)
+	}
+	_, err := io.WriteString(cmd.OutOrStdout(), formatMailSetupResult(res)+"\n")
+	return err
+}
+
+func emitMailSetupStepsOnError(cmd *cobra.Command, res mailsync.SetupResult) {
+	if len(res.Steps) == 0 {
+		return
+	}
+	if wantJSON(cmd) {
+		_ = printJSON(cmd.OutOrStdout(), res)
+		return
+	}
+	_, _ = io.WriteString(cmd.OutOrStdout(), formatMailSetupResult(res)+"\n")
+}
+
 func runMailSetup(cmd *cobra.Command, repoRoot string, flags mailSetupFlags, wizardFlag bool) error {
 	const op = "cli.mail.setup"
 	ctx := cmd.Context()
@@ -87,25 +111,9 @@ func runMailSetup(cmd *cobra.Command, repoRoot string, flags mailSetupFlags, wiz
 		}
 	}
 
-	providerRaw := strings.TrimSpace(flags.provider)
-	emailRaw := strings.TrimSpace(flags.email)
-	if providerRaw == "" || emailRaw == "" {
-		if !tty {
-			return sirerr.New(sirerr.CodeInvalid, op, "provider and email required (or run from a TTY for the wizard)")
-		}
-		var err error
-		if providerRaw == "" {
-			providerRaw, err = promptLine(cmd.ErrOrStderr(), "Mail provider (gmail/outlook): ")
-			if err != nil {
-				return err
-			}
-		}
-		if emailRaw == "" {
-			emailRaw, err = promptLine(cmd.ErrOrStderr(), "Mailbox email: ")
-			if err != nil {
-				return err
-			}
-		}
+	providerRaw, emailRaw, err := requireMailProviderEmail(cmd, flags.provider, flags.email, op, "provider and email required (or run from a TTY for the wizard)")
+	if err != nil {
+		return err
 	}
 	prov, err := mailsync.ParseProvider(providerRaw)
 	if err != nil {
@@ -127,20 +135,10 @@ func runMailSetup(cmd *cobra.Command, repoRoot string, flags mailSetupFlags, wiz
 		Interactive: tty,
 	})
 	if err != nil {
-		if len(res.Steps) > 0 {
-			if wantJSON(cmd) {
-				_ = printJSON(cmd.OutOrStdout(), res)
-			} else {
-				_, _ = io.WriteString(cmd.OutOrStdout(), formatMailSetupResult(res)+"\n")
-			}
-		}
+		emitMailSetupStepsOnError(cmd, res)
 		return err
 	}
-	if wantJSON(cmd) {
-		return printJSON(cmd.OutOrStdout(), res)
-	}
-	_, err = io.WriteString(cmd.OutOrStdout(), formatMailSetupResult(res)+"\n")
-	return err
+	return emitMailSetupResult(cmd, res)
 }
 
 func newMailStatusCmd(opts *rootOptions, repoRoot string) *cobra.Command {

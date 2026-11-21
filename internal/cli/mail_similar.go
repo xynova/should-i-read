@@ -75,7 +75,7 @@ func runMailSimilar(cmd *cobra.Command, opts *rootOptions, repoRoot, hash string
 	for _, h := range hits {
 		n := similarNeighborJSON{ObjectHash: h.ObjectHash, Cosine: h.Cosine}
 		if reader != nil {
-			if sum, findErr := reader.FindByObjectHash(h.ObjectHash); findErr == nil {
+			if sum, findErr := reader.FindByObjectHash(ctx, h.ObjectHash); findErr == nil {
 				n.Subject = sum.Subject
 				n.Sender = sum.Sender
 			}
@@ -122,6 +122,11 @@ func collectClassifyStoreStatus(ctx context.Context, cfg config.Config) mailsync
 		out.Complete = c.Complete
 		out.Error = c.Error
 		out.Running = c.Running
+	}
+	if oc, err := store.CountOutcomes(opCtx); err == nil {
+		out.OutcomesTrashed = oc.TrashedAtSource
+		out.OutcomesAlreadyTrash = oc.AlreadyInTrash
+		out.OutcomesKept = oc.Kept
 	}
 	complete, _ := store.ListCompleteHashes(opCtx)
 	done := map[string]struct{}{}

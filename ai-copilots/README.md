@@ -16,4 +16,4 @@ Canonical source lives here. Wiring into Cursor (and optional other IDEs) is don
 | [host-classify-store](skills/host-classify-store/SKILL.md) | Classify ledger path, mail status/similar, progress JSON import-only |
 | [hoststore-sqlite](skills/hoststore-sqlite/SKILL.md) | modernc SQLite, golang-migrate, write actor, no CGO |
 
-Pack skills (golang-quality, operator-config, and so on) remain under `.cursor/skills/` via cursor-packs; they are not duplicated here.
+Pack skills (golang-quality, operator-config, and so on) ship via the **cursor-packs** Cursor plugin; they are not duplicated here.

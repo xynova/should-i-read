@@ -15,7 +15,17 @@ That runs [`scripts/wire-cursor-skills.sh`](../scripts/wire-cursor-skills.sh), w
    - `pimalaya-ecosystem` → `../../ai-copilots/skills/pimalaya-ecosystem`
 2. Optionally links **strop** skills when `github.com/behaviorengineering/strop` is in your module cache (machine-local absolute paths; gitignored).
 
-Shared pack skills (golang-quality, operator-config, etc.) are separate symlinks into `.cursor/packs/shared/` and are already tracked in git.
+Shared pack skills (golang-quality, operator-config, etc.) come from the **cursor-packs** Cursor plugin (Customize). Install it on each machine; do not symlink pack content into this repo (see `.cursor/packs/plugin-mode`).
+
+Host overlays stay as real files under `.cursor/rules/` (for example `architecture.mdc`, `pimalaya-ecosystem.mdc`).
+
+## Git hooks
+
+Fleet pre-commit hooks are vendored under `lefthook/` and `scripts/git-hooks/` (no cursor-packs submodule). After clone or worktree add:
+
+```bash
+go tool task hooks-install
+```
 
 ## Strop skills
 

@@ -57,6 +57,17 @@ func ResolveJudgeModel(ctx context.Context, prober SystemOneProber, catalogIDs [
 	}
 
 	tried := map[string]struct{}{}
+	if model, src, err := probeCatalogJudges(ctx, prober, catalogIDs, tried); err != nil || model != "" {
+		return model, src, err
+	}
+	if model, src, err := probeCandidateJudges(ctx, prober, tried); err != nil || model != "" {
+		return model, src, err
+	}
+	return "", "", sirerr.New(sirerr.CodeUnavailable, op, "no SystemOne judge resolved; set polypus.judge_model, confirm gateway allows typesafe/jev on POST /v1/systemone and lists it under GET /v1/apis/systemone/models, run: should-i-read polypus check --classify")
+}
+
+func probeCatalogJudges(ctx context.Context, prober SystemOneProber, catalogIDs []string, tried map[string]struct{}) (string, JudgeSource, error) {
+	const op = "mailreport.ResolveJudgeModel"
 	for _, id := range catalogIDs {
 		if !isSystemOneJudgeID(id) {
 			continue
@@ -70,7 +81,11 @@ func ResolveJudgeModel(ctx context.Context, prober SystemOneProber, catalogIDs [
 			return id, JudgeSourceCatalog, nil
 		}
 	}
+	return "", "", nil
+}
 
+func probeCandidateJudges(ctx context.Context, prober SystemOneProber, tried map[string]struct{}) (string, JudgeSource, error) {
+	const op = "mailreport.ResolveJudgeModel"
 	const maxCandidateProbes = 2
 	candidateProbes := 0
 	for _, candidate := range DefaultSystemOneJudgeCandidates() {
@@ -94,8 +109,7 @@ func ResolveJudgeModel(ctx context.Context, prober SystemOneProber, catalogIDs [
 			return candidate, JudgeSourceProbe, nil
 		}
 	}
-
-	return "", "", sirerr.New(sirerr.CodeUnavailable, op, "no SystemOne judge resolved; set polypus.judge_model, confirm gateway allows typesafe/jev on POST /v1/systemone and lists it under GET /v1/apis/systemone/models, run: should-i-read polypus check --classify")
+	return "", "", nil
 }
 
 // probeJudge returns ok when the probe succeeded; permanent 4xx returns ok=false, err=nil; abort errors return err.

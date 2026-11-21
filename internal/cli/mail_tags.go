@@ -31,6 +31,81 @@ func newMailTagsCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	return cmd
 }
 
+func loadMailTagsCatalog(repoRoot string) (registerPath, depPath, seedPath string, cat *tags.Catalog, err error) {
+	const op = "cli.mail.tags"
+	registerPath, err = config.DefaultTagRegisterPath()
+	if err != nil {
+		return "", "", "", nil, wrapCLIHop(err, op, "register path")
+	}
+	depPath, err = config.DefaultTagDeprecationsPath()
+	if err != nil {
+		return "", "", "", nil, wrapCLIHop(err, op, "deprecations path")
+	}
+	seedPath = config.SeedTagListPath(repoRoot)
+	if err := tags.EnsureFiles(registerPath, depPath, seedPath); err != nil {
+		return "", "", "", nil, wrapCLIHop(err, op, "ensure tag files")
+	}
+	cat, err = tags.CreateCatalog(mailreport.MailTagCatalogConfig(registerPath, depPath, seedPath))
+	if err != nil {
+		return "", "", "", nil, wrapCLIHop(err, op, "load tag catalog")
+	}
+	return registerPath, depPath, seedPath, cat, nil
+}
+
+func mailTagsJudgeFromConfig(ctx context.Context, cfg config.Config) (*polypus.Client, string) {
+	client, clientErr := polypus.Create(cfg.PolypusBaseURL, nil)
+	if clientErr != nil {
+		return nil, ""
+	}
+	health, healthErr := client.Check(ctx)
+	if healthErr != nil {
+		return nil, ""
+	}
+	resolveCtx, cancel := context.WithTimeout(ctx, classifyModelResolveTimeout)
+	defer cancel()
+	judgeModel, _, err := mailreport.ResolveJudgeModel(resolveCtx, client, health.ModelIDs, cfg.PolypusJudgeModel)
+	if err != nil {
+		return nil, ""
+	}
+	return client, judgeModel
+}
+
+func mailTagsShapeCounts(ctx context.Context, store *hoststore.Store, cat *tags.Catalog) (map[string]int, error) {
+	listCtx, listCancel := context.WithTimeout(ctx, hostStoreOpTimeout)
+	defer listCancel()
+	shapes, err := store.ListCompleteShapes(listCtx)
+	if err != nil {
+		return nil, err
+	}
+	counts := tags.CountTagsFromShapes(shapes)
+	for _, id := range cat.SeedIDs() {
+		if _, ok := counts[id]; !ok {
+			counts[id] = 0
+		}
+	}
+	return counts, nil
+}
+
+func assembleMailTagsReport(cfg config.Config, result mailreport.CurateResult, counts map[string]int, registerPath, depPath, seedPath string) mailTagsReport {
+	regPath := result.RegisterPath
+	if regPath == "" {
+		regPath = registerPath
+	}
+	return mailTagsReport{
+		RegisterPath:     regPath,
+		DeprecationsPath: depPath,
+		SeedPath:         seedPath,
+		StorePath:        cfg.StorePath,
+		Rewrote:          result.Rewrote,
+		Dropped:          result.Dropped,
+		Merged:           result.Merged,
+		Skipped:          result.Skipped,
+		JudgeSkipped:     result.JudgeSkipped,
+		ActiveTagIDs:     len(counts),
+		Error:            result.Error,
+	}
+}
+
 type mailTagsReport struct {
 	RegisterPath     string            `json:"register_path,omitempty"`
 	DeprecationsPath string            `json:"deprecations_path,omitempty"`
@@ -57,21 +132,9 @@ func runMailTags(cmd *cobra.Command, opts *rootOptions, repoRoot string) error {
 	}
 	tagCtx, tagCancel := context.WithTimeout(parent, mailreport.TagPassTimeout)
 	defer tagCancel()
-	registerPath, err := config.DefaultTagRegisterPath()
+	registerPath, depPath, seedPath, cat, err := loadMailTagsCatalog(repoRoot)
 	if err != nil {
-		return wrapCLIHop(err, op, "register path")
-	}
-	depPath, err := config.DefaultTagDeprecationsPath()
-	if err != nil {
-		return wrapCLIHop(err, op, "deprecations path")
-	}
-	seedPath := config.SeedTagListPath(repoRoot)
-	if err := tags.EnsureFiles(registerPath, depPath, seedPath); err != nil {
-		return wrapCLIHop(err, op, "ensure tag files")
-	}
-	cat, err := tags.CreateCatalog(mailreport.MailTagCatalogConfig(registerPath, depPath, seedPath))
-	if err != nil {
-		return wrapCLIHop(err, op, "load tag catalog")
+		return err
 	}
 	now := time.Now().UTC()
 	store, err := hoststore.CreateStore(hoststore.StoreConfig{Path: cfg.StorePath, Now: now})
@@ -79,20 +142,7 @@ func runMailTags(cmd *cobra.Command, opts *rootOptions, repoRoot string) error {
 		return wrapCLIHop(err, op, "open store")
 	}
 	defer func() { _ = store.Close() }()
-	var judgeClient *polypus.Client
-	var judgeModel string
-	client, clientErr := polypus.Create(cfg.PolypusBaseURL, nil)
-	if clientErr == nil {
-		health, healthErr := client.Check(parent)
-		if healthErr == nil {
-			resolveCtx, cancel := context.WithTimeout(parent, classifyModelResolveTimeout)
-			judgeModel, _, err = mailreport.ResolveJudgeModel(resolveCtx, client, health.ModelIDs, cfg.PolypusJudgeModel)
-			cancel()
-			if err == nil {
-				judgeClient = client
-			}
-		}
-	}
+	judgeClient, judgeModel := mailTagsJudgeFromConfig(parent, cfg)
 	curator, err := mailreport.CreateTagCurator(mailreport.TagCuratorConfig{
 		Store:      store,
 		Catalog:    cat,
@@ -110,35 +160,11 @@ func runMailTags(cmd *cobra.Command, opts *rootOptions, repoRoot string) error {
 	if loaded := curator.Catalog(); loaded != nil {
 		cat = loaded
 	}
-	listCtx, listCancel := context.WithTimeout(parent, hostStoreOpTimeout)
-	defer listCancel()
-	shapes, err := store.ListCompleteShapes(listCtx)
+	counts, err := mailTagsShapeCounts(parent, store, cat)
 	if err != nil {
 		return wrapCLIHop(err, op, "list shapes")
 	}
-	counts := tags.CountTagsFromShapes(shapes)
-	for _, id := range cat.SeedIDs() {
-		if _, ok := counts[id]; !ok {
-			counts[id] = 0
-		}
-	}
-	regPath := result.RegisterPath
-	if regPath == "" {
-		regPath = registerPath
-	}
-	report := mailTagsReport{
-		RegisterPath:     regPath,
-		DeprecationsPath: depPath,
-		SeedPath:         seedPath,
-		StorePath:        cfg.StorePath,
-		Rewrote:          result.Rewrote,
-		Dropped:          result.Dropped,
-		Merged:           result.Merged,
-		Skipped:          result.Skipped,
-		JudgeSkipped:     result.JudgeSkipped,
-		ActiveTagIDs:     len(counts),
-		Error:            result.Error,
-	}
+	report := assembleMailTagsReport(cfg, result, counts, registerPath, depPath, seedPath)
 	if wantJSON(cmd) {
 		return printJSON(cmd.OutOrStdout(), report)
 	}

@@ -53,7 +53,7 @@ type BenchScore struct {
 // LoadBenchLabels reads labels JSON and validates revision when expectedRev is non-empty.
 func LoadBenchLabels(path, expectedRev string) (BenchLabelsFile, error) {
 	const op = "mailreport.LoadBenchLabels"
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: operator-supplied bench labels path.
 	if err != nil {
 		return BenchLabelsFile{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "read labels")
 	}
@@ -74,54 +74,9 @@ func ScoreBenchArtifact(art Artifact, variant, inputRev string, labels BenchLabe
 	for _, m := range art.Messages {
 		byHash[strings.TrimSpace(m.ObjectHash)] = m
 	}
-	causeCounts := map[string]int{}
-	failed := 0
-	for _, m := range art.Messages {
-		if strings.TrimSpace(m.Error) == "" {
-			continue
-		}
-		failed++
-		cause := ClassifyFailureCause(m.Error)
-		if cause == "" {
-			cause = "other"
-		}
-		causeCounts[cause]++
-	}
-	cosines := make([]float64, 0, len(art.Messages))
-	below := 0
-	for _, m := range art.Messages {
-		if m.DescriptionCosine == 0 && !m.DescriptionCosineBelowMin {
-			continue
-		}
-		cosines = append(cosines, m.DescriptionCosine)
-		if descMin > 0 && m.DescriptionCosine < descMin {
-			below++
-		}
-	}
-	mean, p50 := cosineStats(cosines)
-	belowShare := 0.0
-	if len(cosines) > 0 {
-		belowShare = float64(below) / float64(len(cosines))
-	}
-	leafHits := 0
-	termSum := 0.0
-	labeled := len(labels.Labels)
-	for _, lb := range labels.Labels {
-		row, ok := byHash[strings.TrimSpace(lb.ObjectHash)]
-		if !ok {
-			continue
-		}
-		if leafMatches(row.Kind, lb.ExpectedLeaf) {
-			leafHits++
-		}
-		termSum += termRecall(row.About, lb.RequiredTerms)
-	}
-	leafAcc := 0.0
-	meanRecall := 0.0
-	if labeled > 0 {
-		leafAcc = float64(leafHits) / float64(labeled)
-		meanRecall = termSum / float64(labeled)
-	}
+	failed, causeCounts := benchFailureStats(art.Messages)
+	mean, p50, belowShare := benchCosineStats(art.Messages, descMin)
+	leafAcc, meanRecall, labeled := benchLabelStats(byHash, labels)
 	runtimeS := map[string]float64{}
 	for k, d := range chunkRuntimes {
 		runtimeS[k] = d.Seconds()
@@ -149,6 +104,62 @@ func ScoreBenchArtifact(art Artifact, variant, inputRev string, labels BenchLabe
 		ChunkRuntimesS:       runtimeS,
 		WallS:                wall.Seconds(),
 	}
+}
+
+func benchFailureStats(messages []MessageRow) (failed int, causeCounts map[string]int) {
+	causeCounts = map[string]int{}
+	for _, m := range messages {
+		if strings.TrimSpace(m.Error) == "" {
+			continue
+		}
+		failed++
+		cause := ClassifyFailureCause(m.Error)
+		if cause == "" {
+			cause = "other"
+		}
+		causeCounts[cause]++
+	}
+	return failed, causeCounts
+}
+
+func benchCosineStats(messages []MessageRow, descMin float64) (mean, p50, belowShare float64) {
+	cosines := make([]float64, 0, len(messages))
+	below := 0
+	for _, m := range messages {
+		if m.DescriptionCosine == 0 && !m.DescriptionCosineBelowMin {
+			continue
+		}
+		cosines = append(cosines, m.DescriptionCosine)
+		if descMin > 0 && m.DescriptionCosine < descMin {
+			below++
+		}
+	}
+	mean, p50 = cosineStats(cosines)
+	if len(cosines) > 0 {
+		belowShare = float64(below) / float64(len(cosines))
+	}
+	return mean, p50, belowShare
+}
+
+func benchLabelStats(byHash map[string]MessageRow, labels BenchLabelsFile) (leafAcc, meanRecall float64, labeled int) {
+	leafHits := 0
+	termSum := 0.0
+	labeled = len(labels.Labels)
+	for _, lb := range labels.Labels {
+		row, ok := byHash[strings.TrimSpace(lb.ObjectHash)]
+		if !ok {
+			continue
+		}
+		if leafMatches(row.Kind, lb.ExpectedLeaf) {
+			leafHits++
+		}
+		termSum += termRecall(row.About, lb.RequiredTerms)
+	}
+	if labeled > 0 {
+		leafAcc = float64(leafHits) / float64(labeled)
+		meanRecall = termSum / float64(labeled)
+	}
+	return leafAcc, meanRecall, labeled
 }
 
 func leafMatches(kind, expectedLeaf string) bool {

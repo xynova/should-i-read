@@ -17,7 +17,7 @@ const tldrSystemPrompt = "Summarize these inbox messages in one sentence. Report
 const maxTLDRRunes = 280
 
 // Cluster fills clusters and TLDRs on the artifact.
-func (r *Runner) Cluster(ctx context.Context, art Artifact) (Artifact, error) {
+func (r *PostPasses) Cluster(ctx context.Context, art Artifact) (Artifact, error) {
 	const op = "mailreport.Runner.Cluster"
 	if r == nil {
 		return art, sirerr.New(sirerr.CodeInvalid, op, "nil runner")
@@ -31,6 +31,7 @@ func (r *Runner) Cluster(ctx context.Context, art Artifact) (Artifact, error) {
 	if r.store == nil {
 		return art, sirerr.New(sirerr.CodeInvalid, op, "nil store")
 	}
+	ctx = WithPaceGate(ctx, CreatePaceGate(paceMaxRPS))
 	art.TldrModel = r.tldrModel
 	minCosine := r.clusterMinCosine
 	if minCosine <= 0 {
@@ -63,20 +64,25 @@ func (r *Runner) Cluster(ctx context.Context, art Artifact) (Artifact, error) {
 		art.Clusters = clusters
 		return art, retErr
 	}
-	quarantine := map[string]struct{}{}
-	for _, t := range r.quarantineTerms {
-		t = strings.TrimSpace(strings.ToLower(t))
-		if t != "" {
-			quarantine[t] = struct{}{}
-		}
+	quarantine := quarantineSet(r.quarantineTerms)
+	if err := r.seedClusterTLDRs(ctx, clusters, rowByHash, quarantine); err != nil {
+		return finish(err)
 	}
+	if err := r.fillClusterTLDRs(ctx, &clusters, rowByHash, quarantine); err != nil {
+		return finish(err)
+	}
+	return finish(nil)
+}
+
+func (r *PostPasses) seedClusterTLDRs(ctx context.Context, clusters []ClusterRow, rowByHash map[string]MessageRow, quarantine map[string]struct{}) error {
+	const op = "mailreport.Runner.Cluster"
 	for i := range clusters {
 		c := &clusters[i]
 		c.SuggestedAction = suggestedActionFor(c.TermID, quarantine)
 		if c.Size == 1 {
 			c.TLDR = singleMessageTLDR(rowByHash, c.MemberHashes)
 			if err := r.persistCluster(ctx, *c, rowByHash); err != nil {
-				return finish(err)
+				return err
 			}
 			continue
 		}
@@ -85,27 +91,39 @@ func (r *Runner) Cluster(ctx context.Context, art Artifact) (Artifact, error) {
 			c.TLDR = got.TLDR
 			c.TLDRError = ""
 			if err := r.persistCluster(ctx, *c, rowByHash); err != nil {
-				return finish(err)
+				return err
 			}
 			continue
 		}
 		if gerr != nil {
 			code, ok := sirerr.AsCode(gerr)
 			if !ok || code != sirerr.CodeNotFound {
-				return finish(sirerr.Wrap(gerr, sirerr.CodeFailed, op, "get cluster cache"))
+				return sirerr.Wrap(gerr, sirerr.CodeFailed, op, "get cluster cache")
 			}
 		}
 	}
-	if err := r.fillClusterTLDRs(ctx, &clusters, rowByHash, quarantine); err != nil {
-		return finish(err)
-	}
-	return finish(nil)
+	return nil
 }
 
-func (r *Runner) fillClusterTLDRs(ctx context.Context, clusters *[]ClusterRow, rowByHash map[string]MessageRow, quarantine map[string]struct{}) error {
+func (r *PostPasses) fillClusterTLDRs(ctx context.Context, clusters *[]ClusterRow, rowByHash map[string]MessageRow, quarantine map[string]struct{}) error {
 	const op = "mailreport.Runner.fillClusterTLDRs"
+	chatLines, chatIDs, err := r.collectTLDRChatLines(ctx, clusters, rowByHash)
+	if err != nil {
+		return err
+	}
+	if len(chatLines) == 0 || r.tldrBatch == nil {
+		return nil
+	}
+	results, batchErr := r.tldrBatch.RunChatLines(ctx, chatLines)
+	if batchErr != nil {
+		return sirerr.Wrap(batchErr, sirerr.CodeFailed, op, "tldr chat batch")
+	}
+	return r.applyTLDRBatchResults(ctx, clusters, rowByHash, quarantine, chatIDs, results)
+}
+
+func (r *PostPasses) collectTLDRChatLines(ctx context.Context, clusters *[]ClusterRow, rowByHash map[string]MessageRow) ([]openaibatch.ChatLine, []string, error) {
 	var chatLines []openaibatch.ChatLine
-	chatClusterIdx := map[string]int{}
+	var chatIDs []string
 	for i := range *clusters {
 		c := &(*clusters)[i]
 		if strings.TrimSpace(c.TLDR) != "" || c.Size == 1 {
@@ -114,11 +132,11 @@ func (r *Runner) fillClusterTLDRs(ctx context.Context, clusters *[]ClusterRow, r
 		if r.tldrBatch == nil {
 			c.TLDRError = "tldr runner unavailable"
 			if err := r.persistCluster(ctx, *c, rowByHash); err != nil {
-				return err
+				return nil, nil, err
 			}
 			continue
 		}
-		chatClusterIdx[c.ID] = len(chatLines)
+		chatIDs = append(chatIDs, c.ID)
 		chatLines = append(chatLines, openaibatch.ChatLine{
 			CustomID: c.ID,
 			Model:    r.tldrModel,
@@ -128,38 +146,38 @@ func (r *Runner) fillClusterTLDRs(ctx context.Context, clusters *[]ClusterRow, r
 			},
 		})
 	}
-	if len(chatLines) == 0 || r.tldrBatch == nil {
-		return nil
-	}
-	results, batchErr := r.tldrBatch.RunChatLines(ctx, chatLines)
-	if batchErr != nil {
-		return sirerr.Wrap(batchErr, sirerr.CodeFailed, op, "tldr chat batch")
-	}
-	for cid := range chatClusterIdx {
+	return chatLines, chatIDs, nil
+}
+
+func (r *PostPasses) applyTLDRBatchResults(ctx context.Context, clusters *[]ClusterRow, rowByHash map[string]MessageRow, quarantine map[string]struct{}, chatIDs []string, results map[string]openaibatch.LineResult) error {
+	for _, cid := range chatIDs {
 		c := findClusterByID(*clusters, cid)
 		if c == nil {
 			continue
 		}
-		res := results[cid]
-		if strings.TrimSpace(res.ErrMessage) != "" {
-			c.TLDRError = res.ErrMessage
-			c.TLDR = ""
-		} else {
-			parsed := parseTLDRLine(res.Content)
-			if parsed == "" {
-				c.TLDRError = "empty tldr"
-				c.TLDR = ""
-			} else {
-				c.TLDR = parsed
-				c.TLDRError = ""
-			}
-		}
+		applyOneTLDRResult(c, results[cid])
 		c.SuggestedAction = suggestedActionFor(c.TermID, quarantine)
 		if err := r.persistCluster(ctx, *c, rowByHash); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func applyOneTLDRResult(c *ClusterRow, res openaibatch.LineResult) {
+	if strings.TrimSpace(res.ErrMessage) != "" {
+		c.TLDRError = res.ErrMessage
+		c.TLDR = ""
+		return
+	}
+	parsed := parseTLDRLine(res.Content)
+	if parsed == "" {
+		c.TLDRError = "empty tldr"
+		c.TLDR = ""
+		return
+	}
+	c.TLDR = parsed
+	c.TLDRError = ""
 }
 
 func findClusterByID(clusters []ClusterRow, id string) *ClusterRow {
@@ -233,7 +251,7 @@ func parseTLDRLine(raw string) string {
 	return ""
 }
 
-func (r *Runner) applyClusterAttention(c *ClusterRow, rowByHash map[string]MessageRow) {
+func (r *PostPasses) applyClusterAttention(c *ClusterRow, rowByHash map[string]MessageRow) {
 	if c == nil {
 		return
 	}
@@ -248,7 +266,7 @@ func (r *Runner) applyClusterAttention(c *ClusterRow, rowByHash map[string]Messa
 	c.Attention = RollupAttention(members, tm)
 }
 
-func (r *Runner) persistCluster(ctx context.Context, c ClusterRow, rowByHash map[string]MessageRow) error {
+func (r *PostPasses) persistCluster(ctx context.Context, c ClusterRow, rowByHash map[string]MessageRow) error {
 	const op = "mailreport.Runner.persistCluster"
 	r.applyClusterAttention(&c, rowByHash)
 	rec := hoststore.ClusterRecord{

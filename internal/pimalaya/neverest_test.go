@@ -7,7 +7,15 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func neverestCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	return ctx
+}
 
 func TestNeverestSyncUsesAccountFlagNotPositional(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -28,7 +36,7 @@ exit 0
 		t.Fatal(err)
 	}
 	n := &Neverest{Runner: runner}
-	res, err := n.Sync(context.Background(), "gmail", nil)
+	res, err := n.Sync(neverestCtx(t), "gmail", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +74,7 @@ exit 0
 		t.Fatal(err)
 	}
 	n := &Neverest{Runner: runner}
-	res, err := n.Sync(context.Background(), "gmail", []string{"[Gmail]/Spam", "", "[Gmail]/Trash"})
+	res, err := n.Sync(neverestCtx(t), "gmail", []string{"[Gmail]/Spam", "", "[Gmail]/Trash"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,5 +84,41 @@ exit 0
 	}
 	if !strings.Contains(argsLine, "[Gmail]/Trash") {
 		t.Fatalf("expected trash exclude in argv: %q", argsLine)
+	}
+}
+
+func TestNeverestSyncAcceptingAbsences(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script helper")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "neverest")
+	body := `#!/bin/sh
+printf '%s\n' "$@" >&2
+echo '{"ok":true}'
+exit 0
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner, err := Create(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := &Neverest{Runner: runner}
+	res, err := n.SyncAcceptingAbsences(neverestCtx(t), "gmail", []string{"[Gmail]/Spam"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsLine := strings.TrimSpace(res.Stderr)
+	if !strings.Contains(argsLine, "--accept-absences") {
+		t.Fatalf("expected --accept-absences in argv: %q", argsLine)
+	}
+	plain, err := n.Sync(neverestCtx(t), "gmail", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.TrimSpace(plain.Stderr), "--accept-absences") {
+		t.Fatalf("plain sync must not pass --accept-absences: %q", plain.Stderr)
 	}
 }

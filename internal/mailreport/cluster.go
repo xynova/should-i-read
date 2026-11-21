@@ -71,6 +71,10 @@ func AssignClusters(ctx context.Context, rows []MessageRow, opts AssignOpts) ([]
 		}
 		sort.Strings(order)
 	}
+	return materializeClusters(order, buckets, rows)
+}
+
+func materializeClusters(order []string, buckets map[string]*clusterBucket, rows []MessageRow) ([]MessageRow, []ClusterRow, error) {
 	clusters := make([]ClusterRow, 0, len(buckets))
 	outRows := append([]MessageRow{}, rows...)
 	hashToCluster := map[string]string{}
@@ -89,7 +93,6 @@ func AssignClusters(ctx context.Context, rows []MessageRow, opts AssignOpts) ([]
 			hashes = append(hashes, m.ObjectHash)
 			hashToCluster[m.ObjectHash] = cid
 		}
-		fp := clusterFingerprint(gk, hashes)
 		clusters = append(clusters, ClusterRow{
 			ID:              cid,
 			TermID:          b.termID,
@@ -97,7 +100,7 @@ func AssignClusters(ctx context.Context, rows []MessageRow, opts AssignOpts) ([]
 			Size:            len(hashes),
 			SuggestedAction: SuggestedReview,
 			MemberHashes:    hashes,
-			Fingerprint:     fp,
+			Fingerprint:     clusterFingerprint(gk, hashes),
 		})
 	}
 	for i := range outRows {
@@ -122,7 +125,7 @@ func groupKeyForRow(row MessageRow) (gk, termID, domain string) {
 	if term != "" {
 		return "term:" + term, term, ""
 	}
-	domain = senderDomain(row.Sender)
+	domain = SenderDomain(row.Sender)
 	if domain != "" {
 		return "domain:" + domain, "", domain
 	}
@@ -130,7 +133,8 @@ func groupKeyForRow(row MessageRow) (gk, termID, domain string) {
 	return "unlabeled:" + hash, "", ""
 }
 
-func senderDomain(sender string) string {
+// SenderDomain extracts the email domain from a From header value.
+func SenderDomain(sender string) string {
 	s := strings.TrimSpace(sender)
 	if s == "" {
 		return ""
@@ -203,32 +207,10 @@ func attachSimilar(ctx context.Context, buckets map[string]*clusterBucket, opts 
 			if err := ctx.Err(); err != nil {
 				return sirerr.Wrap(err, sirerr.CodeFailed, op, "similar attach canceled")
 			}
-			moved := false
-			neighbors, err := opts.Similar(ctx, m.ObjectHash, opts.EmbedModel, 5)
-			if err != nil {
-				kept = append(kept, m)
+			if moveMemberToTermCluster(ctx, buckets, inArtifact, opts, gk, m) {
 				continue
 			}
-			for _, n := range neighbors {
-				targetGK, ok := inArtifact[n.ObjectHash]
-				if !ok || targetGK == gk || !strings.HasPrefix(targetGK, "term:") {
-					continue
-				}
-				if n.Cosine < opts.MinCosine {
-					continue
-				}
-				tb, ok := buckets[targetGK]
-				if !ok || tb == nil {
-					continue
-				}
-				tb.members = append(tb.members, m)
-				inArtifact[m.ObjectHash] = targetGK
-				moved = true
-				break
-			}
-			if !moved {
-				kept = append(kept, m)
-			}
+			kept = append(kept, m)
 		}
 		b.members = kept
 		if len(b.members) == 0 {
@@ -236,4 +218,28 @@ func attachSimilar(ctx context.Context, buckets map[string]*clusterBucket, opts 
 		}
 	}
 	return nil
+}
+
+func moveMemberToTermCluster(ctx context.Context, buckets map[string]*clusterBucket, inArtifact map[string]string, opts AssignOpts, gk string, m MessageRow) bool {
+	neighbors, err := opts.Similar(ctx, m.ObjectHash, opts.EmbedModel, 5)
+	if err != nil {
+		return false
+	}
+	for _, n := range neighbors {
+		targetGK, ok := inArtifact[n.ObjectHash]
+		if !ok || targetGK == gk || !strings.HasPrefix(targetGK, "term:") {
+			continue
+		}
+		if n.Cosine < opts.MinCosine {
+			continue
+		}
+		tb, ok := buckets[targetGK]
+		if !ok || tb == nil {
+			continue
+		}
+		tb.members = append(tb.members, m)
+		inArtifact[m.ObjectHash] = targetGK
+		return true
+	}
+	return false
 }

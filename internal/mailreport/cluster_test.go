@@ -148,7 +148,7 @@ func TestClusterFingerprintChangesWithMembers(t *testing.T) {
 
 func TestSenderDomain(t *testing.T) {
 	t.Parallel()
-	if senderDomain("GitHub <notifications@github.com>") != "github.com" {
+	if SenderDomain("GitHub <notifications@github.com>") != "github.com" {
 		t.Fatal("parse address")
 	}
 }

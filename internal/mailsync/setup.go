@@ -151,46 +151,15 @@ func (w *Workflow) Setup(ctx context.Context, opts SetupOptions) (SetupResult, e
 		return out, err
 	}
 
-	tokenOK := w.tokenReady(opts.Provider, account)
-	step = SetupStepResult{ID: "login"}
-	if tokenOK {
-		step.OK = true
-		step.Skipped = true
-		step.Detail = "Mailbox login already stored."
-		out.Steps = append(out.Steps, step)
-	} else if opts.SkipLogin || !opts.Interactive {
-		step.Skipped = true
-		step.Detail = "Mailbox login requires an interactive session."
-		out.Steps = append(out.Steps, step)
-		st, err := CollectStatus(ctx, cfg)
+	tokenOK, loginDone, err := w.runMailboxLoginStep(ctx, cfg, opts, account, &out)
+	if err != nil || loginDone {
 		if err != nil {
 			return out, err
 		}
-		out.Status = st
-		out.WaitingOn = waitingOnMailboxLogin
 		return out, nil
-	} else {
-		if err := w.hooks.MailboxLogin(ctx, cfg, opts.Provider, account); err != nil {
-			step.Detail = "Mailbox login failed."
-			out.Steps = append(out.Steps, step)
-			return out, err
-		}
-		step.OK = true
-		step.Detail = "Mailbox login stored."
-		out.Steps = append(out.Steps, step)
-		tokenOK = true
 	}
-
-	if tokenOK {
-		step = SetupStepResult{ID: "init"}
-		if err := w.hooks.InitReplica(ctx, cfg, account); err != nil {
-			step.Detail = "Local mail store setup failed."
-			out.Steps = append(out.Steps, step)
-			return out, sirerr.Wrap(err, sirerr.CodeFailed, op, step.Detail)
-		}
-		step.OK = true
-		step.Detail = "Local mail store is ready."
-		out.Steps = append(out.Steps, step)
+	if err := w.runReplicaInitStep(ctx, cfg, account, tokenOK, &out); err != nil {
+		return out, err
 	}
 
 	st, err := CollectStatus(ctx, cfg)
@@ -199,6 +168,56 @@ func (w *Workflow) Setup(ctx context.Context, opts SetupOptions) (SetupResult, e
 	}
 	out.Status = st
 	return out, nil
+}
+
+func (w *Workflow) runMailboxLoginStep(ctx context.Context, cfg config.Config, opts SetupOptions, account string, out *SetupResult) (tokenOK, done bool, err error) {
+	tokenOK = w.tokenReady(opts.Provider, account)
+	step := SetupStepResult{ID: "login"}
+	if tokenOK {
+		step.OK = true
+		step.Skipped = true
+		step.Detail = "Mailbox login already stored."
+		out.Steps = append(out.Steps, step)
+		return true, false, nil
+	}
+	if opts.SkipLogin || !opts.Interactive {
+		step.Skipped = true
+		step.Detail = "Mailbox login requires an interactive session."
+		out.Steps = append(out.Steps, step)
+		st, err := CollectStatus(ctx, cfg)
+		if err != nil {
+			return false, false, err
+		}
+		out.Status = st
+		out.WaitingOn = waitingOnMailboxLogin
+		return false, true, nil
+	}
+	if err := w.hooks.MailboxLogin(ctx, cfg, opts.Provider, account); err != nil {
+		step.Detail = "Mailbox login failed."
+		out.Steps = append(out.Steps, step)
+		return false, false, err
+	}
+	step.OK = true
+	step.Detail = "Mailbox login stored."
+	out.Steps = append(out.Steps, step)
+	return true, false, nil
+}
+
+func (w *Workflow) runReplicaInitStep(ctx context.Context, cfg config.Config, account string, tokenOK bool, out *SetupResult) error {
+	const op = "mailsync.Setup"
+	if !tokenOK {
+		return nil
+	}
+	step := SetupStepResult{ID: "init"}
+	if err := w.hooks.InitReplica(ctx, cfg, account); err != nil {
+		step.Detail = "Local mail store setup failed."
+		out.Steps = append(out.Steps, step)
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, step.Detail)
+	}
+	step.OK = true
+	step.Detail = "Local mail store is ready."
+	out.Steps = append(out.Steps, step)
+	return nil
 }
 
 func (w *Workflow) tokenReady(provider Provider, account string) bool {

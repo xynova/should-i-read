@@ -59,6 +59,33 @@ func TestListRecentEmailsMissingDeadline(t *testing.T) {
 	}
 }
 
+func insertLiveMail(t *testing.T, dir, collection, link, sortKey, subject string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "pimdir.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	hash := fmt.Sprintf("hash%s000000000000000000000000", link)
+	if len(hash) > 32 {
+		hash = hash[:32]
+	}
+	res, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
+VALUES (?, ?, 1, ?, ?, 2, 0)`, collection, link, hash, sortKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	itemID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO mail_summary (item, message_id, subject, sender, date)
+VALUES (?, ?, ?, 'a@example.com', ?)`, itemID, "<"+link+">", subject, sortKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func initFixtureDB(t *testing.T, dir string) {
 	dbPath := filepath.Join(dir, "pimdir.db")
 	db, err := sql.Open("sqlite", dbPath)
@@ -93,6 +120,7 @@ CREATE TABLE collections (
 );
 INSERT INTO collections (id, kind, name) VALUES ('INBOX', 'message/rfc822', 'INBOX');
 CREATE TABLE items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   collection TEXT NOT NULL,
   link_id TEXT NOT NULL,
   seq INTEGER NOT NULL,
@@ -106,23 +134,20 @@ CREATE TABLE items (
   conflicted INTEGER NOT NULL DEFAULT 0,
   conflict_object TEXT,
   changed INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (collection, link_id)
+  UNIQUE (collection, link_id)
 );
 INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted) VALUES ('INBOX', 'msg-1', 1, 'abcd1234efgh5678', '2020-01-02T00:00:00Z', 2, 0);
 CREATE TABLE mail_summary (
-  collection TEXT NOT NULL,
-  link_id TEXT NOT NULL,
+  item INTEGER PRIMARY KEY,
   message_id TEXT,
-  in_reply_to TEXT NOT NULL DEFAULT '[]',
   subject TEXT NOT NULL,
   sender TEXT,
   sender_name TEXT,
   date TEXT,
   size INTEGER,
-  attachment INTEGER,
-  PRIMARY KEY (collection, link_id)
+  attachment INTEGER
 );
-INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date) VALUES ('INBOX', 'msg-1', '<mid@example.com>', 'Hello pimdir', 'alice@example.com', '2020-01-02T00:00:00Z');
+INSERT INTO mail_summary (item, message_id, subject, sender, date) VALUES (1, '<mid@example.com>', 'Hello pimdir', 'alice@example.com', '2020-01-02T00:00:00Z');
 `
 	if _, err := db.Exec(schema); err != nil {
 		t.Fatal(err)
@@ -130,13 +155,91 @@ INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	blobPath := filepath.Join(dir, "objects", "ab", "cd", "abcd1234efgh5678")
+	blobPath := filepath.Join(dir, "objects", "ab", "abcd1234efgh5678")
 	if err := os.MkdirAll(filepath.Dir(blobPath), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	const blob = "From: alice@example.com\r\nSubject: Hello pimdir\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello body\r\n"
 	if err := os.WriteFile(blobPath, []byte(blob), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestListRecentEmailsInMatchesPimdirFolderSuffix(t *testing.T) {
+	dir := t.TempDir()
+	initFixtureDB(t, dir)
+	insertLiveMail(t, dir, "gmail/imap/INBOX", "pref-inbox", "2020-01-04T00:00:00Z", "prefixed-inbox")
+	insertLiveMail(t, dir, "gmail/imap/[Gmail]/All Mail", "all-mail", "2020-01-05T00:00:00Z", "all-mail")
+
+	r, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := r.ListRecentEmailsIn(testDeadlineCtx(t), []string{"imap/INBOX"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Subject != "prefixed-inbox" {
+		t.Fatalf("imap/INBOX filter: %+v", rows)
+	}
+	if rows[0].Collection != "gmail/imap/INBOX" {
+		t.Fatalf("collection: %q", rows[0].Collection)
+	}
+}
+
+func TestListEmailsInMatchesPimdirFolderSuffix(t *testing.T) {
+	dir := t.TempDir()
+	initFixtureDB(t, dir)
+	insertLiveMail(t, dir, "gmail/imap/INBOX", "pref-inbox", "2026-09-03T12:00:00Z", "prefixed-inbox")
+	insertLiveMail(t, dir, "gmail/imap/[Gmail]/All Mail", "all-mail", "2026-09-03T13:00:00Z", "all-mail")
+
+	r, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := CreateDateWindow("2026-09-01", "2026-09-08")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := r.ListEmailsIn(testDeadlineCtx(t), []string{"imap/INBOX"}, window, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Subject != "prefixed-inbox" {
+		t.Fatalf("imap/INBOX window filter: %+v", rows)
+	}
+}
+
+func TestListLiveObjectHashesForFolder(t *testing.T) {
+	dir := t.TempDir()
+	initFixtureDB(t, dir)
+	db, err := sql.Open("sqlite", filepath.Join(dir, "pimdir.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted) VALUES ('gmail/imap/INBOX', 'msg-2', 2, 'inboxhash2', '2020-01-03T00:00:00Z', 2, 0)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.ListLiveObjectHashesForFolder(testDeadlineCtx(t), "INBOX")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct{}{"abcd1234efgh5678": {}, "inboxhash2": {}}
+	if len(got) != 2 {
+		t.Fatalf("got %v", got)
+	}
+	for _, h := range got {
+		if _, ok := want[h]; !ok {
+			t.Fatalf("unexpected hash %q in %v", h, got)
+		}
 	}
 }
 
@@ -147,14 +250,16 @@ func TestFindByObjectHashAndMessageID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	byHash, err := r.FindByObjectHash("abcd1234efgh5678")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	byHash, err := r.FindByObjectHash(ctx, "abcd1234efgh5678")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if byHash.Subject != "Hello pimdir" {
 		t.Fatalf("subject: %q", byHash.Subject)
 	}
-	byMID, err := r.FindByMessageID("<mid@example.com>")
+	byMID, err := r.FindByMessageID(ctx, "<mid@example.com>")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,13 +282,35 @@ func TestReadBlobAndResolveShowRef(t *testing.T) {
 	if !strings.Contains(string(raw), "Hello body") {
 		t.Fatalf("blob: %q", raw)
 	}
-	_, hash, err := r.ResolveShowRef("abcd1234efgh5678")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, hash, err := r.ResolveShowRef(ctx, "abcd1234efgh5678")
 	if err != nil || hash != "abcd1234efgh5678" {
 		t.Fatalf("hash ref: %v %q", err, hash)
 	}
-	_, hash, err = r.ResolveShowRef("<mid@example.com>")
+	_, hash, err = r.ResolveShowRef(ctx, "<mid@example.com>")
 	if err != nil || hash != "abcd1234efgh5678" {
 		t.Fatalf("mid ref: %v %q", err, hash)
+	}
+}
+
+func TestReadBlobTwoLevelFallback(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	hash := "abcd1234efgh5678"
+	path := filepath.Join(dir, "objects", "ab", "cd", hash)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("raw"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := (&Reader{storeDir: dir}).ReadBlob(hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "raw" {
+		t.Fatalf("got %q", got)
 	}
 }
 
@@ -268,13 +395,17 @@ func initWindowRangeFixtureDB(t *testing.T, dir string) {
 		if len(hash) > 32 {
 			hash = hash[:32]
 		}
-		_, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
+		res, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
 VALUES (?, ?, 1, ?, ?, 2, ?)`, e.collection, e.link, hash, e.sortKey, e.deleted)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = db.Exec(`INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date)
-VALUES (?, ?, ?, ?, 'a@example.com', ?)`, e.collection, e.link, "<"+e.link+">", e.subject, e.sortKey)
+		itemID, err := res.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = db.Exec(`INSERT INTO mail_summary (item, message_id, subject, sender, date)
+VALUES (?, ?, ?, 'a@example.com', ?)`, itemID, "<"+e.link+">", e.subject, e.sortKey)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -287,13 +418,17 @@ VALUES (?, ?, ?, ?, 'a@example.com', ?)`, e.collection, e.link, "<"+e.link+">", 
 		if len(hash) > 32 {
 			hash = hash[:32]
 		}
-		_, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
+		res, err := db.Exec(`INSERT INTO items (collection, link_id, seq, object_hash, sort_key, level, deleted)
 VALUES ('INBOX', ?, 1, ?, ?, 2, 0)`, link, hash, sk)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = db.Exec(`INSERT INTO mail_summary (collection, link_id, message_id, subject, sender, date)
-VALUES ('INBOX', ?, ?, ?, 'a@example.com', ?)`, link, "<"+link+">", subj, sk)
+		itemID, err := res.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = db.Exec(`INSERT INTO mail_summary (item, message_id, subject, sender, date)
+VALUES (?, ?, ?, 'a@example.com', ?)`, itemID, "<"+link+">", subj, sk)
 		if err != nil {
 			t.Fatal(err)
 		}

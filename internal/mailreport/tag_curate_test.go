@@ -217,10 +217,6 @@ func TestRunner_RunTagPass_skipsWhenNoNewClassify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipe, err := CreatePipeline(PipelineConfig{Harness: h, Seats: seats})
-	if err != nil {
-		t.Fatal(err)
-	}
 	failCurator, err := CreateTagCurator(TagCuratorConfig{
 		Store:   store,
 		Catalog: cat,
@@ -232,7 +228,6 @@ func TestRunner_RunTagPass_skipsWhenNoNewClassify(t *testing.T) {
 	runner, err := CreateRunner(RunnerConfig{
 		Harness:     h,
 		Seats:       seats,
-		Pipeline:    pipe,
 		Store:       store,
 		ClassifyMax: 0,
 		TagCatalog:  cat,
@@ -274,10 +269,6 @@ func TestRunner_RunTagPass_curateErrorWhenNewlyClassified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipe, err := CreatePipeline(PipelineConfig{Harness: h, Seats: seats})
-	if err != nil {
-		t.Fatal(err)
-	}
 	failCurator, err := CreateTagCurator(TagCuratorConfig{
 		Store:   store,
 		Catalog: cat,
@@ -296,7 +287,6 @@ func TestRunner_RunTagPass_curateErrorWhenNewlyClassified(t *testing.T) {
 	runner, err := CreateRunner(RunnerConfig{
 		Harness:     h,
 		Seats:       seats,
-		Pipeline:    pipe,
 		Store:       store,
 		ClassifyMax: 1,
 		TagCatalog:  cat,
@@ -381,5 +371,18 @@ func TestTagCurator_passesScopeToJudge(t *testing.T) {
 	}
 	if len(in.Options) != 2 || in.Options[0].Description == "" || in.Options[1].Description == "" {
 		t.Fatalf("options %+v", in.Options)
+	}
+}
+
+func TestTagCurator_Run_noDeadline(t *testing.T) {
+	store := testLedger(t)
+	cat, _, _ := testTagCurateCatalog(t)
+	curator, err := CreateTagCurator(TagCuratorConfig{Store: store, Catalog: cat})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = curator.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected missing deadline")
 	}
 }

@@ -1,2 +1,3 @@
+# Fleet hooks (standalone; cursor-packs Cursor plugin for Agent skills/rules)
 extends:
-  - .cursor/packs/shared/lefthook/lefthook.yml
+  - lefthook/lefthook-go-standalone.yml

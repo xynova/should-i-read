@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/xynova/should-i-read/internal/config"
 	"github.com/xynova/should-i-read/internal/mailreport"
 	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/sirerr"
@@ -152,88 +154,19 @@ func runMailBenchVariant(cmd *cobra.Command, opts *rootOptions, repoRoot string,
 	if err != nil {
 		return err
 	}
-	chunkDir := strings.TrimSpace(run.chunksDir)
-	if chunkDir == "" {
-		chunkDir = filepath.Join(repoRoot, "bench", "chunks")
-	}
-	chunkFiles, err := mailreport.ListBenchChunkFiles(chunkDir)
+	in, err := loadBenchInputs(repoRoot, variant, run)
 	if err != nil {
-		return wrapCLIHop(err, op, "list chunks")
-	}
-	revFile := strings.TrimSpace(run.revPath)
-	if revFile == "" {
-		revFile = filepath.Join(repoRoot, "bench", "input-rev.txt")
-	}
-	inputRev, err := mailreport.ReadInputRevision(revFile)
-	if err != nil {
-		return wrapCLIHop(err, op, "read input revision")
-	}
-	labelPath := strings.TrimSpace(run.labels)
-	if labelPath == "" {
-		labelPath = filepath.Join(repoRoot, "bench", "labels-20.json")
-	}
-	labelFile, err := mailreport.LoadBenchLabels(labelPath, inputRev)
-	if err != nil {
-		return wrapCLIHop(err, op, "load labels")
-	}
-	ledgerRoot := strings.TrimSpace(run.ledgers)
-	if ledgerRoot == "" {
-		ledgerRoot = filepath.Join(repoRoot, "tmp", "bench", variant)
-	}
-	if run.fresh {
-		if err := os.RemoveAll(ledgerRoot); err != nil {
-			return sirerr.Wrap(err, sirerr.CodeFailed, op, "remove ledger dir").With("path", ledgerRoot)
-		}
-	}
-	if err := os.MkdirAll(ledgerRoot, 0o750); err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "mkdir ledgers")
+		return err
 	}
 	reader, storeErr := pimdir.OpenStore(cfg.Pimalaya.PimdirPath)
 	if storeErr != nil {
 		reader = nil
 	}
 	wallStart := time.Now()
-	merged := mailreport.Artifact{Mode: "report_only", Source: mailreport.SourceBench}
-	chunkRuntimes := map[string]time.Duration{}
 	cOpts := classifyOpts{noApply: true, maxBody: run.maxBody, skipAuthorProbe: true, skipEmbedProbe: true}
-	for i, chunkFile := range chunkFiles {
-		chunkID := filepath.Base(chunkFile)
-		chunkStart := time.Now()
-		chunkCtx, cancel, err := classifyJobContext(cmd.Context(), false)
-		if err != nil {
-			return wrapCLIHop(err, op, "chunk context")
-		}
-		chunkCfg := cfg
-		chunkCfg.StorePath = filepath.Join(ledgerRoot, fmtChunkLedger(i))
-		chunkCfg.Taxonomy.ShapeConfirm = false
-		runner, err := prepareClassifyRunner(chunkCtx, chunkCfg, repoRoot, cOpts)
-		if err != nil {
-			cancel()
-			return wrapCLIHop(err, op, "prepare runner "+chunkID)
-		}
-		items, err := loadReportItems(chunkCtx, reader, chunkFile, pimdir.DateWindow{}, 0, false, run.maxBody, chunkCfg.Taxonomy.Collections)
-		if err != nil {
-			_ = runner.Close()
-			cancel()
-			return wrapCLIHop(err, op, "load chunk items "+chunkID)
-		}
-		items = mailreport.DedupeItemsByHash(items)
-		if err := requireItemBodies(items, storeErr); err != nil {
-			_ = runner.Close()
-			cancel()
-			return wrapCLIHop(err, op, "chunk bodies "+chunkID)
-		}
-		sliceArt, err := runner.Classify(chunkCtx, mailreport.SourceBench, items)
-		closeErr := runner.Close()
-		cancel()
-		if err != nil {
-			return wrapCLIHop(err, op, "classify chunk "+chunkID)
-		}
-		if closeErr != nil {
-			return wrapCLIHop(closeErr, op, "close runner "+chunkID)
-		}
-		mailreport.MergeClassifyArtifacts(&merged, sliceArt)
-		chunkRuntimes[chunkID] = time.Since(chunkStart)
+	merged, chunkRuntimes, err := classifyBenchChunks(cmd.Context(), cfg, repoRoot, reader, storeErr, in.chunkFiles, in.ledgerRoot, cOpts)
+	if err != nil {
+		return err
 	}
 	merged.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 	merged.PolypusBaseURL = cfg.PolypusBaseURL
@@ -254,13 +187,66 @@ func runMailBenchVariant(cmd *cobra.Command, opts *rootOptions, repoRoot string,
 	score := mailreport.ScoreBenchArtifact(
 		merged,
 		variant,
-		inputRev,
-		labelFile,
+		in.inputRev,
+		in.labelFile,
 		promptHash,
 		cfg.Taxonomy.DescriptionCosineMin,
 		chunkRuntimes,
 		time.Since(wallStart),
 	)
+	return emitBenchScore(cmd, repoRoot, variant, run, artPath, score)
+}
+
+type benchInputs struct {
+	chunkFiles []string
+	ledgerRoot string
+	inputRev   string
+	labelFile  mailreport.BenchLabelsFile
+}
+
+func loadBenchInputs(repoRoot, variant string, run mailBenchRunFlags) (benchInputs, error) {
+	const op = "cli.mail.bench"
+	chunkDir := strings.TrimSpace(run.chunksDir)
+	if chunkDir == "" {
+		chunkDir = filepath.Join(repoRoot, "bench", "chunks")
+	}
+	chunkFiles, err := mailreport.ListBenchChunkFiles(chunkDir)
+	if err != nil {
+		return benchInputs{}, wrapCLIHop(err, op, "list chunks")
+	}
+	revFile := strings.TrimSpace(run.revPath)
+	if revFile == "" {
+		revFile = filepath.Join(repoRoot, "bench", "input-rev.txt")
+	}
+	inputRev, err := mailreport.ReadInputRevision(revFile)
+	if err != nil {
+		return benchInputs{}, wrapCLIHop(err, op, "read input revision")
+	}
+	labelPath := strings.TrimSpace(run.labels)
+	if labelPath == "" {
+		labelPath = filepath.Join(repoRoot, "bench", "labels-20.json")
+	}
+	labelFile, err := mailreport.LoadBenchLabels(labelPath, inputRev)
+	if err != nil {
+		return benchInputs{}, wrapCLIHop(err, op, "load labels")
+	}
+	ledgerRoot := strings.TrimSpace(run.ledgers)
+	if ledgerRoot == "" {
+		ledgerRoot = filepath.Join(repoRoot, "tmp", "bench", variant)
+	}
+	if run.fresh {
+		if err := os.RemoveAll(ledgerRoot); err != nil {
+			return benchInputs{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "remove ledger dir").With("path", ledgerRoot)
+		}
+	}
+	if err := os.MkdirAll(ledgerRoot, 0o750); err != nil {
+		return benchInputs{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "mkdir ledgers")
+	}
+	return benchInputs{chunkFiles: chunkFiles, ledgerRoot: ledgerRoot, inputRev: inputRev, labelFile: labelFile}, nil
+}
+
+func emitBenchScore(cmd *cobra.Command, repoRoot, variant string, run mailBenchRunFlags, artPath string, score mailreport.BenchScore) error {
+	const op = "cli.mail.bench"
 	scoreOut := strings.TrimSpace(run.scorePath)
 	if scoreOut == "" {
 		scoreOut = filepath.Join(repoRoot, "tmp", "bench", variant+"-score.json")
@@ -282,12 +268,64 @@ func runMailBenchVariant(cmd *cobra.Command, opts *rootOptions, repoRoot string,
 		variant, score.Classified, score.Failed, artPath, scoreOut))
 }
 
+func classifyBenchChunks(ctx context.Context, cfg config.Config, repoRoot string, reader *pimdir.Reader, storeErr error, chunkFiles []string, ledgerRoot string, cOpts classifyOpts) (mailreport.Artifact, map[string]time.Duration, error) {
+	merged := mailreport.Artifact{Mode: mailreport.ModeReportOnly, Source: mailreport.SourceBench}
+	chunkRuntimes := map[string]time.Duration{}
+	for i, chunkFile := range chunkFiles {
+		chunkID := filepath.Base(chunkFile)
+		chunkStart := time.Now()
+		sliceArt, err := classifyOneBenchChunk(ctx, cfg, repoRoot, reader, storeErr, chunkFile, ledgerRoot, i, cOpts)
+		if err != nil {
+			return merged, nil, err
+		}
+		mailreport.MergeClassifyArtifacts(&merged, sliceArt)
+		chunkRuntimes[chunkID] = time.Since(chunkStart)
+	}
+	return merged, chunkRuntimes, nil
+}
+
+func classifyOneBenchChunk(ctx context.Context, cfg config.Config, repoRoot string, reader *pimdir.Reader, storeErr error, chunkFile, ledgerRoot string, i int, cOpts classifyOpts) (mailreport.Artifact, error) {
+	const op = "cli.mail.bench"
+	chunkID := filepath.Base(chunkFile)
+	chunkCtx, cancel, err := classifyJobContext(ctx, false)
+	if err != nil {
+		return mailreport.Artifact{}, wrapCLIHop(err, op, "chunk context")
+	}
+	defer cancel()
+	chunkCfg := cfg
+	chunkCfg.StorePath = filepath.Join(ledgerRoot, fmtChunkLedger(i))
+	chunkCfg.Taxonomy.ShapeConfirm = false
+	runner, err := prepareClassifyRunner(chunkCtx, chunkCfg, repoRoot, cOpts)
+	if err != nil {
+		return mailreport.Artifact{}, wrapCLIHop(err, op, "prepare runner "+chunkID)
+	}
+	items, err := loadReportItems(chunkCtx, reader, chunkFile, pimdir.DateWindow{}, 0, false, cOpts.maxBody, chunkCfg.Taxonomy.Collections)
+	if err != nil {
+		_ = runner.Close()
+		return mailreport.Artifact{}, wrapCLIHop(err, op, "load chunk items "+chunkID)
+	}
+	items = mailreport.DedupeItemsByHash(items)
+	if err := requireItemBodies(items, storeErr); err != nil {
+		_ = runner.Close()
+		return mailreport.Artifact{}, wrapCLIHop(err, op, "chunk bodies "+chunkID)
+	}
+	sliceArt, err := runner.Classify(chunkCtx, mailreport.SourceBench, items)
+	closeErr := runner.Close()
+	if err != nil {
+		return mailreport.Artifact{}, wrapCLIHop(err, op, "classify chunk "+chunkID)
+	}
+	if closeErr != nil {
+		return mailreport.Artifact{}, wrapCLIHop(closeErr, op, "close runner "+chunkID)
+	}
+	return sliceArt, nil
+}
+
 func fmtChunkLedger(i int) string {
 	return fmt.Sprintf("c%d.db", i+1)
 }
 
 func gitHeadSHA(repoRoot string) string {
-	out, err := exec.Command("git", "-C", repoRoot, "rev-parse", "HEAD").Output()
+	out, err := exec.Command("git", "-C", repoRoot, "rev-parse", "HEAD").Output() //nolint:gosec // G204: git argv is fixed; repoRoot is the operator checkout.
 	if err != nil {
 		return "unknown"
 	}

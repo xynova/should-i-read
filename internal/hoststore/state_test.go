@@ -155,3 +155,52 @@ func TestImportProgressOnce(t *testing.T) {
 		t.Fatalf("counts %+v err=%v", c, err)
 	}
 }
+
+func TestListCompleteOverviewRows(t *testing.T) {
+	st, ctx := testStore(t)
+	tok, skip, err := st.Claim(ctx, "ov-complete")
+	if err != nil || skip {
+		t.Fatalf("claim: skip=%v err=%v", skip, err)
+	}
+	row := StateRow{
+		TermID:               "t1",
+		Kind:                 "a > b",
+		Strategy:             "shape-confirm",
+		Cosine:               0.9,
+		JudgeScore:           0.8,
+		ClassifyModel:        "m1",
+		EmbedModel:           "e1",
+		NeedsReplyNoul:       0.1,
+		InvolvesDecisionNoul: 0.1,
+		AttentionScored:      true,
+		Urgency:              0.2,
+	}
+	if err := st.Complete(ctx, "ov-complete", tok, row, nil); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.ListCompleteOverviewRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ObjectHash != "ov-complete" {
+		t.Fatalf("rows %+v", rows)
+	}
+}
+
+func TestListErrorRows(t *testing.T) {
+	st, ctx := testStore(t)
+	tok, _, err := st.Claim(ctx, "ov-err")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Fail(ctx, "ov-err", tok, "timeout"); err != nil {
+		t.Fatal(err)
+	}
+	ers, err := st.ListErrorRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ers) != 1 || ers[0].Error != "timeout" {
+		t.Fatalf("errs %+v", ers)
+	}
+}

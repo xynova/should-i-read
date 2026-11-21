@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>should-i-read</title>
+  <style>{{.InlineCSS}}</style>
+</head>
+<body data-page="overview">
+  <header class="site-header">
+    <div class="header-inner">
+    <div class="title-row">
+      <div class="brand">
+        <svg class="brand-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false">
+          <defs>
+            <clipPath id="brand-flap-clip">
+              <rect x="2.5" y="9.5" width="19" height="14.5" rx="2.2"/>
+            </clipPath>
+          </defs>
+          <g clip-path="url(#brand-flap-clip)">
+            <path d="M2.5 9.5 H21.5 V11.675 L12 18.2 L2.5 11.675 Z" fill="currentColor"/>
+          </g>
+          <rect x="2.5" y="9.5" width="19" height="14.5" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          <path d="M25.2 8.4c2.15 0 3.7 1.35 3.7 3.15 0 1.55-1 2.45-2.45 3.25-.95.5-1.4 1-1.4 1.85" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="25.05" cy="19.6" r="1.35" fill="currentColor"/>
+        </svg>
+        <h1 id="board-title">should-i-read</h1>
+      </div>
+      <div class="page-tabs" role="tablist" aria-label="Board">
+        <button type="button" role="tab" data-page="overview" aria-selected="true">Mail overview</button>
+        <button type="button" role="tab" data-page="actioned" aria-selected="false">Actioned</button>
+        <button type="button" role="tab" data-page="report" aria-selected="false">Report</button>
+      </div>
+      <div class="header-actions">
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch light or dark theme">Light / dark</button>
+      <button type="button" class="theme-toggle" id="mail-sync" aria-label="Sync mail with the configured account">
+      <span class="mail-sync-spinner" hidden aria-hidden="true"></span>
+      <span class="mail-sync-copy">
+        <span class="mail-sync-label">Sync</span>
+        {{if .GeneratedAt}}<time class="mail-sync-when" id="mail-sync-when" datetime="{{.GeneratedAt}}" data-local="board">{{.Generated}}</time>{{end}}
+      </span>
+      </button>
+      </div>
+    </div>
+    <div class="month-row">
+    <div class="month-tabs" role="tablist" aria-label="Month">
+      {{range .MainTabs}}{{if eq .Key "all"}}
+      <button type="button" role="tab" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count">{{.Count}}</span></button>
+      {{end}}{{end}}
+      {{if .MinorTabs}}
+      <details class="month-more">
+        <summary class="month-more-toggle" aria-label="Previous months"><span class="month-more-label">…</span></summary>
+        <div class="month-more-menu">
+          {{range .MinorTabs}}
+          <button type="button" role="tab" class="minor" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count">{{.Count}}</span></button>
+          {{end}}
+        </div>
+      </details>
+      {{end}}
+      {{range .MainTabs}}{{if ne .Key "all"}}
+      <button type="button" role="tab" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count">{{.Count}}</span></button>
+      {{end}}{{end}}
+    </div>
+    <div class="month-meta">
+    <div class="board-actions">
+      <button type="button" class="theme-toggle" id="ack-toggle" aria-expanded="false">Acked <span id="ack-count">0</span></button>
+      <button type="button" class="theme-toggle" id="cart-toggle" aria-expanded="false">Cart <span id="cart-count">0</span></button>
+      <button type="button" class="theme-toggle" id="apply-source" hidden disabled aria-label="Apply at source" title="Mark Acked as read and move Cart to Trash at the mail source">
+        <span class="apply-source-spinner" hidden aria-hidden="true"></span>
+        <svg class="apply-source-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+          <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M8 10.5V2.5M5 5l3-3 3 3"/>
+          <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M2.5 9.5v3c0 .8.7 1.5 1.5 1.5h8c.8 0 1.5-.7 1.5-1.5v-3"/>
+        </svg>
+      </button>
+    </div>
+    </div>
+    </div>
+    </div>
+  </header>
+  <div id="mail-sync-stripe" class="mail-sync-stripe" hidden role="status"></div>
+  <div id="apply-source-stripe" class="mail-sync-stripe" hidden role="status"></div>
+  <main>
+    <section id="sec-actioned-report" class="panel page-actioned"{{if not .ActionedOutcome}} hidden{{end}}>
+      <h2>Actioned</h2>
+      <p class="actioned-hint">Messages that left the live months.</p>
+      <div class="grid-2">
+        <div class="chart-wrap">
+          <h3 class="sub">By outcome</h3>
+          <div id="actioned-outcome-bars" class="report-bars">
+            {{range .ActionedOutcome}}
+            <div class="report-bar-row"><span class="report-bar-lab">{{.Label}}</span><span class="report-bar-track"><span class="report-bar-fill" style="width: {{.Pct}}%"></span></span><span class="report-bar-n">{{.Count}}</span></div>
+            {{end}}
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <h3 class="sub">By sender</h3>
+          <div id="actioned-sender-bars" class="report-bars">
+            {{range .ActionedSenders}}
+            <div class="report-bar-row"><span class="report-bar-lab">{{.Label}}</span><span class="report-bar-track"><span class="report-bar-fill" style="width: {{.Pct}}%"></span></span><span class="report-bar-n">{{.Count}}</span></div>
+            {{end}}
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="sec-actioned" class="panel actioned-board page-actioned"{{if not .Model.Actioned}} hidden{{end}}>
+      <h2>By sender</h2>
+      <p class="actioned-hint">Trashed at the source or already in Trash. Not counted on the live months.</p>
+      <div class="table-wrap">
+        <table class="data" id="actioned-table">
+          <thead><tr><th>Sender</th><th>Messages</th><th>When</th><th>Outcome</th></tr></thead>
+          <tbody id="actioned-body">
+            {{range .Model.Actioned}}
+            <tr data-hashes="{{.HashAttr}}" data-sender="{{.Sender}}">
+              <td>{{.Sender}}</td>
+              <td>{{.Count}}</td>
+              <td>{{.WhenLabel}}</td>
+              <td>{{.Outcome}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {{range .Tabs}}
+    <div class="tab-panel{{if .Selected}} active{{end}}" data-month="{{.Key}}" role="tabpanel" data-label="{{.Label}}">
+      <div class="page-overview">
+      <section class="panel" id="sec-attention-{{.Key}}">
+        <h2>What needs you</h2>
+        <div class="need-tiles">
+          {{range .Tiles}}
+          <div class="need-tile tone-{{.Tone}}{{if eq .Count 0}} is-zero{{end}}">
+            <div class="need-count">{{.Count}}</div>
+            <div class="need-label">{{.Label}}</div>
+            <div class="need-hint">{{.Hint}}</div>
+          </div>
+          {{end}}
+        </div>
+        {{$key := .Key}}
+        {{range .ActionLists}}
+        <div class="action-list tone-{{.Tone}}">
+          <h3 class="list-title"><span class="dot" aria-hidden="true"></span>{{.Title}} <span class="list-count">{{.Messages}} messages{{if lt (len .Rows) .Messages}}, repeats grouped{{end}}</span></h3>
+          <div class="table-wrap"><table class="data action-table" id="act-{{$key}}-{{.Tone}}">
+            <thead><tr><th class="col-date">Latest</th><th class="col-sender">From</th><th class="col-subject">Subject</th><th class="col-tldr">TLDR</th><th class="col-ack">Acked</th></tr></thead>
+            <tbody>{{range .Rows}}<tr{{if .Extra}} class="extra" hidden{{end}} data-hashes="{{.HashAttr}}" data-sender="{{.Name}}" data-subject="{{.Subject}}" data-date="{{.FullDate}}">
+              <td class="col-date"><time datetime="{{.FullDate}}">{{.Date}}</time></td>
+              <td class="col-sender"><div class="sender-name">{{.Name}}</div>{{if .Address}}<div class="sender-addr">{{.Address}}</div>{{end}}</td>
+              <td class="col-subject">{{.Subject}}{{if gt .Count 1}} <span class="repeat" title="{{.Count}} messages with this subject">×{{.Count}}</span>{{end}}</td>
+              <td class="col-tldr">{{.TLDR}}</td>
+              <td class="col-ack"><button type="button" class="theme-toggle ack-mark" aria-label="Acked">Acked</button></td>
+            </tr>{{end}}</tbody>
+          </table></div>
+          {{if .ExtraCount}}<button type="button" class="more-btn" data-more-for="act-{{$key}}-{{.Tone}}" data-more-label="Show {{.ExtraCount}} more">Show {{.ExtraCount}} more</button>{{end}}
+        </div>
+        {{end}}
+        {{with .DeleteList}}{{if .Senders}}
+        <div class="action-list tone-safe">
+          <h3 class="list-title"><span class="dot" aria-hidden="true"></span>{{.Title}} <span class="list-count">{{.Messages}} messages</span></h3>
+          <div class="table-wrap"><table class="data delete-table" id="act-{{$key}}-delete">
+            <thead><tr><th class="col-expand"></th><th>Sender</th><th>Messages</th><th>Minutes</th><th class="col-ack">Acked</th><th class="col-mark">Mark as deletable</th></tr></thead>
+            <tbody>
+            {{range .Senders}}{{$sid := .ExpandID}}
+            <tr class="delete-parent{{if .Extra}} extra{{end}}"{{if .Extra}} hidden{{end}} data-hashes="{{.HashAttr}}" data-sender="{{if .Address}}{{.Address}}{{else}}{{.Name}}{{end}}">
+              <td class="col-expand"><button type="button" class="delete-expand" aria-expanded="false" aria-controls="{{$sid}}" aria-label="Review entries from {{.Name}}">+</button></td>
+              <td class="col-sender"><div class="sender-name">{{.Name}}</div>{{if .Address}}<div class="sender-addr">{{.Address}}</div>{{end}}</td>
+              <td class="delete-count">{{.Messages}}</td>
+              <td class="delete-minutes">{{printf "%.2f" .Minutes}}</td>
+              <td class="col-ack"></td>
+              <td class="col-mark"><button type="button" class="theme-toggle delete-mark" aria-label="Mark as deletable">Mark</button></td>
+            </tr>
+            {{range .Entries}}
+            <tr class="delete-entry" hidden data-parent="{{$sid}}" data-hashes="{{.HashAttr}}" data-sender="{{if .Address}}{{.Address}}{{else}}{{.Name}}{{end}}" data-subject="{{.Subject}}" data-date="{{.FullDate}}">
+              <td class="col-expand"></td>
+              <td colspan="2"><time datetime="{{.FullDate}}">{{.Date}}</time>{{if .Subject}} · {{.Subject}}{{end}}</td>
+              <td></td>
+              <td class="col-ack"><button type="button" class="theme-toggle ack-mark" aria-label="Acked">Acked</button></td>
+              <td class="col-mark"></td>
+            </tr>
+            {{end}}{{end}}
+            </tbody>
+          </table></div>
+          {{if .ExtraCount}}<button type="button" class="more-btn" data-more-for="act-{{$key}}-delete" data-more-label="Show {{.ExtraCount}} more">Show {{.ExtraCount}} more</button>{{end}}
+        </div>
+        {{end}}{{end}}
+      </section>
+
+      {{if .HasThemes}}
+      <section class="panel" id="sec-themes-{{.Key}}">
+        <h2>What arrived</h2>
+        {{with .KindTree}}
+        <div class="chart-wrap chart-card-aqua kind-tree">
+          <div class="ktree-head">
+            <h3 class="ktree-title">Kind tree</h3>
+            <p class="ktree-hint">Top kind, then area, then message type. Bars share one scale; the percentage is each row's part of the row above it. {{.Count}} messages.</p>
+          </div>
+          <ul class="ktree" role="tree">
+            {{range .Children}}{{template "knode" .}}{{end}}
+            {{if .Small}}{{template "ktail" .}}{{end}}
+          </ul>
+        </div>
+        {{end}}
+        {{if .HeatmapSVG}}<div class="chart-wrap">{{.HeatmapSVG}}</div>{{end}}
+      </section>
+      {{end}}
+
+      {{if .HasFluff}}
+      <section class="panel" id="sec-fluff-{{.Key}}">
+        <h2>What it costs you</h2>
+        {{if .Section.Fluff.TopSenders}}
+        <h3 class="sub">Senders costing you the most minutes</h3>
+        <div class="table-wrap"><table class="data fluff-senders"><thead><tr><th>Sender</th><th>Messages</th><th>Minutes</th></tr></thead>
+        <tbody>{{range .Section.Fluff.TopSenders}}<tr{{if .HashAttr}} data-hashes="{{.HashAttr}}" data-sender="{{.Sender}}"{{end}}><td>{{.Sender}}</td><td>{{.Messages}}</td><td>{{printf "%.2f" .Minutes}}</td></tr>{{end}}</tbody></table></div>
+        {{end}}
+      </section>
+      {{end}}
+      </div>
+
+      <div class="page-report">
+        <section class="panel" id="sec-summary-{{.Key}}">
+          <h2>Summary</h2>
+          <div class="summary-tiles">
+            <div class="tile"><div class="label">Classified</div><div class="value">{{.Section.Summary.Classified}}</div><div class="delta">Delta vs previous calendar month {{.Section.Summary.DeltaClassified}}</div></div>
+            <div class="tile"><div class="label">Jev skips</div><div class="value">{{.Section.Summary.JevSkips}}</div></div>
+            <div class="tile"><div class="label">Essence chats</div><div class="value">{{.Section.Summary.EssenceChats}}</div></div>
+            <div class="tile"><div class="label">Embeds saved</div><div class="value">{{.Section.Summary.EmbedsSaved}}</div><div class="delta">skips times three hops</div></div>
+            <div class="tile"><div class="label">Needs reply</div><div class="value">{{.Section.Summary.NeedsReply}}</div></div>
+            <div class="tile"><div class="label">Fluff minutes</div><div class="value">{{printf "%.1f" .Section.Summary.FluffMinutes}}</div></div>
+          </div>
+          <div class="chart-wrap">{{.SparklineSVG}}</div>
+          <div class="sr-only">
+            <table>
+              <caption>Classified count by month</caption>
+              <thead><tr><th>Month</th><th>Count</th></tr></thead>
+              <tbody>
+              {{$sl := .Section.Summary.Sparkline}}{{range $i, $m := .Section.Summary.SparkMonths}}
+                <tr><td>{{$m}}</td><td>{{index $sl $i}}</td></tr>
+              {{end}}
+              </tbody>
+            </table>
+          </div>
+          <div class="chart-wrap">{{.AttentionDonutSVG}}</div>
+          <div class="chart-wrap">{{.UrgencyHistSVG}}</div>
+          <div class="sr-only">
+            <table>
+              <caption>Urgency histogram</caption>
+              <thead><tr><th>Bucket</th><th>Count</th></tr></thead>
+              <tbody>
+              {{range .UrgencyBucketRows}}
+                <tr><td>{{.Label}}</td><td>{{.Count}}</td></tr>
+              {{end}}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="sec-pipeline-{{.Key}}">
+          <h2>How the pipeline ran</h2>
+          <div class="chart-wrap">{{.HopFlowSVG}}</div>
+          <div class="chart-wrap">{{.SkipRateSVG}}</div>
+          {{if .Section.Pipeline.ModelsClassify}}
+          <h3 class="sub">Models classify</h3>
+          <div class="table-wrap"><table class="data"><thead><tr><th>Model</th><th>Count</th></tr></thead>
+          <tbody>{{range $k, $v := .Section.Pipeline.ModelsClassify}}<tr><td>{{$k}}</td><td>{{$v}}</td></tr>{{end}}</tbody></table></div>
+          {{end}}
+          {{if .Section.Pipeline.ModelsEmbed}}
+          <h3 class="sub">Models embed</h3>
+          <div class="table-wrap"><table class="data"><thead><tr><th>Model</th><th>Count</th></tr></thead>
+          <tbody>{{range $k, $v := .Section.Pipeline.ModelsEmbed}}<tr><td>{{$k}}</td><td>{{$v}}</td></tr>{{end}}</tbody></table></div>
+          {{end}}
+        </section>
+
+        <section class="panel" id="sec-trust-{{.Key}}">
+          <h2>Can you trust it</h2>
+          <div class="grid-2">
+            <div>
+              <div class="chart-wrap">{{.CosineHistSVG}}</div>
+              <div class="sr-only">
+                <table>
+                  <caption>Cosine histogram</caption>
+                  <thead><tr><th>Bucket</th><th>Count</th></tr></thead>
+                  <tbody>
+                  {{range .CosineBucketRows}}
+                    <tr><td>{{.Label}}</td><td>{{.Count}}</td></tr>
+                  {{end}}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div class="chart-wrap">{{.JudgeHistSVG}}</div>
+              <div class="sr-only">
+                <table>
+                  <caption>Judge score histogram</caption>
+                  <thead><tr><th>Bucket</th><th>Count</th></tr></thead>
+                  <tbody>
+                  {{range .JudgeBucketRows}}
+                    <tr><td>{{.Label}}</td><td>{{.Count}}</td></tr>
+                  {{end}}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <p class="note">Not attention-scored: <strong>{{.Section.Trust.NotAttention}}</strong></p>
+          {{if .Section.Trust.LowConf}}
+          <h3 class="sub">Lowest cosine</h3>
+          <div class="table-wrap"><table class="data"><thead><tr><th>Date</th><th>Sender</th><th>Cosine</th><th>Judge</th></tr></thead>
+          <tbody>{{range .Section.Trust.LowConf}}<tr><td>{{.Date}}</td><td>{{.Sender}}</td><td>{{printf "%.3f" .Cosine}}</td><td>{{printf "%.3f" .JudgeScore}}</td></tr>{{end}}</tbody></table></div>
+          {{end}}
+        </section>
+
+        <section class="panel" id="sec-messages-{{.Key}}">
+          <h2>Every message</h2>
+          <div class="toolbar">
+            <input type="search" id="tbl-{{.Key}}-search" placeholder="Search rows" aria-label="Search messages" />
+          </div>
+          <div class="table-wrap messages-scroll"><table class="data" id="tbl-{{.Key}}" data-overview-table="1">
+            <thead>
+              <tr>
+                <th data-sort="0" data-dir="desc">Date</th>
+                <th data-sort="1">Week</th>
+                <th data-sort="2">Sender</th>
+                <th data-sort="3">Subject</th>
+                <th data-sort="4">Theme</th>
+                <th data-sort="5">KIND</th>
+                <th data-sort="6">Strategy</th>
+                <th data-sort="7">Urgency</th>
+                <th data-sort="8">Reply</th>
+                <th data-sort="9">Decision</th>
+                <th data-sort="10">Cosine</th>
+                <th data-sort="11">Judge</th>
+                <th data-sort="12">Outlier</th>
+              </tr>
+            </thead>
+            <tbody>
+            {{range .Section.Messages}}
+              <tr class="msg-row" data-hash="{{.ObjectHash}}" data-sender="{{.Sender}}" data-subject="{{.Subject}}" data-date="{{.Date}}">
+                <td>{{.Date}}</td>
+                <td>{{.WeekKey}}</td>
+                <td>{{.Sender}}</td>
+                <td>{{.Subject}}</td>
+                <td>{{.Theme}}</td>
+                <td>{{.Kind}}</td>
+                <td>{{.Strategy}}</td>
+                <td>{{printf "%.2f" .Urgency}}</td>
+                <td>{{printf "%.2f" .NeedsReply}}</td>
+                <td>{{printf "%.2f" .Decision}}</td>
+                <td>{{printf "%.3f" .Cosine}}</td>
+                <td>{{printf "%.3f" .JudgeScore}}</td>
+                <td>{{.OutlierFirst}}</td>
+              </tr>
+              <tr class="drill-row" id="drill-{{.ObjectHash}}" style="display:none"><td colspan="13">
+                <div class="drilldown">
+                  <div><strong>Object hash</strong> {{.ObjectHash}}</div>
+                  <div><strong>Why</strong> {{.Why}}</div>
+                  <div><strong>Month</strong> {{.MonthKey}}</div>
+                </div>
+              </td></tr>
+            {{end}}
+            </tbody>
+          </table></div>
+        </section>
+      </div>
+    </div>
+    {{end}}
+
+    {{if or .Model.Shapes .Model.ErrorRows .Model.All.Pipeline.PromptHashes}}
+    <div class="page-report">
+      {{if .Model.Shapes}}
+      <section class="panel" id="sec-shapes">
+        <h2>Template health (mail_shapes)</h2>
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Status</th><th>Fingerprint</th><th>Sender domain</th><th>Subject template</th><th>Last slot</th><th>Hits</th><th>Confirms</th><th>Rejects</th></tr></thead>
+          <tbody>
+          {{range .Model.Shapes}}
+            <tr{{if eq .Status "disabled"}} class="row-muted"{{end}}>
+              <td>{{.Status}}</td>
+              <td>{{.Fingerprint}}</td>
+              <td>{{.SenderDomain}}</td>
+              <td>{{.SubjectTemplate}}</td>
+              <td>{{.LastSlot}}</td>
+              <td>{{.HitCount}}</td>
+              <td>{{.ConfirmCount}}</td>
+              <td>{{.RejectCount}}</td>
+            </tr>
+          {{end}}
+          </tbody>
+        </table></div>
+      </section>
+      {{end}}
+
+      {{if or .Model.All.Trust.ErrorGroups .Model.ErrorRows}}
+      <section class="panel" id="sec-errors">
+        <h2>Classify errors (ledger)</h2>
+        {{if .Model.All.Trust.ErrorGroups}}
+        <h3 class="sub">By error text</h3>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Error</th><th>Rows</th><th>Attempts</th></tr></thead>
+        <tbody>{{range .Model.All.Trust.ErrorGroups}}<tr><td>{{.Error}}</td><td>{{.Rows}}</td><td>{{.TotalAttempts}}</td></tr>{{end}}</tbody></table></div>
+        {{end}}
+        {{if .Model.ErrorRows}}
+        <h3 class="sub">Recent rows</h3>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Hash</th><th>Attempts</th><th>Updated</th><th>Error</th></tr></thead>
+        <tbody>{{range .Model.ErrorRows}}<tr><td>{{.ObjectHash}}</td><td>{{.AttemptCount}}</td><td>{{.UpdatedAt}}</td><td>{{.Error}}</td></tr>{{end}}</tbody></table></div>
+        {{end}}
+      </section>
+      {{end}}
+
+      {{if .Model.All.Pipeline.PromptHashes}}
+      <section class="panel" id="sec-prompt-global">
+        <h2>Prompt hashes (All, shapes)</h2>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Prompt hash</th><th>Count</th></tr></thead>
+        <tbody>{{range $k, $v := .Model.All.Pipeline.PromptHashes}}<tr><td>{{$k}}</td><td>{{$v}}</td></tr>{{end}}</tbody></table></div>
+      </section>
+      {{end}}
+    </div>
+    {{end}}
+    <section id="sec-provenance" class="panel page-report">
+      <h2>Provenance</h2>
+      <p>Complete rows {{.Model.Provenance.CompleteRows}} · Matched mail {{.Model.Provenance.MailMatched}} · Missing mail {{.Model.Provenance.MailMissing}}</p>
+      <p>Ledger <code>{{.Model.LedgerPath}}</code> · Mail store <code>{{.Model.MailStorePath}}</code></p>
+      <p>Schema v{{.Model.SchemaVersion}} · CLI {{.Model.CLIVersion}}{{if .Model.Provenance.GitRevision}} · {{.Model.Provenance.GitRevision}}{{end}}</p>
+    </section>
+  </main>
+  <aside id="intent-panel" hidden>
+    <div class="intent-panel-head">
+      <h2 id="intent-title">Message</h2>
+      <button type="button" class="theme-toggle" id="intent-close">Close</button>
+    </div>
+    <p class="intent-status" id="intent-status"></p>
+    <div class="intent-body" id="intent-text"></div>
+    <div class="intent-outliers-wrap" id="intent-outliers-wrap" hidden>
+      <p class="intent-outliers-label">Worth a look</p>
+      <p class="intent-outliers-hint">Click a card to preview the latest message</p>
+      <ul class="intent-outliers" id="intent-outliers"></ul>
+    </div>
+    <div class="intent-actions">
+      <label class="worth-read"><input type="checkbox" id="intent-worth" disabled> Worth reading</label>
+      <button type="button" class="theme-toggle" id="intent-mark" disabled>Mark as deletable</button>
+    </div>
+  </aside>
+  <aside id="ack-cart" hidden>
+    <div class="intent-panel-head">
+      <h2>Acked</h2>
+      <button type="button" class="theme-toggle" id="ack-close">Close</button>
+    </div>
+    <p class="intent-status" id="ack-help">Staging until Apply at source in the header. That marks Acked as read (stays in Inbox) and moves Cart to Trash; then Sync pushes Gmail.</p>
+    <p class="intent-status" id="ack-job-status" hidden></p>
+    <div id="ack-list" class="cart-list"></div>
+  </aside>
+  <aside id="delete-cart" hidden>
+    <div id="cart-resize" class="cart-resize" role="separator" aria-orientation="vertical" aria-label="Resize deletion cart"></div>
+    <div class="intent-panel-head">
+      <h2>Deletion cart</h2>
+      <button type="button" class="theme-toggle" id="cart-close">Close</button>
+    </div>
+    <p class="intent-status" id="cart-help">Staging until Apply at source in the header. That marks Acked as read and moves this cart to Trash; the job keeps the order. Then Sync pushes Gmail.</p>
+    <p class="intent-status" id="cart-job-status" hidden></p>
+    <div id="cart-list" class="cart-list"></div>
+  </aside>
+  <script type="application/json" id="overview-model">{{.ModelJSON}}</script>
+  <script>{{.InlineJS}}</script>
+</body>
+</html>
+{{define "krow"}}<span class="krow d{{.Depth}}"{{if .Leaf}}{{if .HashAttr}} data-hashes="{{.HashAttr}}"{{end}}{{end}}><span class="kname"><span class="chev" aria-hidden="true"></span>{{.Label}}{{if .OneOff}} <span class="kbadge" title="{{.Why}}">one-off</span>{{end}}</span><span class="kbar"><span class="kfill" style="width: {{printf "%.2f" .BarPct}}%"></span></span><span class="kcount">{{.Count}}</span><span class="kshare">{{.Share}}</span></span>{{end}}
+{{define "ktail"}}<li class="ktail"{{if .SmallHashAttr}} data-hashes="{{.SmallHashAttr}}"{{end}}><details><summary><span class="krow tail d{{.ChildDepth}}"><span class="kname"><span class="chev" aria-hidden="true"></span>+{{len .Small}} smaller</span><span class="kbar"></span><span class="kcount">{{.SmallMessages}}</span><span class="kshare"></span></span></summary><ul>{{range .Small}}{{template "knode" .}}{{end}}</ul></details></li>{{end}}
+{{define "knode"}}<li role="treeitem"{{if .HashAttr}} data-hashes="{{.HashAttr}}"{{end}}>{{if or .Children .Small}}<details{{if .Open}} open{{end}}><summary>{{template "krow" .}}</summary><ul>{{range .Children}}{{template "knode" .}}{{end}}{{if .Small}}{{template "ktail" .}}{{end}}</ul></details>{{else}}<div class="kleaf">{{template "krow" .}}</div>{{end}}</li>{{end}}

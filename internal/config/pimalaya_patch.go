@@ -10,7 +10,7 @@ import (
 )
 
 // PimalayaPatch updates pimalaya paths in the live operator config.yaml.
-func PimalayaPatch(neverestConfig, pimdirPath, defaultAccount string) (configPath string, changed bool, err error) {
+func PimalayaPatch(neverestConfig, pimdirPath, defaultAccount, himalayaConfig string) (configPath string, changed bool, err error) {
 	const op = "config.PimalayaPatch"
 	path, err := ResolvePath("")
 	if err != nil {
@@ -39,6 +39,12 @@ func PimalayaPatch(neverestConfig, pimdirPath, defaultAccount string) (configPat
 	if strings.TrimSpace(file.Pimalaya.DefaultAccount) != strings.TrimSpace(defaultAccount) {
 		file.Pimalaya.DefaultAccount = defaultAccount
 		changed = true
+	}
+	if hc := strings.TrimSpace(himalayaConfig); hc != "" {
+		if strings.TrimSpace(file.Pimalaya.HimalayaConfig) != hc {
+			file.Pimalaya.HimalayaConfig = hc
+			changed = true
+		}
 	}
 	if !changed {
 		return path, false, nil

@@ -94,33 +94,46 @@ func walkMultipart(boundary string, body []byte) (plain, html string, err error)
 		if err != nil {
 			return "", "", sirerr.Wrap(err, sirerr.CodeFailed, op, "read part")
 		}
-		partType, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
-		partType = strings.ToLower(partType)
-		partBody, err := io.ReadAll(p)
+		plain, html, err = mergeMIMEPart(op, plain, html, p)
 		if err != nil {
-			return "", "", sirerr.Wrap(err, sirerr.CodeFailed, op, "read part body")
-		}
-		partBody = decodeMIMEBody(p.Header.Get("Content-Transfer-Encoding"), partBody)
-		switch {
-		case strings.HasPrefix(partType, "text/plain") && plain == "":
-			plain = string(partBody)
-		case strings.HasPrefix(partType, "text/html") && html == "":
-			html = string(partBody)
-		case strings.HasPrefix(partType, "multipart/"):
-			_, subParams, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
-			subPlain, subHTML, err := walkMultipart(subParams["boundary"], partBody)
-			if err != nil {
-				return "", "", err
-			}
-			if plain == "" && subPlain != "" {
-				plain = subPlain
-			}
-			if html == "" && subHTML != "" {
-				html = subHTML
-			}
+			return "", "", err
 		}
 	}
 	return plain, html, nil
+}
+
+func mergeMIMEPart(op, plain, html string, p *multipart.Part) (string, string, error) {
+	partType, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
+	partType = strings.ToLower(partType)
+	partBody, err := io.ReadAll(p)
+	if err != nil {
+		return "", "", sirerr.Wrap(err, sirerr.CodeFailed, op, "read part body")
+	}
+	partBody = decodeMIMEBody(p.Header.Get("Content-Transfer-Encoding"), partBody)
+	switch {
+	case strings.HasPrefix(partType, "text/plain") && plain == "":
+		plain = string(partBody)
+	case strings.HasPrefix(partType, "text/html") && html == "":
+		html = string(partBody)
+	case strings.HasPrefix(partType, "multipart/"):
+		_, subParams, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
+		subPlain, subHTML, err := walkMultipart(subParams["boundary"], partBody)
+		if err != nil {
+			return "", "", err
+		}
+		plain, html = coalesceMIMEBodies(plain, html, subPlain, subHTML)
+	}
+	return plain, html, nil
+}
+
+func coalesceMIMEBodies(plain, html, subPlain, subHTML string) (string, string) {
+	if plain == "" && subPlain != "" {
+		plain = subPlain
+	}
+	if html == "" && subHTML != "" {
+		html = subHTML
+	}
+	return plain, html
 }
 
 func decodeMIMEBody(enc string, body []byte) []byte {

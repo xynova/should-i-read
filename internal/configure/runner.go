@@ -113,117 +113,143 @@ func (r *Runner) runStepBody(ctx context.Context, stepID string, opts Options, o
 	res := StepResult{Step: stepID}
 	switch stepID {
 	case StepHostConfig:
-		example, err := config.ExampleYAML()
-		if err != nil {
-			return res, cfg, err
-		}
-		_, created, err := config.WriteInit(false, example)
-		if err != nil {
-			return res, cfg, sirerr.Wrap(err, sirerr.CodeFailed, op, "write operator config")
-		}
-		res.OK = true
-		if created {
-			res.Detail = "Created operator config."
-		} else {
-			res.Detail = "Operator config is ready."
-		}
-		cfg, err = config.Load(r.repoRoot, "")
-		return res, cfg, err
+		return r.stepHostConfig(res, cfg)
 	case StepOAuthClients:
-		setupRes, err := r.hooks.RunOAuthClients(ctx, opts.Interactive, out, errW)
-		if err != nil {
-			res.Detail = "OAuth app credential setup failed."
-			return res, cfg, err
-		}
-		_ = setupRes
-		res.OK = true
-		res.Detail = "OAuth app credentials step finished."
-		return res, cfg, nil
+		return r.stepOAuthClients(ctx, opts, out, errW, res, cfg)
 	case StepMailDependency:
-		if err := r.hooks.EnsureDep(ctx, true); err != nil {
-			res.Detail = "Could not install or verify the mail sync dependency."
-			return res, cfg, err
-		}
-		res.OK = true
-		res.Detail = "Mail sync dependency is available."
-		cfg, err := config.Load(r.repoRoot, "")
-		return res, cfg, err
+		return r.stepMailDependency(ctx, res, cfg)
 	case StepMailboxProfile:
-		prov, account, email, err := r.mailFields(opts, cfg)
-		if err != nil {
-			return res, cfg, err
-		}
-		svc, err := mailsync.Create(r.repoRoot, r.hostBin, r.hooks.InitReplica)
-		if err != nil {
-			return res, cfg, err
-		}
-		_, err = svc.Configure(ctx, mailsync.Options{
-			Provider:           prov,
-			Account:            account,
-			Email:              email,
-			StoreRoot:          strings.TrimSpace(opts.StoreRoot),
-			Force:              opts.Force,
-			HostBin:            r.hostBin,
-			SkipInit:           true,
-			ExcludeCollections: cfg.Pimalaya.SyncExcludeCollections,
-		})
-		if err != nil {
-			res.Detail = "Could not save mailbox settings."
-			return res, cfg, err
-		}
-		res.OK = true
-		res.Detail = "Mailbox settings saved."
-		cfg, err = config.Load(r.repoRoot, "")
-		return res, cfg, err
+		return r.stepMailboxProfile(ctx, opts, res, cfg)
 	case StepMailboxLogin:
-		prov, account, _, err := r.mailFields(opts, cfg)
-		if err != nil {
-			return res, cfg, err
-		}
-		if !opts.Interactive {
-			res.Detail = "Mailbox login requires an interactive terminal."
-			return res, cfg, sirerr.New(sirerr.CodeInvalid, op, res.Detail)
-		}
-		if err := r.hooks.MailboxLogin(ctx, cfg, prov, account); err != nil {
-			res.Detail = "Mailbox login failed."
-			return res, cfg, err
-		}
-		res.OK = true
-		res.Detail = "Mailbox login stored."
-		cfg, err = config.Load(r.repoRoot, "")
-		return res, cfg, err
+		return r.stepMailboxLogin(ctx, opts, res, cfg)
 	case StepLocalStore:
-		prov, account, _, err := r.mailFields(opts, cfg)
-		if err != nil {
-			return res, cfg, err
-		}
-		if !r.tokenReady(prov, account) {
-			res.Detail = "Complete mailbox login before initializing the local store."
-			return res, cfg, sirerr.New(sirerr.CodeInvalid, op, res.Detail)
-		}
-		mailSyncPath := strings.TrimSpace(cfg.Pimalaya.NeverestConfig)
-		if mailSyncPath == "" {
-			p, err := config.DefaultMailSyncConfigPath()
-			if err != nil {
-				return res, cfg, err
-			}
-			mailSyncPath = p
-		}
-		if err := mailsync.EnsureMailSyncTokenCommand(mailSyncPath, r.hostBin); err != nil {
-			res.Detail = "Could not repair mail sync token command."
-			return res, cfg, sirerr.Wrap(err, sirerr.CodeFailed, op, res.Detail)
-		}
-		if err := r.hooks.InitReplica(ctx, cfg, account); err != nil {
-			res.Detail = "Local mail store setup failed."
-			return res, cfg, sirerr.Wrap(err, sirerr.CodeFailed, op, res.Detail)
-		}
-		res.OK = true
-		res.Detail = "Local mail store is ready."
-		cfg, err = config.Load(r.repoRoot, "")
-		return res, cfg, err
+		return r.stepLocalStore(ctx, opts, res, cfg)
 	default:
 		return res, cfg, sirerr.New(sirerr.CodeInvalid, op, "unknown step").With("step", stepID)
 	}
+}
+
+func (r *Runner) stepHostConfig(res StepResult, cfg config.Config) (StepResult, config.Config, error) {
+	const op = "configure.runStepBody"
+	example, err := config.ExampleYAML()
+	if err != nil {
+		return res, cfg, err
+	}
+	_, created, err := config.WriteInit(false, example)
+	if err != nil {
+		return res, cfg, sirerr.Wrap(err, sirerr.CodeFailed, op, "write operator config")
+	}
+	res.OK = true
+	if created {
+		res.Detail = "Created operator config."
+	} else {
+		res.Detail = "Operator config is ready."
+	}
+	cfg, err = config.Load(r.repoRoot, "")
+	return res, cfg, err
+}
+
+func (r *Runner) stepOAuthClients(ctx context.Context, opts Options, out, errW io.Writer, res StepResult, cfg config.Config) (StepResult, config.Config, error) {
+	_, err := r.hooks.RunOAuthClients(ctx, opts.Interactive, out, errW)
+	if err != nil {
+		res.Detail = "OAuth app credential setup failed."
+		return res, cfg, err
+	}
+	res.OK = true
+	res.Detail = "OAuth app credentials step finished."
+	return res, cfg, nil
+}
+
+func (r *Runner) stepMailDependency(ctx context.Context, res StepResult, cfg config.Config) (StepResult, config.Config, error) {
+	if err := r.hooks.EnsureDep(ctx, true); err != nil {
+		res.Detail = "Could not install or verify the mail sync dependency."
+		return res, cfg, err
+	}
+	res.OK = true
+	res.Detail = "Mail sync dependency is available."
+	cfg, err := config.Load(r.repoRoot, "")
+	return res, cfg, err
+}
+
+func (r *Runner) stepMailboxProfile(ctx context.Context, opts Options, res StepResult, cfg config.Config) (StepResult, config.Config, error) {
+	prov, account, email, err := r.mailFields(opts, cfg)
+	if err != nil {
+		return res, cfg, err
+	}
+	svc, err := mailsync.Create(r.repoRoot, r.hostBin, r.hooks.InitReplica)
+	if err != nil {
+		return res, cfg, err
+	}
+	_, err = svc.Configure(ctx, mailsync.Options{
+		Provider:           prov,
+		Account:            account,
+		Email:              email,
+		StoreRoot:          strings.TrimSpace(opts.StoreRoot),
+		Force:              opts.Force,
+		HostBin:            r.hostBin,
+		SkipInit:           true,
+		ExcludeCollections: cfg.Pimalaya.SyncExcludeCollections,
+	})
+	if err != nil {
+		res.Detail = "Could not save mailbox settings."
+		return res, cfg, err
+	}
+	res.OK = true
+	res.Detail = "Mailbox settings saved."
+	cfg, err = config.Load(r.repoRoot, "")
+	return res, cfg, err
+}
+
+func (r *Runner) stepMailboxLogin(ctx context.Context, opts Options, res StepResult, cfg config.Config) (StepResult, config.Config, error) {
+	const op = "configure.runStepBody"
+	prov, account, _, err := r.mailFields(opts, cfg)
+	if err != nil {
+		return res, cfg, err
+	}
+	if !opts.Interactive {
+		res.Detail = "Mailbox login requires an interactive terminal."
+		return res, cfg, sirerr.New(sirerr.CodeInvalid, op, res.Detail)
+	}
+	if err := r.hooks.MailboxLogin(ctx, cfg, prov, account); err != nil {
+		res.Detail = "Mailbox login failed."
+		return res, cfg, err
+	}
+	res.OK = true
+	res.Detail = "Mailbox login stored."
+	cfg, err = config.Load(r.repoRoot, "")
+	return res, cfg, err
+}
+
+func (r *Runner) stepLocalStore(ctx context.Context, opts Options, res StepResult, cfg config.Config) (StepResult, config.Config, error) {
+	const op = "configure.runStepBody"
+	prov, account, _, err := r.mailFields(opts, cfg)
+	if err != nil {
+		return res, cfg, err
+	}
+	if !r.tokenReady(prov, account) {
+		res.Detail = "Complete mailbox login before initializing the local store."
+		return res, cfg, sirerr.New(sirerr.CodeInvalid, op, res.Detail)
+	}
+	mailSyncPath := strings.TrimSpace(cfg.Pimalaya.NeverestConfig)
+	if mailSyncPath == "" {
+		p, err := config.DefaultMailSyncConfigPath()
+		if err != nil {
+			return res, cfg, err
+		}
+		mailSyncPath = p
+	}
+	if err := mailsync.EnsureMailSyncTokenCommand(mailSyncPath, r.hostBin); err != nil {
+		res.Detail = "Could not repair mail sync token command."
+		return res, cfg, sirerr.Wrap(err, sirerr.CodeFailed, op, res.Detail)
+	}
+	if err := r.hooks.InitReplica(ctx, cfg, account); err != nil {
+		res.Detail = "Local mail store setup failed."
+		return res, cfg, sirerr.Wrap(err, sirerr.CodeFailed, op, res.Detail)
+	}
+	res.OK = true
+	res.Detail = "Local mail store is ready."
+	cfg, err = config.Load(r.repoRoot, "")
+	return res, cfg, err
 }
 
 func (r *Runner) mailFields(opts Options, cfg config.Config) (mailsync.Provider, string, string, error) {
@@ -284,39 +310,9 @@ func (r *Runner) RunAllMissing(ctx context.Context, opts Options, out, errW io.W
 		return session, err
 	}
 	for _, stepID := range StepOrder {
-		snap, err := CollectSnapshot(ctx, r.repoRoot, cfg)
-		if err != nil {
-			return session, err
-		}
-		session.Snapshot = snap
-		if stepOK(snap, stepID) {
-			continue
-		}
-		if opts.SkipLogin && (stepID == StepMailboxLogin || stepID == StepLocalStore) {
-			session.Snapshot.WaitingOn = WaitingOnMailboxLogin
-			return session, nil
-		}
-		if stepID == StepMailboxLogin && opts.Interactive && confirmLogin != nil {
-			ok, err := confirmLogin(ctx)
-			if err != nil {
-				return session, err
-			}
-			if !ok {
-				session.Snapshot.WaitingOn = WaitingOnMailboxLogin
-				return session, nil
-			}
-		}
-		if needsMailFields(stepID) {
-			if _, _, _, err := r.mailFields(opts, cfg); err != nil {
-				return session, err
-			}
-		}
-		stepRes, newCfg, err := r.RunStep(ctx, stepID, opts, out, errW, false)
-		session.Ran = append(session.Ran, stepRes)
+		done, newCfg, err := r.runMissingStep(ctx, stepID, opts, out, errW, confirmLogin, &session, cfg)
 		cfg = newCfg
-		if err != nil {
-			snap, _ := CollectSnapshot(ctx, r.repoRoot, cfg)
-			session.Snapshot = snap
+		if err != nil || done {
 			return session, err
 		}
 	}
@@ -326,6 +322,44 @@ func (r *Runner) RunAllMissing(ctx context.Context, opts Options, out, errW io.W
 	}
 	session.Snapshot = snap
 	return session, nil
+}
+
+func (r *Runner) runMissingStep(ctx context.Context, stepID string, opts Options, out, errW io.Writer, confirmLogin func(ctx context.Context) (bool, error), session *SessionResult, cfg config.Config) (done bool, next config.Config, err error) {
+	snap, err := CollectSnapshot(ctx, r.repoRoot, cfg)
+	if err != nil {
+		return true, cfg, err
+	}
+	session.Snapshot = snap
+	if stepOK(snap, stepID) {
+		return false, cfg, nil
+	}
+	if opts.SkipLogin && (stepID == StepMailboxLogin || stepID == StepLocalStore) {
+		session.Snapshot.WaitingOn = WaitingOnMailboxLogin
+		return true, cfg, nil
+	}
+	if stepID == StepMailboxLogin && opts.Interactive && confirmLogin != nil {
+		ok, err := confirmLogin(ctx)
+		if err != nil {
+			return true, cfg, err
+		}
+		if !ok {
+			session.Snapshot.WaitingOn = WaitingOnMailboxLogin
+			return true, cfg, nil
+		}
+	}
+	if needsMailFields(stepID) {
+		if _, _, _, err := r.mailFields(opts, cfg); err != nil {
+			return true, cfg, err
+		}
+	}
+	stepRes, newCfg, err := r.RunStep(ctx, stepID, opts, out, errW, false)
+	session.Ran = append(session.Ran, stepRes)
+	if err != nil {
+		snap, _ := CollectSnapshot(ctx, r.repoRoot, newCfg)
+		session.Snapshot = snap
+		return true, newCfg, err
+	}
+	return false, newCfg, nil
 }
 
 func needsMailFields(stepID string) bool {

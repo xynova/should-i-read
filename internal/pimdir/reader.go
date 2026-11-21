@@ -3,7 +3,6 @@ package pimdir
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,39 +52,25 @@ func (r *Reader) ListRecentEmails(ctx context.Context, limit int) ([]EmailSummar
 	return r.ListRecentEmailsIn(ctx, nil, limit)
 }
 
-// ListRecentEmailsIn returns newest-first rows. When collections is non-empty, only those folders match.
+// ListRecentEmailsIn returns newest-first rows. When collections is non-empty, only those folders match
+// (config imap/INBOX also matches pimdir gmail/imap/INBOX).
 func (r *Reader) ListRecentEmailsIn(ctx context.Context, collections []string, limit int) ([]EmailSummary, error) {
 	const op = "pimdir.ListRecentEmailsIn"
-	if r == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
-	}
-	if ctx == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing context deadline")
-	}
 	if limit <= 0 {
 		limit = 25
 	}
-	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
-	db, err := sql.Open("sqlite", dsn)
+	db, err := r.openRo(ctx, op)
 	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
-	}
 
 	collections = normalizeCollections(collections)
 	q := summarySelect
 	args := []any{}
-	if len(collections) > 0 {
-		q += ` AND i.collection IN (` + sqlPlaceholders(len(collections)) + `)`
-		for _, c := range collections {
-			args = append(args, c)
-		}
+	if pred, matchArgs := collectionMatchSQL("i.collection", collections); pred != "" {
+		q += ` AND ` + pred
+		args = append(args, matchArgs...)
 	}
 	q += `
 ORDER BY i.sort_key DESC, i.seq DESC
@@ -112,40 +97,26 @@ LIMIT ?`
 }
 
 // ListEmailsIn returns live rows with sort_key in [window.From, window.To), newest first.
+// Collection filters use the same folder suffix match as ListRecentEmailsIn.
 func (r *Reader) ListEmailsIn(ctx context.Context, collections []string, window DateWindow, limit int) ([]EmailSummary, error) {
 	const op = "pimdir.ListEmailsIn"
-	if r == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
-	}
-	if ctx == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing context deadline")
-	}
 	if window.Zero() || window.From.IsZero() || window.To.IsZero() {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "empty date window")
 	}
-	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
-	db, err := sql.Open("sqlite", dsn)
+	db, err := r.openRo(ctx, op)
 	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
-	}
 	collections = normalizeCollections(collections)
 	q := summarySelect + `
  AND TRIM(i.sort_key) != ''
  AND i.sort_key >= ?
  AND i.sort_key < ?`
 	args := []any{window.FromRFC3339(), window.ToRFC3339()}
-	if len(collections) > 0 {
-		q += ` AND i.collection IN (` + sqlPlaceholders(len(collections)) + `)`
-		for _, c := range collections {
-			args = append(args, c)
-		}
+	if pred, matchArgs := collectionMatchSQL("i.collection", collections); pred != "" {
+		q += ` AND ` + pred
+		args = append(args, matchArgs...)
 	}
 	q += `
 ORDER BY i.sort_key DESC, i.seq DESC`
@@ -214,6 +185,22 @@ func normalizeCollections(collections []string) []string {
 	return out
 }
 
+// collectionMatchSQL matches a configured folder name (imap/INBOX) or a pimdir
+// collection that ends with /folder (gmail/imap/INBOX). Empty collections return
+// no predicate so the caller lists every live folder.
+func collectionMatchSQL(column string, collections []string) (string, []any) {
+	if len(collections) == 0 {
+		return "", nil
+	}
+	parts := make([]string, 0, len(collections))
+	args := make([]any, 0, len(collections)*2)
+	for _, c := range collections {
+		parts = append(parts, "("+column+" = ? OR "+column+" LIKE '%/' || ?)")
+		args = append(args, c, c)
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
 func sqlPlaceholders(n int) string {
 	if n <= 0 {
 		return ""
@@ -235,11 +222,27 @@ func (r *Reader) ReadBlob(hash string) ([]byte, error) {
 	if len(hash) < 4 {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "hash too short")
 	}
-	rel := filepath.Join("objects", hash[0:2], hash[2:4], hash)
-	path := filepath.Join(r.storeDir, rel)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeNotFound, op, "read blob").With("path", path)
+	var last error
+	var lastPath string
+	for _, path := range objectBlobCandidates(r.storeDir, hash) {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			return raw, nil
+		}
+		last = err
+		lastPath = path
+		if !os.IsNotExist(err) {
+			break
+		}
 	}
-	return raw, nil
+	return nil, sirerr.Wrap(last, sirerr.CodeNotFound, op, "read blob").With("path", lastPath)
+}
+
+// objectBlobCandidates is Neverest's objects/ab/<hash> layout, then a two-level shard.
+func objectBlobCandidates(storeDir, hash string) []string {
+	prefix := filepath.Join(storeDir, "objects", hash[0:2])
+	return []string{
+		filepath.Join(prefix, hash),
+		filepath.Join(prefix, hash[2:4], hash),
+	}
 }

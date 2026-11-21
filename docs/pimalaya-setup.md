@@ -29,6 +29,16 @@ go tool task configure
 
 `configure` writes `~/.config/should-i-read/mail-sync.toml`, patches `pimalaya.*` in host config, runs browser login on a TTY when needed, then initializes the local store. Scripts pass `--apply` plus `--provider` / `--email` for automation.
 
+## Himalaya pimdir config (deletion cart)
+
+`configure` (mailbox profile step) also writes a **pimdir-only** Himalaya file at `~/.config/should-i-read/himalaya.toml` and sets `pimalaya.himalaya_config` in host YAML. It points at the same replica as Neverest (`pimdir.root` matches `store.root` in `mail-sync.toml`). There is no IMAP or SMTP in that file.
+
+Deletion cart **apply** calls `himalaya -c` that path with `-m imap/INBOX` (pimdir collection ids). The file sets `mailbox.alias.trash` to the pimdir collection id (`gmail/imap/[Gmail]/Trash` or `outlook/imap/Deleted Items`) so Himalaya can stage `message delete`. That delete stays in the local replica until you run `mail sync`, which pushes Trash at the provider. Sync still skips fetching Trash bodies by default (`pimalaya.sync_exclude_collections`).
+
+Install the binary with `cargo install --locked --git https://github.com/pimalaya/himalaya.git` (or the project install script). Resolve via `pimalaya.himalaya_bin` or `$CARGO_HOME/bin/himalaya`. `mail status --json` reports `himalaya_config_ok` separately from `ready` (sync does not need Himalaya).
+
+Re-run `should-i-read configure --step mailbox_profile` when `himalaya.toml` is missing. Use `configure --force` only if you intend to overwrite both `mail-sync.toml` and `himalaya.toml`.
+
 ## Maintainer mapping (scripts / advanced)
 
 The sync engine is Neverest (`v0.x`, beta). Host scripts and `pim` subcommands remain for automation:
@@ -129,7 +139,7 @@ Optional alignment with host config: set `pimalaya.default_account` to the same 
 
 ## Sync vs export vs show vs report
 
-`mail sync` (Neverest) stores full message bytes under the pimdir `objects/` tree plus metadata in `pimdir.db`. By default it skips `[Gmail]/Spam` and `[Gmail]/Trash` via `pimalaya.sync_exclude_collections` (merged with repeatable `--exclude-collection`). An empty YAML list syncs every folder. `configure` writes the same names into `mail-sync.toml` as `imap.collection.filter.exclude`; existing TOML that still says `filter = "all"` is overridden per run by the host flags. After a successful sync with new fetch hunks, the host may classify up to `taxonomy.classify_max` unique messages (default 50) via Polypus + taxonomy; pass `--no-classify` to skip. `--json mail sync` stdout remains the Neverest engine JSON only; classify writes `tmp/unwanted-report-*.json` separately.
+`mail sync` (Neverest) stores full message bytes under the pimdir `objects/` tree plus metadata in `pimdir.db`. By default it skips `[Gmail]/Spam` and `[Gmail]/Trash` via `pimalaya.sync_exclude_collections` (merged with repeatable `--exclude-collection`). An empty YAML list syncs every folder. `configure` writes the same names into `mail-sync.toml` as `imap.collection.filter.exclude`; existing TOML that still says `filter = "all"` is overridden per run by the host flags. After **Move to Trash at source**, the same command retries once with `--accept-absences` when leftover INBOX hashes are already `trashed_at_source`. After a successful sync with new fetch hunks, the host may classify up to `taxonomy.classify_max` unique messages (default 50) via Polypus + taxonomy; pass `--no-classify` to skip. `--json mail sync` stdout remains the Neverest engine JSON only; classify writes `tmp/unwanted-report-*.json` separately.
 
 Fetch hunk `collection` + `id` (IMAP UID string) resolve in pimdir by `imap/<collection>` or `collection` with `items.seq = atoi(id)`, then `link_id = id`. Unresolved hunks are counted in the report artifact.
 

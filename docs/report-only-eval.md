@@ -40,7 +40,27 @@ flowchart TD
    - **Artifacts:** each run writes `tmp/unwanted-report-<ts>.json` with optional `window_from` / `window_to`. Per-message ledger rows accumulate by `object_hash`. The live cluster cache is overwritten for each `cluster_id` on the latest processed window (weekly JSON files are the snapshots).
 3. For each message, taxonomy `Operate` runs **attach** (`taxonomy.strategy: attach`; legacy `walk` is treated as attach). Attach: Essence is three Polypus chat hops (WHY slave, TAGS slave, KIND slave), then embeddings, cosine alias or Walk reinforce or breadcrumb create on `inbox-kind`. Repeating CI subjects may skip Essence: after `taxonomy.shape_min_repeats` (default 3) hits of the same sender domain and templated subject under the current Essence prompt hash, the host promotes a row in `mail_shapes` and later mail with that fingerprint gets a Jev yes/no (`taxonomy.shape_confirm_min`, default 0.90). A match Completes with `strategy=shape-confirm` and copies KIND; a miss falls through to Essence. Default allow-listed last slots are `pipeline-failure`, `workflow-failure`, `pull-request`, and `release`. `mail bench` forces `shape_confirm` off. Report rows include `path`, and attach rows add `kind`, `about`, `shape`, `cosine` (leaf attach match), `description_cosine` (email vs ABOUT when `taxonomy.description_cosine_mode` is `report` or `repair`), `canonical_term_id`, `reinforced`. Breadcrumb ABOUT/SHAPE must pass host layout/length gates before catalog apply. Accepted drafts update the active catalog YAML unless `--no-apply`.
 4. Cluster messages in the report by `canonical_term_id` / `term_id`, then sender domain; optional embedding attach via `cluster.min_cosine`. One TLDR per cluster via Polypus chat (cached in host SQLite by fingerprint).
-5. Write `tmp/unwanted-report-<timestamp>.json` with `cluster_id` on each message and `clusters[]` summaries. This-run counters `shape_confirmed` and `shapes_promoted` appear in JSON and, when greater than zero, as human lines under `Classified N`. Resume-complete rows keep `strategy` from the ledger but do not increment those this-run counters. **No mailbox trash/spam/delete API calls.**
+5. Write `tmp/unwanted-report-<timestamp>.json` with `cluster_id` on each message and `clusters[]` summaries. This-run counters `shape_confirmed` and `shapes_promoted` appear in JSON and, when greater than zero, as human lines under `Classified N`. Resume-complete rows keep `strategy` from the ledger but do not increment those this-run counters. **No mailbox trash/spam/delete API calls on this path.**
+
+## Operator-confirmed Trash (deletion cart, out of band)
+
+Classify and overview **Mark** stay report-only. When you are ready to mutate the mailbox, use the deletion cart:
+
+1. Stage with overview **Mark** or `POST /cart` (host ledger only).
+2. Overview **Apply at source** is checkout: `POST /ack/checkout` with `seen-at-source` (if Acked has work) then `POST /cart/checkout` with `trash-at-source` (if Cart has work). Acked stays in Inbox; Cart snapshots into a deletion job, clears, then Himalaya `message delete` in the background (`202` + poll). The job line and `tmp/delete-job-<id>.json` keep the order after the cart empties. An empty cart with leftover planned or failed items retries that job.
+3. CLI stays two-step: `go tool task mail:cart-job` / `should-i-read mail cart job` (or `POST /cart/jobs`) then `go tool task mail:cart-apply -- --confirm trash-at-source`. Himalaya runs against the pimdir replica (`himalaya -c ~/.config/should-i-read/himalaya.toml`, mailbox `-m imap/INBOX` or the resolved collection id). That delete is **staged locally** until you run overview **Sync** (header on `mail overview serve`; `POST /sync`; Neverest, then report-only classify) or `mail sync` (Neverest, then report-only classify), which pushes Trash at the provider. If Neverest then reports INBOX listing absences and leftover replica hashes are already `trashed_at_source`, that same Sync retries once with `--accept-absences`.
+
+This is explicit operator approval, not auto-trash from Jev or classify scores. Permanent expunge and auto-quarantine remain out of scope until eval exit criteria pass.
+
+## Operator-confirmed Seen (Acked cart, out of band)
+
+Reply and Decide **Acked** stages hashes only. Classify, Worth reading, and Mark stay report-only.
+
+1. Stage with overview **Acked** or `POST /ack` (host ledger only).
+2. Overview **Apply at source** is checkout (`POST /ack/checkout` with confirm token `seen-at-source` when Acked has work): snapshot the Acked list into a job, clear the list, then apply Himalaya `flag add --flag seen` in the background (`202` + poll). Messages stay in Inbox. The same click also checkouts Cart when it has work. Overview **Sync** (header on `mail overview serve`; `POST /sync`; Neverest, then report-only classify) or `mail sync` (Neverest, then report-only classify) pushes the Seen flag at the provider.
+
+
+Overview Mark, live months, and a future actioned strip follow the three GitHub-cluster cases in [overview-actioned-examples.md](overview-actioned-examples.md). Failed Move stays on the live board and on the deletion job; checkout has already emptied the cart. Already-in-Trash hashes must not re-enter the cart and must leave the live months.
 
 ## Output schema (minimum)
 
@@ -105,6 +125,7 @@ flowchart TD
 - Strop `JobRunner` generator `mail_classify` wraps taxonomy `Operate`; Polypus HTTP only inside Judge/Author/Essence/Embed seats.
 - Artifacts: `tmp/unwanted-report-*.json` (snapshot) with `clusters[]`, per-message `cluster_id`, `strategy` (`attach` or `shape-confirm`), `suggested_action` (`review` or `quarantine_candidate` when `cluster.quarantine_terms` matches), nested `attention` on messages and clusters (`urgency`, `needs_reply`, `involves_decision` from Jev SystemOne via Polypus; report-only), and this-run `shape_confirmed` / `shapes_promoted`. Human classify box prints `shape-confirmed N (Jev, skipped Essence)` and `shapes promoted M` when those counts are greater than zero. When Essence parse fails after retries, the last chat completion is written to `tmp/essence-parse/<object_hash>.json` (`essence_dump_dir` on the report). Live classify state, embeddings, attention nouls, cluster TLDR cache, and repeating-template registry: host SQLite (`store.path`; tables `classify_state`, `embeddings`, `clusters`, `cluster_members`, `mail_shapes`, `essence_cache`). `tmp/mail-classify-progress.json` is import-only when the ledger is empty.
 - Config: `cluster.min_cosine`, `cluster.quarantine_terms`, `cluster.attention_true_min` (default 0.50), optional `polypus.tldr_model`. Shape-confirm knobs under `taxonomy:`: `shape_confirm` (default true), `shape_min_repeats` (3), `shape_confirm_min` (0.90), `shape_allowed_leaves`. Promote looks up `essence_cache` with the same joined WHY/TAGS/KIND prompt hash the live cache uses, not the tag-less default prompt.
+- Operator labels: `message_outcomes` in host SQLite (`trashed_at_source`, `already_in_trash`, `kept`) from Trash apply, replica Trash, and overview **Keep**. `mail report` may add per-message `worth_read_prior` (report-only) when `taxonomy.worth_read_prior` is true and labeled rows exist. Eval exit criteria may count operator labels toward the 100-message set.
 
 ### Live shape-confirm check (2026-11-01)
 

@@ -1,16 +1,22 @@
 package pimalaya
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
+	"github.com/failsafe-go/failsafe-go"
+	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -36,6 +42,10 @@ type Runner struct {
 	ConfigPath string
 	Account    string
 	ExtraEnv   []string
+	// OnStreamLine receives each stdout and stderr line while the command runs.
+	OnStreamLine func([]byte)
+	retry        retrypolicy.RetryPolicy[*Result]
+	breaker      circuitbreaker.CircuitBreaker[*Result]
 }
 
 // Create builds a Runner after allow-list and path checks.
@@ -48,7 +58,11 @@ func Create(bin string) (*Runner, error) {
 	if err := AssertAllowed(bin); err != nil {
 		return nil, err
 	}
-	return &Runner{Bin: bin}, nil
+	return &Runner{
+		Bin:     bin,
+		retry:   defaultPimalayaRetry(),
+		breaker: defaultPimalayaBreaker(),
+	}, nil
 }
 
 // ResolveBin finds an executable: explicit path, PATH, then $CARGO_HOME/bin/<name>
@@ -106,6 +120,9 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 	if ctx == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
+	if _, ok := ctx.Deadline(); !ok {
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing deadline")
+	}
 
 	tracer := otel.Tracer("github.com/xynova/should-i-read/internal/pimalaya")
 	ctx, span := tracer.Start(ctx, "pimalaya.RunJSON",
@@ -126,49 +143,102 @@ func (r *Runner) RunJSON(ctx context.Context, args ...string) (*Result, error) {
 	cmdArgs = append(cmdArgs, "--json")
 	cmdArgs = append(cmdArgs, args...)
 
+	retry := r.retry
+	if retry == nil {
+		retry = defaultPimalayaRetry()
+	}
+	breaker := r.breaker
+	if breaker == nil {
+		breaker = defaultPimalayaBreaker()
+	}
+	res, err := failsafe.With(breaker, retry).WithContext(ctx).Get(func() (*Result, error) {
+		return r.runJSONOnce(ctx, cmdArgs)
+	})
+	if err != nil {
+		span.RecordError(err)
+		if code, ok := sirerr.AsCode(err); ok && code == sirerr.CodeNeedsReview {
+			span.SetStatus(codes.Error, "needs_review")
+		} else {
+			span.SetStatus(codes.Error, "exec failed")
+		}
+		return res, err
+	}
+	span.SetStatus(codes.Ok, "")
+	return res, nil
+}
+
+func (r *Runner) runJSONOnce(ctx context.Context, cmdArgs []string) (*Result, error) {
+	const op = "pimalaya.RunJSON"
 	cmd := exec.CommandContext(ctx, r.Bin, cmdArgs...)
-	cmd.Env = mergeEnv(os.Environ(), r.ExtraEnv)
+	extraEnv := append([]string{"NO_COLOR=1"}, r.ExtraEnv...)
+	cmd.Env = mergeEnv(os.Environ(), extraEnv)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutW, stopOut := startLineTap(&stdout, r.OnStreamLine)
+	stderrW, stopErr := startLineTap(&stderr, r.OnStreamLine)
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
 
 	err := cmd.Run()
+	stopOut()
+	stopErr()
 	exit := exitCodeFrom(err, cmd)
 	res := &Result{
 		Stdout: stdout.String(),
 		Stderr: stderr.String(),
 		Exit:   exit,
 	}
-	if len(bytes.TrimSpace(stdout.Bytes())) > 0 {
-		res.Raw = json.RawMessage(bytes.TrimSpace(stdout.Bytes()))
-		_ = json.Unmarshal(res.Raw, res)
+	if raw := bytes.TrimSpace(stdout.Bytes()); len(raw) > 0 {
+		res.Raw = json.RawMessage(raw)
+		var decoded Result
+		if uerr := json.Unmarshal(raw, &decoded); uerr == nil {
+			res.OK = decoded.OK
+			res.Data = decoded.Data
+			res.Error = decoded.Error
+		}
 	}
 
 	if exit == 2 {
-		span.SetStatus(codes.Error, "needs_review")
 		return res, sirerr.New(sirerr.CodeNeedsReview, op, "pimalaya CLI needs human review").
 			With("exit_code", fmt.Sprintf("%d", exit)).
-			With("stderr", truncate(stderr.String(), 400))
+			With("stderr", truncate(cliDetail(stderr.String(), stdout.String()), 400))
 	}
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "exec failed")
 		return res, sirerr.Wrap(err, sirerr.CodeFailed, op, "pimalaya CLI failed").
 			With("exit_code", fmt.Sprintf("%d", exit)).
-			With("stderr", truncate(stderr.String(), 400))
+			With("stderr", truncate(cliDetail(stderr.String(), stdout.String()), 400))
 	}
 	if len(res.Raw) > 0 {
 		var probe struct {
 			OK *bool `json:"ok"`
 		}
 		if json.Unmarshal(res.Raw, &probe) == nil && probe.OK != nil && !*probe.OK && exit == 0 {
-			span.SetStatus(codes.Error, "ok=false")
 			return res, sirerr.New(sirerr.CodeFailed, op, "pimalaya CLI reported ok=false").
 				With("exit_code", fmt.Sprintf("%d", exit))
 		}
 	}
-	span.SetStatus(codes.Ok, "")
 	return res, nil
+}
+
+const streamLineMax = 8 << 20
+
+func startLineTap(dst *bytes.Buffer, hook func([]byte)) (io.Writer, func()) {
+	if hook == nil {
+		return dst, func() {}
+	}
+	pr, pw := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sc := bufio.NewScanner(pr)
+		sc.Buffer(make([]byte, 0, 64*1024), streamLineMax)
+		for sc.Scan() {
+			hook(append([]byte(nil), sc.Bytes()...))
+		}
+	}()
+	return io.MultiWriter(dst, pw), func() {
+		_ = pw.Close()
+		<-done
+	}
 }
 
 func exitCodeFrom(err error, cmd *exec.Cmd) int {
@@ -192,6 +262,56 @@ func mergeEnv(base, extra []string) []string {
 	out := make([]string, 0, len(base)+len(extra))
 	out = append(out, base...)
 	out = append(out, extra...)
+	return out
+}
+
+var (
+	ansiCSI = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
+	ansiOSC = regexp.MustCompile(`\x1b\][^\x07\x1b]*(\x07|\x1b\\)`)
+)
+
+func stripANSI(s string) string {
+	s = ansiCSI.ReplaceAllString(s, "")
+	s = ansiOSC.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
+}
+
+func looksLikeJSON(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	switch s[0] {
+	case '{', '[':
+		return true
+	default:
+		return false
+	}
+}
+
+func cliDetail(stderr, stdout string) string {
+	out := stripANSI(stdout)
+	errS := stripANSI(stderr)
+	if looksLikeJSON(out) {
+		return out
+	}
+	if errS != "" {
+		lines := strings.Split(errS, "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			t := strings.TrimSpace(lines[i])
+			if t == "" {
+				continue
+			}
+			if looksLikeJSON(t) && strings.Contains(t, `"event"`) {
+				continue
+			}
+			return t
+		}
+		if looksLikeJSON(out) {
+			return out
+		}
+		return ""
+	}
 	return out
 }
 
