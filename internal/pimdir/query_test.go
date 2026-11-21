@@ -60,7 +60,7 @@ func TestSummariesByObjectHashPrefersInbox(t *testing.T) {
 	if s.Collection != "INBOX" || s.Seq != 1 {
 		t.Fatalf("want INBOX seq 1, got %+v", s)
 	}
-	got, err := r.FindByObjectHash("abcd1234efgh5678")
+	got, err := r.FindByObjectHash(ctx, "abcd1234efgh5678")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,7 +9,7 @@ import (
 )
 
 // ScoreAttention fills attention on classified messages and persists scores.
-func (r *Runner) ScoreAttention(ctx context.Context, art Artifact) (Artifact, error) {
+func (r *PostPasses) ScoreAttention(ctx context.Context, art Artifact) (Artifact, error) {
 	const op = "mailreport.Runner.ScoreAttention"
 	if r == nil {
 		return art, sirerr.New(sirerr.CodeInvalid, op, "nil runner")
@@ -35,90 +35,89 @@ func (r *Runner) ScoreAttention(ctx context.Context, art Artifact) (Artifact, er
 		if ctx.Err() != nil {
 			return art, ctx.Err()
 		}
-		row := &art.Messages[i]
-		if strings.TrimSpace(row.Error) != "" {
-			continue
+		if err := r.scoreAttentionRow(ctx, &art, &art.Messages[i], tm, promptHash, judgeModel, &stopUnavailable); err != nil {
+			return art, err
 		}
-		hash := strings.TrimSpace(row.ObjectHash)
-		if hash == "" {
-			continue
-		}
-		if row.Attention == nil {
-			got, getErr := r.store.Get(ctx, hash)
-			if getErr == nil && got.AttentionScored {
-				row.Attention = AttentionFromState(got.Urgency, got.NeedsReplyNoul, got.InvolvesDecisionNoul, tm)
-				continue
-			}
-		} else {
-			continue
-		}
-		in := AttentionIn{
-			Subject: row.Subject,
-			Sender:  row.Sender,
-			Kind:    row.Kind,
-			About:   row.About,
-			Shape:   row.Shape,
-		}
-		if attentionInputEmpty(in) {
-			continue
-		}
-		shapeScores, shapeErr := r.shapeAttentionScores(ctx, *row)
-		if shapeErr != nil {
-			return art, sirerr.Wrap(shapeErr, sirerr.CodeFailed, op, "shape attention")
-		}
-		if shapeScores != nil {
-			if err := r.persistAttentionHit(ctx, &art, row, hash, *shapeScores, tm, true); err != nil {
-				return art, err
-			}
-			continue
-		}
-		inputHash := AttentionInputHash(in)
-		if judgeModel != "" {
-			cached, cacheErr := r.store.GetAttentionInput(ctx, inputHash, judgeModel, promptHash)
-			if cacheErr != nil {
-				return art, sirerr.Wrap(cacheErr, sirerr.CodeFailed, op, "get attention input cache")
-			}
-			if cached != nil {
-				if err := r.persistAttentionHit(ctx, &art, row, hash, *cached, tm, false); err != nil {
-					return art, err
-				}
-				continue
-			}
-		}
-		if r.aiHops >= r.max {
-			art.AttentionOmitted++
-			continue
-		}
-		if stopUnavailable {
-			continue
-		}
-		r.aiHops++
-		att, scoreErr := r.attention.Score(ctx, in)
-		if scoreErr != nil {
-			row.AttentionError = formatRowError(scoreErr)
-			if isUnavailable(scoreErr) {
-				stopUnavailable = true
-			}
-			continue
-		}
-		row.Attention = &att
-		if err := r.store.PutAttention(ctx, hash, att.Urgency, att.NeedsReplyNoul, att.InvolvesDecisionNoul); err != nil {
-			return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention")
-		}
-		if judgeModel != "" {
-			if err := r.store.PutAttentionInput(ctx, inputHash, judgeModel, promptHash, att.Urgency, att.NeedsReplyNoul, att.InvolvesDecisionNoul); err != nil {
-				return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention input cache")
-			}
-		}
-		if err := r.storeShapeAttention(ctx, *row, att); err != nil {
-			return art, sirerr.Wrap(err, sirerr.CodeFailed, op, "put shape attention")
-		}
-		art.AttentionScored++
 	}
 	return art, nil
 }
 
-func (r *Runner) persistAttentionHit(ctx context.Context, art *Artifact, row *MessageRow, hash string, scores hoststore.AttentionInputScores, tm float64, fromShape bool) error {
+func (r *PostPasses) scoreAttentionRow(ctx context.Context, art *Artifact, row *MessageRow, tm float64, promptHash, judgeModel string, stopUnavailable *bool) error {
+	const op = "mailreport.Runner.ScoreAttention"
+	if strings.TrimSpace(row.Error) != "" {
+		return nil
+	}
+	hash := strings.TrimSpace(row.ObjectHash)
+	if hash == "" {
+		return nil
+	}
+	if row.Attention != nil {
+		return nil
+	}
+	got, getErr := r.store.Get(ctx, hash)
+	if getErr == nil && got.AttentionScored {
+		row.Attention = AttentionFromState(got.Urgency, got.NeedsReplyNoul, got.InvolvesDecisionNoul, tm)
+		return nil
+	}
+	in := AttentionIn{Subject: row.Subject, Sender: row.Sender, Kind: row.Kind, About: row.About, Shape: row.Shape}
+	if attentionInputEmpty(in) {
+		return nil
+	}
+	shapeScores, shapeErr := r.shapeAttentionScores(ctx, *row)
+	if shapeErr != nil {
+		return sirerr.Wrap(shapeErr, sirerr.CodeFailed, op, "shape attention")
+	}
+	if shapeScores != nil {
+		return r.persistAttentionHit(ctx, art, row, hash, *shapeScores, tm, true)
+	}
+	inputHash := AttentionInputHash(in)
+	if judgeModel != "" {
+		cached, cacheErr := r.store.GetAttentionInput(ctx, inputHash, judgeModel, promptHash)
+		if cacheErr != nil {
+			return sirerr.Wrap(cacheErr, sirerr.CodeFailed, op, "get attention input cache")
+		}
+		if cached != nil {
+			return r.persistAttentionHit(ctx, art, row, hash, *cached, tm, false)
+		}
+	}
+	return r.scoreAttentionLive(ctx, art, row, in, hash, inputHash, promptHash, judgeModel, stopUnavailable)
+}
+
+func (r *PostPasses) scoreAttentionLive(ctx context.Context, art *Artifact, row *MessageRow, in AttentionIn, hash, inputHash, promptHash, judgeModel string, stopUnavailable *bool) error {
+	const op = "mailreport.Runner.ScoreAttention"
+	if r.aiHops >= r.max {
+		art.AttentionOmitted++
+		return nil
+	}
+	if stopUnavailable != nil && *stopUnavailable {
+		return nil
+	}
+	r.aiHops++
+	att, scoreErr := r.attention.Score(ctx, in)
+	if scoreErr != nil {
+		row.AttentionError = formatRowError(scoreErr)
+		if isUnavailable(scoreErr) && stopUnavailable != nil {
+			*stopUnavailable = true
+		}
+		return nil
+	}
+	row.Attention = &att
+	if err := r.store.PutAttention(ctx, hash, att.Urgency, att.NeedsReplyNoul, att.InvolvesDecisionNoul); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention")
+	}
+	if judgeModel != "" {
+		if err := r.store.PutAttentionInput(ctx, inputHash, judgeModel, promptHash, att.Urgency, att.NeedsReplyNoul, att.InvolvesDecisionNoul); err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention input cache")
+		}
+	}
+	if err := r.storeShapeAttention(ctx, *row, att); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "put shape attention")
+	}
+	art.AttentionScored++
+	return nil
+}
+
+func (r *PostPasses) persistAttentionHit(ctx context.Context, art *Artifact, row *MessageRow, hash string, scores hoststore.AttentionInputScores, tm float64, fromShape bool) error {
 	const op = "mailreport.Runner.ScoreAttention"
 	if art == nil {
 		return sirerr.New(sirerr.CodeInvalid, op, "nil artifact")
@@ -134,7 +133,7 @@ func (r *Runner) persistAttentionHit(ctx context.Context, art *Artifact, row *Me
 	return nil
 }
 
-func (r *Runner) shapeAttentionScores(ctx context.Context, row MessageRow) (*hoststore.AttentionInputScores, error) {
+func (r *PostPasses) shapeAttentionScores(ctx context.Context, row MessageRow) (*hoststore.AttentionInputScores, error) {
 	if r == nil || r.store == nil {
 		return nil, nil
 	}
@@ -174,7 +173,7 @@ func (r *Runner) shapeAttentionScores(ctx context.Context, row MessageRow) (*hos
 	}, nil
 }
 
-func (r *Runner) storeShapeAttention(ctx context.Context, row MessageRow, att Attention) error {
+func (r *PostPasses) storeShapeAttention(ctx context.Context, row MessageRow, att Attention) error {
 	if r == nil || r.store == nil {
 		return nil
 	}

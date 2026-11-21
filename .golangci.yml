@@ -23,8 +23,7 @@ linters:
       min-occurrences: 3
       ignore-tests: true
     gocognit:
-      # Raised until complexity debt is paid (default C11 min-complexity is 20).
-      min-complexity: 80
+      min-complexity: 20
     godot:
       period: true
       capital: true
@@ -35,6 +34,7 @@ linters:
       - path: '(.+)_test\.go'
         linters:
           - gosec
+          - gocognit
       - path: internal/config/
         linters:
           - gosec

@@ -102,7 +102,10 @@ WHERE object_hash=? AND claim_token=? AND status='running'`,
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "complete update")
 	}
-	n, _ := res.RowsAffected()
+	n, nerr := res.RowsAffected()
+	if nerr != nil {
+		return sirerr.Wrap(nerr, sirerr.CodeFailed, op, "rows affected")
+	}
 	if n == 0 {
 		return sirerr.New(sirerr.CodeInvalid, op, "stale or missing claim token").With("object_hash", hash)
 	}
@@ -134,7 +137,10 @@ WHERE object_hash=? AND claim_token=? AND status='running'`,
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "fail update")
 	}
-	n, _ := res.RowsAffected()
+	n, nerr := res.RowsAffected()
+	if nerr != nil {
+		return sirerr.Wrap(nerr, sirerr.CodeFailed, op, "rows affected")
+	}
 	if n == 0 {
 		return sirerr.New(sirerr.CodeInvalid, op, "stale or missing claim token").With("object_hash", hash)
 	}
@@ -162,7 +168,10 @@ WHERE object_hash=? AND status='complete'`,
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "put attention")
 	}
-	n, _ := res.RowsAffected()
+	n, nerr := res.RowsAffected()
+	if nerr != nil {
+		return sirerr.Wrap(nerr, sirerr.CodeFailed, op, "rows affected")
+	}
 	if n == 0 {
 		return sirerr.New(sirerr.CodeInvalid, op, "row not complete or missing").With("object_hash", hash)
 	}
@@ -236,7 +245,10 @@ WHERE object_hash=? AND status='complete'`,
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "rewrite shape")
 	}
-	n, _ := res.RowsAffected()
+	n, nerr := res.RowsAffected()
+	if nerr != nil {
+		return sirerr.Wrap(nerr, sirerr.CodeFailed, op, "rows affected")
+	}
 	if n == 0 {
 		return sirerr.New(sirerr.CodeInvalid, op, "row not complete or missing").With("object_hash", hash)
 	}

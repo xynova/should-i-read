@@ -190,93 +190,99 @@ func (c *SyncController) run(runID string) {
 		endOverviewSpan(span, runErr)
 	}()
 
-	if c.events != nil {
-		subCtx, stopSub := context.WithCancel(ctx)
-		defer stopSub()
-		ch := c.events.Subscribe(subCtx)
-		go func() {
-			for ev := range ch {
-				text := strings.TrimSpace(ev.Line)
-				if text == "" {
-					continue
-				}
-				c.mu.Lock()
-				if c.snap.RunID == runID && c.snap.Status == SyncStatusRunning {
-					c.snap.Line = capSyncLine(text)
-				}
-				c.mu.Unlock()
-			}
-		}()
-	}
+	stopSub := c.startSyncEventSubscriber(ctx, runID)
+	defer stopSub()
 
 	res, runErr := c.runner.Sync(ctx, c.account, c.excludes)
-	if res != nil && len(res.Raw) > 0 {
-		rep := pimalaya.SummarizeNeverestJSON(res.Raw)
-		if rep.Recognized {
-			fetch = rep.Fetch
-			del = rep.Delete
-		}
-	}
+	fetch, del = syncResultCounts(res)
 	line = syncStatusLine(res, runErr)
 	if runErr != nil {
 		finalStatus = SyncStatusFailed
-		c.mu.Lock()
-		c.snap = SyncSnapshot{
-			Status:  SyncStatusFailed,
-			RunID:   runID,
-			Account: c.account,
-			Error:   syncSnapshotError(line, runErr),
-			Fetch:   fetch,
-			Delete:  del,
-			Line:    line,
-		}
-		c.mu.Unlock()
+		c.storeSyncSnapshot(runID, SyncStatusFailed, line, runErr, fetch, del)
 		return
 	}
 	c.setRunningLine(runID, line)
-	if c.afterSync != nil {
-		if c.events != nil {
-			c.events.Publish(ctx, hostevent.Event{
-				Source: hostevent.SourceSync,
-				Kind:   "reporting",
-				Line:   "Reporting…",
-			})
-		}
-		afterCtx, afterSpan := startAfterSyncSpan(ctx, runID)
-		afterLine, afterErr := c.afterSync(afterCtx, res)
-		endOverviewSpan(afterSpan, afterErr)
-		if afterErr != nil {
-			runErr = afterErr
-		}
-		if strings.TrimSpace(afterLine) != "" {
-			line = capSyncLine(afterLine)
-		}
-		if afterErr != nil {
-			finalStatus = SyncStatusFailed
+	line, afterErr := c.runAfterSyncHook(ctx, runID, res, line)
+	if afterErr != nil {
+		runErr = afterErr
+		finalStatus = SyncStatusFailed
+		c.storeSyncSnapshot(runID, SyncStatusFailed, line, afterErr, fetch, del)
+		return
+	}
+	c.storeSyncSnapshot(runID, SyncStatusDone, line, nil, fetch, del)
+}
+
+func (c *SyncController) startSyncEventSubscriber(ctx context.Context, runID string) func() {
+	if c == nil || c.events == nil {
+		return func() {}
+	}
+	subCtx, stopSub := context.WithCancel(ctx)
+	ch := c.events.Subscribe(subCtx)
+	go func() {
+		for ev := range ch {
+			text := strings.TrimSpace(ev.Line)
+			if text == "" {
+				continue
+			}
 			c.mu.Lock()
-			c.snap = SyncSnapshot{
-				Status:  SyncStatusFailed,
-				RunID:   runID,
-				Account: c.account,
-				Error:   syncSnapshotError(line, afterErr),
-				Fetch:   fetch,
-				Delete:  del,
-				Line:    line,
+			if c.snap.RunID == runID && c.snap.Status == SyncStatusRunning {
+				c.snap.Line = capSyncLine(text)
 			}
 			c.mu.Unlock()
-			return
 		}
+	}()
+	return stopSub
+}
+
+func syncResultCounts(res *pimalaya.Result) (fetch, del int) {
+	if res == nil || len(res.Raw) == 0 {
+		return 0, 0
 	}
-	c.mu.Lock()
-	c.snap = SyncSnapshot{
-		Status:  SyncStatusDone,
+	rep := pimalaya.SummarizeNeverestJSON(res.Raw)
+	if !rep.Recognized {
+		return 0, 0
+	}
+	return rep.Fetch, rep.Delete
+}
+
+func (c *SyncController) storeSyncSnapshot(runID, status, line string, err error, fetch, del int) {
+	if c == nil {
+		return
+	}
+	snap := SyncSnapshot{
+		Status:  status,
 		RunID:   runID,
 		Account: c.account,
 		Fetch:   fetch,
 		Delete:  del,
 		Line:    line,
 	}
+	if err != nil {
+		snap.Error = syncSnapshotError(line, err)
+	}
+	c.mu.Lock()
+	c.snap = snap
 	c.mu.Unlock()
+}
+
+func (c *SyncController) runAfterSyncHook(ctx context.Context, runID string, res *pimalaya.Result, line string) (string, error) {
+	if c == nil || c.afterSync == nil {
+		return line, nil
+	}
+	if c.events != nil {
+		c.events.Publish(ctx, hostevent.Event{
+			Source: hostevent.SourceSync,
+			Kind:   "reporting",
+			Line:   "Reporting…",
+		})
+	}
+	afterCtx, afterSpan := startAfterSyncSpan(ctx, runID)
+	afterLine, afterErr := c.afterSync(afterCtx, res)
+	endOverviewSpan(afterSpan, afterErr)
+	if strings.TrimSpace(afterLine) != "" {
+		line = capSyncLine(afterLine)
+	}
+	return line, afterErr
 }
 
 func (c *SyncController) setRunningLine(runID, line string) {
@@ -339,49 +345,81 @@ func capSyncLine(s string) string {
 }
 
 func syncStatusLine(res *pimalaya.Result, err error) string {
-	var rep pimalaya.EngineReport
-	if res != nil && len(res.Raw) > 0 {
-		rep = pimalaya.SummarizeNeverestJSON(res.Raw)
-	}
+	rep := syncEngineReport(res)
 	if err == nil {
-		if rep.Recognized {
-			return FormatSyncLine(rep.Fetch, rep.Delete)
-		}
-		return capSyncLine("Synced.")
+		return syncStatusLineSuccess(rep)
 	}
-	code, hasCode := sirerr.AsCode(err)
-	if hasCode && code == sirerr.CodeNeedsReview {
-		if rep.Recognized && rep.Conflicts > 0 {
-			return capSyncLine(fmt.Sprintf("Sync needs review: %d conflict(s)", rep.Conflicts))
-		}
-		return capSyncLine("Sync needs review")
+	if line, ok := syncStatusLineNeedsReview(err, rep); ok {
+		return line
 	}
 	if rep.Recognized {
-		if rep.HunkErrors > 0 {
-			return capSyncLine(fmt.Sprintf("Sync failed: %d folder error(s)", rep.HunkErrors))
-		}
-		line := "Sync failed"
-		if rep.Fetch != 0 || rep.Delete != 0 {
-			line += fmt.Sprintf(" Fetch %d · delete %d", rep.Fetch, rep.Delete)
-		}
-		return capSyncLine(line)
+		return syncStatusLineFromReport(rep)
 	}
+	if line, ok := syncStatusLineFromJSON(res); ok {
+		return line
+	}
+	return syncStatusLineFallback(err)
+}
+
+func syncEngineReport(res *pimalaya.Result) pimalaya.EngineReport {
 	if res != nil && len(res.Raw) > 0 {
-		var probe struct {
-			Error struct {
-				Code string `json:"code"`
-			} `json:"error"`
-		}
-		if json.Unmarshal(res.Raw, &probe) == nil {
-			c := strings.TrimSpace(probe.Error.Code)
-			if c != "" {
-				if c == "conflict" || c == string(sirerr.CodeNeedsReview) {
-					return capSyncLine("Sync needs review")
-				}
-				return capSyncLine("Sync failed: " + c)
-			}
-		}
+		return pimalaya.SummarizeNeverestJSON(res.Raw)
 	}
+	return pimalaya.EngineReport{}
+}
+
+func syncStatusLineSuccess(rep pimalaya.EngineReport) string {
+	if rep.Recognized {
+		return FormatSyncLine(rep.Fetch, rep.Delete)
+	}
+	return capSyncLine("Synced.")
+}
+
+func syncStatusLineNeedsReview(err error, rep pimalaya.EngineReport) (string, bool) {
+	code, hasCode := sirerr.AsCode(err)
+	if !hasCode || code != sirerr.CodeNeedsReview {
+		return "", false
+	}
+	if rep.Recognized && rep.Conflicts > 0 {
+		return capSyncLine(fmt.Sprintf("Sync needs review: %d conflict(s)", rep.Conflicts)), true
+	}
+	return capSyncLine("Sync needs review"), true
+}
+
+func syncStatusLineFromReport(rep pimalaya.EngineReport) string {
+	if rep.HunkErrors > 0 {
+		return capSyncLine(fmt.Sprintf("Sync failed: %d folder error(s)", rep.HunkErrors))
+	}
+	line := "Sync failed"
+	if rep.Fetch != 0 || rep.Delete != 0 {
+		line += fmt.Sprintf(" Fetch %d · delete %d", rep.Fetch, rep.Delete)
+	}
+	return capSyncLine(line)
+}
+
+func syncStatusLineFromJSON(res *pimalaya.Result) (string, bool) {
+	if res == nil || len(res.Raw) == 0 {
+		return "", false
+	}
+	var probe struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(res.Raw, &probe) != nil {
+		return "", false
+	}
+	c := strings.TrimSpace(probe.Error.Code)
+	if c == "" {
+		return "", false
+	}
+	if c == "conflict" || c == string(sirerr.CodeNeedsReview) {
+		return capSyncLine("Sync needs review"), true
+	}
+	return capSyncLine("Sync failed: " + c), true
+}
+
+func syncStatusLineFallback(err error) string {
 	fallback := syncCleanRunErr(err)
 	if fallback == "" {
 		return capSyncLine("Sync failed")

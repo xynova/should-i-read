@@ -2,19 +2,20 @@ package mailoverview
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
-func (s *IntentPageServer) dropAckCartHashes(ctx context.Context, hashes []string) (int, error) {
+func (s *AckServer) dropAckCartHashes(ctx context.Context, hashes []string) (int, error) {
+	const op = "mailoverview.dropAckCartHashes"
 	if s == nil || s.AckCart == nil || len(hashes) == 0 {
 		return 0, nil
 	}
 	acked, err := s.AckCart.ListAckCart(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("list ack cart: %w", err)
+		return 0, sirerr.Wrap(err, sirerr.CodeFailed, op, "list ack cart")
 	}
 	have := map[string]struct{}{}
 	for _, item := range acked {
@@ -36,7 +37,7 @@ func (s *IntentPageServer) dropAckCartHashes(ctx context.Context, hashes []strin
 			continue
 		}
 		if err := s.AckCart.RemoveAckCart(ctx, h); err != nil {
-			return dropped, fmt.Errorf("drop ack cart %s: %w", h, err)
+			return dropped, sirerr.Wrap(err, sirerr.CodeFailed, op, "drop ack cart").With("object_hash", h)
 		}
 		dropped++
 		delete(have, h)
@@ -44,7 +45,8 @@ func (s *IntentPageServer) dropAckCartHashes(ctx context.Context, hashes []strin
 	return dropped, nil
 }
 
-func (s *IntentPageServer) dropDeleteCartHashes(ctx context.Context, hashes []string) error {
+func (s *CartServer) dropDeleteCartHashes(ctx context.Context, hashes []string) error {
+	const op = "mailoverview.dropDeleteCartHashes"
 	if s == nil || s.Cart == nil {
 		return nil
 	}
@@ -54,7 +56,7 @@ func (s *IntentPageServer) dropDeleteCartHashes(ctx context.Context, hashes []st
 			continue
 		}
 		if err := s.Cart.RemoveDeleteCart(ctx, h); err != nil {
-			return fmt.Errorf("drop delete cart %s: %w", h, err)
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "drop delete cart").With("object_hash", h)
 		}
 	}
 	return nil

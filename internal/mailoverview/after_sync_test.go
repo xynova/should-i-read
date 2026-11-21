@@ -70,3 +70,27 @@ func TestAfterSyncClassifyError(t *testing.T) {
 		t.Fatal("expected classify error")
 	}
 }
+
+func TestAfterSyncRebuildError(t *testing.T) {
+	t.Parallel()
+	after, err := CreateAfterSync(AfterSyncConfig{
+		Classify: func(context.Context, *pimalaya.Result) (int, bool, error) {
+			return 2, false, nil
+		},
+		Rebuild: func(context.Context) ([]byte, []string, error) {
+			return nil, nil, errors.New("write html")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	line, err := after.Run(ctx, &pimalaya.Result{Raw: []byte(`{"account":"gmail"}`)})
+	if err == nil {
+		t.Fatal("expected rebuild error")
+	}
+	if line == "" {
+		t.Fatal("expected classify counts in the sync line")
+	}
+}

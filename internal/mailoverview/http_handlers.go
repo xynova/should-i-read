@@ -2,7 +2,7 @@ package mailoverview
 
 import "net/http"
 
-// Handler types split overview HTTP verbs off IntentPageServer.
+// Handler types mount page, intent, cart, and ack verbs that IntentPageServer composes.
 
 type pageHTTP struct{ *IntentPageServer }
 

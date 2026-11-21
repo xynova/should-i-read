@@ -9,6 +9,7 @@ import (
 	"github.com/behaviorengineering/taxonomy/pkg/harness"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 const (
@@ -57,7 +58,7 @@ func (r *Runner) currentEssenceFingerprint() hoststore.EssenceFingerprint {
 	}
 }
 
-func (r *Runner) shapeFingerprintForItem(item Item) (domain, template, fingerprint string, ok bool) {
+func (r *PostPasses) shapeFingerprintForItem(item Item) (domain, template, fingerprint string, ok bool) {
 	if r == nil || r.subjectTemplater == nil {
 		return "", "", "", false
 	}
@@ -73,7 +74,7 @@ func (r *Runner) shapeFingerprintForItem(item Item) (domain, template, fingerpri
 	return domain, template, fp, fp != ""
 }
 
-func (r *Runner) lastSlotAllowed(lastSlot string) bool {
+func (r *PostPasses) lastSlotAllowed(lastSlot string) bool {
 	slot := strings.TrimSpace(lastSlot)
 	if slot == "" {
 		return false
@@ -96,14 +97,14 @@ func (r *Runner) shapeRowEligible(row hoststore.MailShapeRow) bool {
 	return r.lastSlotAllowed(row.LastSlot)
 }
 
-func (r *Runner) shapeRowEligibleForAttention(row hoststore.MailShapeRow) bool {
+func (r *PostPasses) shapeRowEligibleForAttention(row hoststore.MailShapeRow) bool {
 	if row.Status != hoststore.ShapeStatusActive {
 		return false
 	}
 	return r.lastSlotAllowed(row.LastSlot)
 }
 
-func (r *Runner) planShapeSkips(ctx context.Context, pending []Item) (essenceItems []Item, skipByHash map[string]shapeConfirmDecision) {
+func (r *Runner) planShapeSkips(ctx context.Context, pending []Item) (essenceItems []Item, skipByHash map[string]shapeConfirmDecision, err error) {
 	skipByHash = map[string]shapeConfirmDecision{}
 	type candidate struct {
 		item  Item
@@ -131,12 +132,11 @@ func (r *Runner) planShapeSkips(ctx context.Context, pending []Item) (essenceIte
 			continue
 		}
 		if storeErr := r.store.RejectShape(ctx, c.fp); storeErr != nil {
-			// logged via art later if needed
-			_ = storeErr
+			return nil, nil, sirerr.Wrap(storeErr, sirerr.CodeFailed, "mailreport.Runner.planShapeSkips", "reject shape")
 		}
 		essenceItems = append(essenceItems, c.item)
 	}
-	return essenceItems, skipByHash
+	return essenceItems, skipByHash, nil
 }
 
 func (r *Runner) jevShapeConfirm(ctx context.Context, item Item, shape hoststore.MailShapeRow, fp string) (shapeConfirmDecision, bool) {
@@ -233,7 +233,7 @@ func (r *Runner) persistShapeConfirm(ctx context.Context, hash, token string, it
 		return err
 	}
 	if err := r.store.ConfirmShape(storeCtx, dec.fingerprint); err != nil {
-		art.ShapeStoreError = err.Error()
+		return err
 	}
 	art.Messages = append(art.Messages, row)
 	art.Classified++

@@ -121,9 +121,18 @@ func buildOverviewPage(parent context.Context, repoRoot string, cfg config.Confi
 	}
 	defer func() { _ = st.Close() }()
 
-	rows, err := st.ListCompleteOverviewRows(ctx)
+	mailDir := f.store
+	if mailDir == "" {
+		mailDir = cfg.Pimalaya.PimdirPath
+	}
+	mailReader, err := pimdir.OpenStore(mailDir)
 	if err != nil {
-		return overviewPage{}, wrapCLIHop(err, op, "list complete rows")
+		return overviewPage{}, wrapCLIHop(err, op, "open pimdir")
+	}
+
+	rows, summaries, err := mailoverview.Collect(ctx, st, mailReader)
+	if err != nil {
+		return overviewPage{}, wrapCLIHop(err, op, "collect overview rows")
 	}
 	shapes, err := st.ListMailShapes(ctx)
 	if err != nil {
@@ -134,20 +143,7 @@ func buildOverviewPage(parent context.Context, repoRoot string, cfg config.Confi
 		return overviewPage{}, wrapCLIHop(err, op, "list error rows")
 	}
 
-	mailDir := f.store
-	if mailDir == "" {
-		mailDir = cfg.Pimalaya.PimdirPath
-	}
-	mailReader, err := pimdir.OpenStore(mailDir)
-	if err != nil {
-		return overviewPage{}, wrapCLIHop(err, op, "open pimdir")
-	}
-
 	hashes := hashList(rows)
-	summaries, err := mailReader.SummariesByObjectHash(ctx, hashes)
-	if err != nil {
-		return overviewPage{}, wrapCLIHop(err, op, "load mail summaries")
-	}
 	jobItems, err := st.LatestDeleteJobItems(ctx, hashes)
 	if err != nil {
 		return overviewPage{}, wrapCLIHop(err, op, "load deletion job items")

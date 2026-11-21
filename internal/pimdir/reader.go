@@ -3,7 +3,6 @@ package pimdir
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,27 +56,14 @@ func (r *Reader) ListRecentEmails(ctx context.Context, limit int) ([]EmailSummar
 // (config imap/INBOX also matches pimdir gmail/imap/INBOX).
 func (r *Reader) ListRecentEmailsIn(ctx context.Context, collections []string, limit int) ([]EmailSummary, error) {
 	const op = "pimdir.ListRecentEmailsIn"
-	if r == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
-	}
-	if ctx == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing context deadline")
-	}
 	if limit <= 0 {
 		limit = 25
 	}
-	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
-	db, err := sql.Open("sqlite", dsn)
+	db, err := r.openRo(ctx, op)
 	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
-	}
 
 	collections = normalizeCollections(collections)
 	q := summarySelect
@@ -114,27 +100,14 @@ LIMIT ?`
 // Collection filters use the same folder suffix match as ListRecentEmailsIn.
 func (r *Reader) ListEmailsIn(ctx context.Context, collections []string, window DateWindow, limit int) ([]EmailSummary, error) {
 	const op = "pimdir.ListEmailsIn"
-	if r == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
-	}
-	if ctx == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing context deadline")
-	}
 	if window.Zero() || window.From.IsZero() || window.To.IsZero() {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "empty date window")
 	}
-	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
-	db, err := sql.Open("sqlite", dsn)
+	db, err := r.openRo(ctx, op)
 	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
-	}
 	collections = normalizeCollections(collections)
 	q := summarySelect + `
  AND TRIM(i.sort_key) != ''

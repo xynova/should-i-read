@@ -53,18 +53,31 @@ func CollectStatus(ctx context.Context, cfg config.Config) (Status, error) {
 	st.PimdirPath = strings.TrimSpace(cfg.Pimalaya.PimdirPath)
 	st.HimalayaConfig = strings.TrimSpace(cfg.Pimalaya.HimalayaConfig)
 	st.Account = strings.TrimSpace(cfg.Pimalaya.DefaultAccount)
+	st.fillDep(cfg)
+	st.fillConfig()
+	st.fillToken()
+	st.fillStore()
+	st.fillHimalaya()
+	st.Ready = st.DepOK && st.ConfigOK && st.TokenOK && st.StoreOK
+	if !st.Ready {
+		st.NextSteps = productNextSteps(st)
+	}
+	return st, nil
+}
 
+func (st *Status) fillDep(cfg config.Config) {
 	if _, err := pimalaya.ResolveBin(cfg.Pimalaya.NeverestBin, "neverest"); err == nil {
 		st.DepOK = true
-	} else {
-		st.Messages = append(st.Messages, "Mail sync dependency is not installed; run should-i-read configure.")
+		return
 	}
+	st.Messages = append(st.Messages, "Mail sync dependency is not installed; run should-i-read configure.")
+}
 
+func (st *Status) fillConfig() {
 	mailSyncPath, err := config.DefaultMailSyncConfigPath()
 	if err == nil && st.MailSyncConfig == "" {
 		st.MailSyncConfig = mailSyncPath
 	}
-
 	configOK := st.MailSyncConfig != "" && st.PimdirPath != ""
 	if configOK {
 		if _, err := os.Stat(st.MailSyncConfig); err != nil {
@@ -74,62 +87,67 @@ func CollectStatus(ctx context.Context, cfg config.Config) (Status, error) {
 	st.ConfigOK = configOK
 	if !st.ConfigOK {
 		st.Messages = append(st.Messages, "Mailbox is not configured; run should-i-read configure.")
-	} else if raw, err := os.ReadFile(st.MailSyncConfig); err == nil {
-		body := string(raw)
-		st.Email = parseEmailFromMailSyncTOML(body)
-		if acct := parseAccountFromMailSyncTOML(body); acct != "" && st.Account == "" {
-			st.Account = acct
-		}
-		if prov := InferProviderFromMailSyncTOML(body); prov != "" {
-			st.Provider = string(prov)
-		}
+		return
 	}
+	raw, err := os.ReadFile(st.MailSyncConfig)
+	if err != nil {
+		return
+	}
+	body := string(raw)
+	st.Email = parseEmailFromMailSyncTOML(body)
+	if acct := parseAccountFromMailSyncTOML(body); acct != "" && st.Account == "" {
+		st.Account = acct
+	}
+	if prov := InferProviderFromMailSyncTOML(body); prov != "" {
+		st.Provider = string(prov)
+	}
+}
 
+func (st *Status) fillToken() {
 	provider := Provider(st.Provider)
 	if provider == "" {
 		provider = inferProvider(st.Account)
 		st.Provider = string(provider)
 	}
-
 	if provider != "" && oauthTokenReady(provider, st.Account) {
 		st.TokenOK = true
-	} else if st.ConfigOK {
+		return
+	}
+	if st.ConfigOK {
 		st.Messages = append(st.Messages, "Mailbox login is not complete; run should-i-read configure and fix the mailbox login step.")
 	}
+}
 
-	if st.PimdirPath != "" {
-		dbPath := filepath.Join(st.PimdirPath, "pimdir.db")
-		if _, err := os.Stat(dbPath); err == nil {
-			st.StoreOK = true
-		} else if st.ConfigOK && st.TokenOK {
-			st.Messages = append(st.Messages, "Local mail store is not initialized; run should-i-read configure.")
-		}
+func (st *Status) fillStore() {
+	if st.PimdirPath == "" {
+		return
 	}
+	dbPath := filepath.Join(st.PimdirPath, "pimdir.db")
+	if _, err := os.Stat(dbPath); err == nil {
+		st.StoreOK = true
+		return
+	}
+	if st.ConfigOK && st.TokenOK {
+		st.Messages = append(st.Messages, "Local mail store is not initialized; run should-i-read configure.")
+	}
+}
 
+func (st *Status) fillHimalaya() {
 	himalayaPath := st.HimalayaConfig
 	if himalayaPath == "" {
-		if p, perr := config.DefaultHimalayaConfigPath(); perr == nil {
-			himalayaPath = p
-			if st.HimalayaConfig == "" {
-				st.HimalayaConfig = p
-			}
+		p, perr := config.DefaultHimalayaConfigPath()
+		if perr != nil {
+			st.Messages = append(st.Messages, "Himalaya pimdir config path is unset; run should-i-read configure.")
+			return
 		}
+		himalayaPath = p
+		st.HimalayaConfig = p
 	}
-	if himalayaPath != "" {
-		if fi, err := os.Stat(himalayaPath); err == nil && !fi.IsDir() {
-			st.HimalayaConfigOK = true
-		} else {
-			st.Messages = append(st.Messages, "Himalaya pimdir config is missing; run should-i-read configure --step mailbox_profile.")
-		}
-	} else {
-		st.Messages = append(st.Messages, "Himalaya pimdir config path is unset; run should-i-read configure.")
+	if fi, err := os.Stat(himalayaPath); err == nil && !fi.IsDir() {
+		st.HimalayaConfigOK = true
+		return
 	}
-
-	st.Ready = st.DepOK && st.ConfigOK && st.TokenOK && st.StoreOK
-	if !st.Ready {
-		st.NextSteps = productNextSteps(st)
-	}
-	return st, nil
+	st.Messages = append(st.Messages, "Himalaya pimdir config is missing; run should-i-read configure --step mailbox_profile.")
 }
 
 func inferProvider(account string) Provider {

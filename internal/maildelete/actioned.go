@@ -174,54 +174,64 @@ func LookupActioned(ctx context.Context, pim PimdirSummaries, jobs map[string]ho
 		if h == "" {
 			continue
 		}
-		job := jobs[h]
 		sum, found := summaries[h]
-		if pim != nil && !found {
-			outcome := ClassifyActioned(job.Status, "")
-			if outcome == "" {
-				outcome = OutcomeAlreadyInTrash
-			}
-			sender := strings.TrimSpace(job.Sender)
-			if sender == "" {
-				sender = "(unknown sender)"
-			}
-			out[h] = ActionedInfo{
-				ObjectHash: h,
-				Outcome:    outcome,
-				Sender:     sender,
-				Subject:    strings.TrimSpace(job.Subject),
-			}
+		info, ok := classifyActionedHash(h, jobs[h], sum, found, pim != nil)
+		if !ok {
 			continue
 		}
-		col := strings.TrimSpace(sum.Collection)
-		if col == "" {
-			col = job.Folder
-		}
-		if col == "" {
-			col = job.Collection
-		}
-		outcome := ClassifyActioned(job.Status, col)
+		out[h] = info
+	}
+	return out, nil
+}
+
+func classifyActionedHash(h string, job hoststore.DeleteJobItem, sum pimdir.EmailSummary, inReplica, pimEnabled bool) (ActionedInfo, bool) {
+	if pimEnabled && !inReplica {
+		outcome := ClassifyActioned(job.Status, "")
 		if outcome == "" {
-			continue
+			outcome = OutcomeAlreadyInTrash
 		}
-		sender := strings.TrimSpace(sum.Sender)
+		sender := strings.TrimSpace(job.Sender)
 		if sender == "" {
-			sender = strings.TrimSpace(job.Sender)
+			sender = "(unknown sender)"
 		}
-		subject := strings.TrimSpace(sum.Subject)
-		if subject == "" {
-			subject = strings.TrimSpace(job.Subject)
-		}
-		out[h] = ActionedInfo{
+		return ActionedInfo{
 			ObjectHash: h,
 			Outcome:    outcome,
 			Sender:     sender,
-			Subject:    subject,
-			Date:       strings.TrimSpace(sum.Date),
-			Folder:     col,
-		}
+			Subject:    strings.TrimSpace(job.Subject),
+		}, true
 	}
-	return out, nil
+	col := actionedCollection(sum, job)
+	outcome := ClassifyActioned(job.Status, col)
+	if outcome == "" {
+		return ActionedInfo{}, false
+	}
+	return ActionedInfo{
+		ObjectHash: h,
+		Outcome:    outcome,
+		Sender:     coalesceTrim(sum.Sender, job.Sender),
+		Subject:    coalesceTrim(sum.Subject, job.Subject),
+		Date:       strings.TrimSpace(sum.Date),
+		Folder:     col,
+	}, true
+}
+
+func actionedCollection(sum pimdir.EmailSummary, job hoststore.DeleteJobItem) string {
+	col := strings.TrimSpace(sum.Collection)
+	if col == "" {
+		col = job.Folder
+	}
+	if col == "" {
+		col = job.Collection
+	}
+	return col
+}
+
+func coalesceTrim(primary, fallback string) string {
+	if s := strings.TrimSpace(primary); s != "" {
+		return s
+	}
+	return strings.TrimSpace(fallback)
 }
 
 // LookupActioned classifies hashes using the job store and pimdir replica.

@@ -72,7 +72,7 @@ func (a *AfterSync) Run(ctx context.Context, res *pimalaya.Result) (line string,
 	line = FormatSyncReportLine(fetch, del, newly, false)
 	html, hashes, berr := a.rebuild(ctx)
 	if berr != nil {
-		return line, nil
+		return line, sirerr.Wrap(berr, sirerr.CodeFailed, op, "rebuild overview page")
 	}
 	if a.page != nil {
 		a.page.ReplacePage(html, hashes)

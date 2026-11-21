@@ -6,9 +6,16 @@ import (
 )
 
 func TestBarChart_titleAxis(t *testing.T) {
-	s := BarChart(200, 120, "T", "count", "cap", []string{"a"}, []int{3}, "currentColor")
+	s := barChart(200, 120, "T", "count", "cap", []string{"a"}, []int{3}, "currentColor")
 	if !strings.Contains(s, "<title>T</title>") || !strings.Contains(s, "count") {
 		t.Fatalf("missing title/axis: %s", s)
+	}
+}
+
+func TestStackedBar_title(t *testing.T) {
+	s := stackedBar(200, 90, "T", "a", "b", 2, 1, "#111", "#eee")
+	if !strings.Contains(s, "<title>T</title>") {
+		t.Fatalf("missing title: %s", s)
 	}
 }
 

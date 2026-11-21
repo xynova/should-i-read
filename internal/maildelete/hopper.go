@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/xynova/should-i-read/internal/mailjob"
+	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
@@ -14,7 +15,7 @@ type trashHopper struct {
 func (h trashHopper) Hop(ctx context.Context, folder, envelopeID string) error {
 	const op = "maildelete.trashHopper.Hop"
 	if h.deleter == nil {
-		return sirerr.New(sirerr.CodeUnavailable, op, himalayaMissingHint)
+		return sirerr.New(sirerr.CodeUnavailable, op, pimalaya.HimalayaMissingHint)
 	}
 	res, err := h.deleter.MessageDelete(ctx, folder, envelopeID)
 	if err != nil {

@@ -30,31 +30,8 @@ type rootOptions struct {
 	humanErr   bool
 }
 
-// skipTelemetryForCmd skips olly for commands that must stay fast and must not
-// fail when no OTLP collector is reachable (shutdown flush uses a 5s cap).
-// LLM paths (mail report, mail sync classify) keep process tracing.
-// Mail overview serve keeps tracing so cart apply spans export while developing.
-func skipTelemetryForCmd(cmd *cobra.Command) bool {
-	if cmd == nil {
-		return false
-	}
-	leaf := cmd.Name()
-	for c := cmd; c != nil; c = c.Parent() {
-		switch c.Name() {
-		case VerbConfigure:
-			if isTerminal(os.Stdin) {
-				return true
-			}
-		case "pim", "polypus":
-			return true
-		case "mail":
-			switch leaf {
-			case VerbStatus, "readiness", "overview":
-				return true
-			}
-			return false
-		}
-	}
+// skipTelemetryForCmd is kept for tests. Olly starts for every command.
+func skipTelemetryForCmd(_ *cobra.Command) bool {
 	return false
 }
 
@@ -78,8 +55,8 @@ func Execute(ctx context.Context, repoRoot string) int {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = cmd.Help()
-			return sirerr.New(sirerr.CodeInvalid, "cli.root", "command required")
+			agentOperatingGuide(cmd.OutOrStdout())
+			return nil
 		},
 	}
 	root.PersistentFlags().StringVar(&opts.configPath, "config", "", "Config file (default: SHOULD_I_READ_CONFIG or ~/.config/should-i-read/config.yaml)")
@@ -347,6 +324,64 @@ func newSecretCmd() *cobra.Command {
 	return cmd
 }
 
+func enrichPolypusHealthForClassify(ctx context.Context, client *polypus.Client, cfg config.Config, result *polypus.HealthResult) error {
+	resolveCtx, cancel := context.WithTimeout(ctx, classifyModelResolveTimeout)
+	defer cancel()
+	judge, src, err := mailreport.ResolveJudgeModel(resolveCtx, client, result.ModelIDs, cfg.PolypusJudgeModel)
+	if err != nil {
+		return err
+	}
+	author, authorSrc, err := mailreport.ResolveAuthorModel(resolveCtx, client, result.ModelIDs, cfg.PolypusClassifyModel)
+	if err != nil {
+		return err
+	}
+	result.ClassifyReady = true
+	result.JudgeModel = judge
+	result.JudgeSource = string(src)
+	result.AuthorModel = author
+	result.AuthorSource = string(authorSrc)
+	aliasID := strings.TrimSpace(cfg.PolypusAliasJudgeModel)
+	if aliasID == "" {
+		return nil
+	}
+	if probeErr := client.ProbeSystemOne(resolveCtx, aliasID); probeErr != nil {
+		code := sirerr.CodeUnavailable
+		if c, ok := sirerr.AsCode(probeErr); ok {
+			code = c
+		}
+		return sirerr.Wrap(probeErr, code, "polypus check", "configured alias judge model failed systemone probe").
+			With("model", aliasID)
+	}
+	result.AliasJudgeModel = aliasID
+	return nil
+}
+
+func runPolypusCheck(cmd *cobra.Command, opts *rootOptions, repoRoot string, classifyCheck bool) error {
+	cfg, err := opts.mustLoad(repoRoot)
+	if err != nil {
+		return err
+	}
+	client, err := polypus.Create(cfg.PolypusBaseURL, nil)
+	if err != nil {
+		return err
+	}
+	checkCtx, checkCancel := context.WithTimeout(cmd.Context(), classifyModelResolveTimeout)
+	defer checkCancel()
+	result, err := client.Check(checkCtx)
+	if err != nil {
+		return err
+	}
+	if classifyCheck {
+		if err := enrichPolypusHealthForClassify(cmd.Context(), client, cfg, result); err != nil {
+			return err
+		}
+	}
+	if wantJSON(cmd) {
+		return printJSON(cmd.OutOrStdout(), result)
+	}
+	return writeCLILine(cmd.OutOrStdout(), formatPolypusHealth(result, classifyCheck))
+}
+
 func newPolypusCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "polypus",
@@ -357,51 +392,7 @@ func newPolypusCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 		Use:   "check",
 		Short: "Fail-closed /health and /v1/apis model discovery",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := opts.mustLoad(repoRoot)
-			if err != nil {
-				return err
-			}
-			client, err := polypus.Create(cfg.PolypusBaseURL, nil)
-			if err != nil {
-				return err
-			}
-			result, err := client.Check(cmd.Context())
-			if err != nil {
-				return err
-			}
-			if classifyCheck {
-				resolveCtx, cancel := context.WithTimeout(cmd.Context(), classifyModelResolveTimeout)
-				defer cancel()
-				judge, src, err := mailreport.ResolveJudgeModel(resolveCtx, client, result.ModelIDs, cfg.PolypusJudgeModel)
-				if err != nil {
-					return err
-				}
-				author, authorSrc, err := mailreport.ResolveAuthorModel(resolveCtx, client, result.ModelIDs, cfg.PolypusClassifyModel)
-				if err != nil {
-					return err
-				}
-				result.ClassifyReady = true
-				result.JudgeModel = judge
-				result.JudgeSource = string(src)
-				result.AuthorModel = author
-				result.AuthorSource = string(authorSrc)
-				aliasID := strings.TrimSpace(cfg.PolypusAliasJudgeModel)
-				if aliasID != "" {
-					if probeErr := client.ProbeSystemOne(resolveCtx, aliasID); probeErr != nil {
-						code := sirerr.CodeUnavailable
-						if c, ok := sirerr.AsCode(probeErr); ok {
-							code = c
-						}
-						return sirerr.Wrap(probeErr, code, "polypus check", "configured alias judge model failed systemone probe").
-							With("model", aliasID)
-					}
-					result.AliasJudgeModel = aliasID
-				}
-			}
-			if wantJSON(cmd) {
-				return printJSON(cmd.OutOrStdout(), result)
-			}
-			return writeCLILine(cmd.OutOrStdout(), formatPolypusHealth(result, classifyCheck))
+			return runPolypusCheck(cmd, opts, repoRoot, classifyCheck)
 		},
 	}
 	check.Flags().BoolVar(&classifyCheck, "classify", false, "Smoke SystemOne judge and chat author for classify")

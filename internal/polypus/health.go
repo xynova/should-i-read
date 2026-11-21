@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -43,21 +42,22 @@ func Create(baseURL string, httpClient *http.Client) (*Client, error) {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "POLYPUS_BASE_URL is empty")
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = &http.Client{}
 	}
-	chatHTTP := &http.Client{Timeout: 90 * time.Second}
-	return &Client{BaseURL: baseURL, HTTPClient: httpClient, ChatHTTP: chatHTTP}, nil
+	return &Client{BaseURL: baseURL, HTTPClient: httpClient, ChatHTTP: httpClient}, nil
 }
 
 // Check hits /health and lists enabled models via GET /v1/apis (merged flavor lists).
-func (c *Client) Check(ctx context.Context) (*HealthResult, error) {
+func (c *Client) Check(ctx context.Context) (out *HealthResult, err error) {
 	const op = "polypus.Client.Check"
 	if c == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil client")
 	}
-	if ctx == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	if err = requireDeadline(ctx, op); err != nil {
+		return nil, err
 	}
+	ctx, span := hopSpan(ctx, "polypus.Client.Check", "", "/health")
+	defer func() { endHopSpan(span, err) }()
 
 	healthBody, err := c.get(ctx, "/health")
 	if err != nil {
@@ -68,7 +68,9 @@ func (c *Client) Check(ctx context.Context) (*HealthResult, error) {
 	var healthStatus struct {
 		Status string `json:"status"`
 	}
-	_ = json.Unmarshal(healthBody, &healthStatus)
+	if uerr := json.Unmarshal(healthBody, &healthStatus); uerr != nil {
+		return nil, sirerr.Wrap(uerr, sirerr.CodeFailed, op, "decode /health")
+	}
 	status := healthStatus.Status
 	if status == "" {
 		status = "ok"
@@ -89,6 +91,12 @@ func (c *Client) Check(ctx context.Context) (*HealthResult, error) {
 }
 
 func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) {
+	return runHop(ctx, func() (json.RawMessage, error) {
+		return c.getOnce(ctx, path)
+	})
+}
+
+func (c *Client) getOnce(ctx context.Context, path string) (json.RawMessage, error) {
 	const op = "polypus.Client.get"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
 	if err != nil {

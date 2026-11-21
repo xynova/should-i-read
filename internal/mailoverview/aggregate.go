@@ -55,106 +55,15 @@ func BuildModel(
 	if loc == nil {
 		loc = time.Local
 	}
-	var items []enriched
-	for _, r := range rows {
-		sum, ok := summaries[r.ObjectHash]
-		month := monthKeyUnknown
-		var wk time.Time
-		if ok {
-			if t, ok := ParseMailDate(sum.Date, loc); ok {
-				month = t.Format("2006-01")
-				wk = MondayWeekStart(t, loc)
-			}
-		}
-		wkey := ""
-		if !wk.IsZero() {
-			wkey = wk.Format("2006-01-02")
-		}
-		email := strings.TrimSpace(sum.Sender)
-		if email == "" {
-			email = "(unknown sender)"
-		}
-		theme := ThemeCategory(lastKindSegment(r.Kind))
-		items = append(items, enriched{
-			row:     r,
-			summary: sum,
-			hasMail: ok,
-			month:   month,
-			week:    wk,
-			weekKey: wkey,
-			theme:   theme,
-			email:   email,
-			name:    strings.Trim(strings.TrimSpace(sum.SenderName), `"'`),
-		})
-	}
-
-	monthSet := map[string]struct{}{}
-	for _, it := range items {
-		if it.month != "" {
-			monthSet[it.month] = struct{}{}
-		}
-	}
-	var monthKeys []string
-	for m := range monthSet {
-		if inRangeMonth(m, in.SinceMonth, in.UntilMonth) && m != monthKeyUnknown {
-			monthKeys = append(monthKeys, m)
-		}
-	}
-	sort.Strings(monthKeys)
-
-	seriesByMonth := map[string]int{}
-	for _, it := range items {
-		if it.month != monthKeyUnknown {
-			seriesByMonth[it.month]++
-		}
-	}
+	items := enrichOverviewItems(rows, summaries, loc)
+	monthKeys := monthKeysFromItems(items, in)
+	seriesByMonth := monthSeries(items)
 	sparkMonths := lastNMonthKeys(now, loc, 6)
-
-	var sections []MonthSection
-	for _, mk := range monthKeys {
-		flt := filterMonth(items, mk)
-		prevKey := prevCalendarMonthKey(mk)
-		sections = append(sections, buildMonthSection(mk, monthLabel(mk), flt, prevKey, sparkMonths, seriesByMonth, in))
-	}
-	if unknown := filterMonth(items, monthKeyUnknown); len(unknown) > 0 && inRangeMonth(monthKeyUnknown, in.SinceMonth, in.UntilMonth) {
-		sections = append(sections, buildMonthSection(monthKeyUnknown, "Unknown month", unknown, "", sparkMonths, seriesByMonth, in))
-	}
+	sections := monthSectionsFromItems(monthKeys, items, sparkMonths, seriesByMonth, in)
 	allSec := buildMonthSection(monthKeyAll, "All", items, "", sparkMonths, seriesByMonth, in)
-
-	shapeOut := make([]ShapeInfo, 0, len(shapes))
-	promptHashes := map[string]int{}
-	for _, s := range shapes {
-		shapeOut = append(shapeOut, ShapeInfo{
-			Fingerprint:     s.Fingerprint,
-			SenderDomain:    s.SenderDomain,
-			SubjectTemplate: s.SubjectTemplate,
-			LastSlot:        s.LastSlot,
-			Status:          s.Status,
-			HitCount:        s.HitCount,
-			ConfirmCount:    s.ConfirmCount,
-			RejectCount:     s.RejectCount,
-		})
-		ph := strings.TrimSpace(s.PromptHash)
-		if ph != "" {
-			promptHashes[ph]++
-		}
-	}
-	errOut := make([]ErrorRowInfo, 0, len(errRows))
-	for _, e := range errRows {
-		errOut = append(errOut, ErrorRowInfo{
-			ObjectHash:   e.ObjectHash,
-			Error:        e.Error,
-			AttemptCount: e.AttemptCount,
-			UpdatedAt:    e.UpdatedAt,
-		})
-	}
-	matched := 0
-	for _, it := range items {
-		if it.hasMail {
-			matched++
-		}
-	}
-
+	shapeOut, promptHashes := shapeInfosFromRows(shapes)
+	errOut := errorInfosFromRows(errRows)
+	matched := countMatchedMail(items)
 	eg := errorGroupsFromRows(errRows)
 
 	m := Model{
@@ -179,6 +88,126 @@ func BuildModel(
 	// Attach error rollups to All trust section for visibility
 	m.All.Trust.ErrorGroups = eg
 	return m
+}
+
+func enrichOverviewItems(rows []hoststore.OverviewRow, summaries map[string]pimdir.EmailSummary, loc *time.Location) []enriched {
+	var items []enriched
+	for _, r := range rows {
+		sum, ok := summaries[r.ObjectHash]
+		month := monthKeyUnknown
+		var wk time.Time
+		if ok {
+			if t, ok := parseMailDate(sum.Date, loc); ok {
+				month = t.Format("2006-01")
+				wk = mondayWeekStart(t, loc)
+			}
+		}
+		wkey := ""
+		if !wk.IsZero() {
+			wkey = wk.Format("2006-01-02")
+		}
+		email := strings.TrimSpace(sum.Sender)
+		if email == "" {
+			email = "(unknown sender)"
+		}
+		items = append(items, enriched{
+			row:     r,
+			summary: sum,
+			hasMail: ok,
+			month:   month,
+			week:    wk,
+			weekKey: wkey,
+			theme:   ThemeCategory(lastKindSegment(r.Kind)),
+			email:   email,
+			name:    strings.Trim(strings.TrimSpace(sum.SenderName), `"'`),
+		})
+	}
+	return items
+}
+
+func monthKeysFromItems(items []enriched, in Input) []string {
+	monthSet := map[string]struct{}{}
+	for _, it := range items {
+		if it.month != "" {
+			monthSet[it.month] = struct{}{}
+		}
+	}
+	var monthKeys []string
+	for m := range monthSet {
+		if inRangeMonth(m, in.SinceMonth, in.UntilMonth) && m != monthKeyUnknown {
+			monthKeys = append(monthKeys, m)
+		}
+	}
+	sort.Strings(monthKeys)
+	return monthKeys
+}
+
+func monthSeries(items []enriched) map[string]int {
+	seriesByMonth := map[string]int{}
+	for _, it := range items {
+		if it.month != monthKeyUnknown {
+			seriesByMonth[it.month]++
+		}
+	}
+	return seriesByMonth
+}
+
+func monthSectionsFromItems(monthKeys []string, items []enriched, sparkMonths []string, seriesByMonth map[string]int, in Input) []MonthSection {
+	var sections []MonthSection
+	for _, mk := range monthKeys {
+		flt := filterMonth(items, mk)
+		prevKey := prevCalendarMonthKey(mk)
+		sections = append(sections, buildMonthSection(mk, monthLabel(mk), flt, prevKey, sparkMonths, seriesByMonth, in))
+	}
+	if unknown := filterMonth(items, monthKeyUnknown); len(unknown) > 0 && inRangeMonth(monthKeyUnknown, in.SinceMonth, in.UntilMonth) {
+		sections = append(sections, buildMonthSection(monthKeyUnknown, "Unknown month", unknown, "", sparkMonths, seriesByMonth, in))
+	}
+	return sections
+}
+
+func shapeInfosFromRows(shapes []hoststore.MailShapeRow) ([]ShapeInfo, map[string]int) {
+	shapeOut := make([]ShapeInfo, 0, len(shapes))
+	promptHashes := map[string]int{}
+	for _, s := range shapes {
+		shapeOut = append(shapeOut, ShapeInfo{
+			Fingerprint:     s.Fingerprint,
+			SenderDomain:    s.SenderDomain,
+			SubjectTemplate: s.SubjectTemplate,
+			LastSlot:        s.LastSlot,
+			Status:          s.Status,
+			HitCount:        s.HitCount,
+			ConfirmCount:    s.ConfirmCount,
+			RejectCount:     s.RejectCount,
+		})
+		ph := strings.TrimSpace(s.PromptHash)
+		if ph != "" {
+			promptHashes[ph]++
+		}
+	}
+	return shapeOut, promptHashes
+}
+
+func errorInfosFromRows(errRows []hoststore.ErrorRow) []ErrorRowInfo {
+	errOut := make([]ErrorRowInfo, 0, len(errRows))
+	for _, e := range errRows {
+		errOut = append(errOut, ErrorRowInfo{
+			ObjectHash:   e.ObjectHash,
+			Error:        e.Error,
+			AttemptCount: e.AttemptCount,
+			UpdatedAt:    e.UpdatedAt,
+		})
+	}
+	return errOut
+}
+
+func countMatchedMail(items []enriched) int {
+	matched := 0
+	for _, it := range items {
+		if it.hasMail {
+			matched++
+		}
+	}
+	return matched
 }
 
 func errorGroupsFromRows(errRows []hoststore.ErrorRow) []ErrorGroup {
@@ -435,38 +464,7 @@ func themesAndHeatmap(items []enriched) ([]ThemeCount, HeatmapData) {
 	for _, it := range items {
 		counts[it.theme]++
 	}
-	// "Other" is never ranked: it always goes last, holding unnamed themes
-	// plus any named theme beyond the top eight, so it appears only once.
-	var themeNames []string
-	for k := range counts {
-		if k != themeOther {
-			themeNames = append(themeNames, k)
-		}
-	}
-	sort.Slice(themeNames, func(i, j int) bool {
-		if counts[themeNames[i]] != counts[themeNames[j]] {
-			return counts[themeNames[i]] > counts[themeNames[j]]
-		}
-		return themeNames[i] < themeNames[j]
-	})
-	top := 8
-	if len(themeNames) < top {
-		top = len(themeNames)
-	}
-	tc := make([]ThemeCount, 0, top+1)
-	heatThemes := make([]string, 0, top+1)
-	for _, th := range themeNames[:top] {
-		tc = append(tc, ThemeCount{Slot: th, Count: counts[th]})
-		heatThemes = append(heatThemes, th)
-	}
-	otherSum := counts[themeOther]
-	for _, th := range themeNames[top:] {
-		otherSum += counts[th]
-	}
-	if otherSum > 0 {
-		tc = append(tc, ThemeCount{Slot: themeOther, Count: otherSum})
-	}
-	heatThemes = append(heatThemes, themeOther)
+	tc, heatThemes := rankedHeatThemes(counts)
 
 	weeks := heatmapWeekLabels(items)
 	cells := make([][]int, len(weeks))
@@ -518,6 +516,40 @@ func themesAndHeatmap(items []enriched) ([]ThemeCount, HeatmapData) {
 	}
 }
 
+func rankedHeatThemes(counts map[string]int) ([]ThemeCount, []string) {
+	var themeNames []string
+	for k := range counts {
+		if k != themeOther {
+			themeNames = append(themeNames, k)
+		}
+	}
+	sort.Slice(themeNames, func(i, j int) bool {
+		if counts[themeNames[i]] != counts[themeNames[j]] {
+			return counts[themeNames[i]] > counts[themeNames[j]]
+		}
+		return themeNames[i] < themeNames[j]
+	})
+	top := 8
+	if len(themeNames) < top {
+		top = len(themeNames)
+	}
+	tc := make([]ThemeCount, 0, top+1)
+	heatThemes := make([]string, 0, top+1)
+	for _, th := range themeNames[:top] {
+		tc = append(tc, ThemeCount{Slot: th, Count: counts[th]})
+		heatThemes = append(heatThemes, th)
+	}
+	otherSum := counts[themeOther]
+	for _, th := range themeNames[top:] {
+		otherSum += counts[th]
+	}
+	if otherSum > 0 {
+		tc = append(tc, ThemeCount{Slot: themeOther, Count: otherSum})
+	}
+	heatThemes = append(heatThemes, themeOther)
+	return tc, heatThemes
+}
+
 func heatmapWeekLabels(items []enriched) []string {
 	weekSet := map[string]struct{}{}
 	hasNoWeek := false
@@ -540,9 +572,18 @@ func heatmapWeekLabels(items []enriched) []string {
 }
 
 func kindTreeFromItems(items []enriched, viewKey string) KindTreeBlock {
-	firstCount := map[string]int{}
-	pathCount := map[string]int{}
-	pathHashes := map[string][]string{}
+	firstCount, pathCount, pathHashes := countKindPaths(items)
+	return KindTreeBlock{
+		Trunk:    kindTrunkFromCounts(firstCount),
+		Outliers: kindOutliersFromItems(items, firstCount, viewKey),
+		Paths:    kindPathRows(pathCount, pathHashes, firstCount, viewKey),
+	}
+}
+
+func countKindPaths(items []enriched) (firstCount, pathCount map[string]int, pathHashes map[string][]string) {
+	firstCount = map[string]int{}
+	pathCount = map[string]int{}
+	pathHashes = map[string][]string{}
 	for _, it := range items {
 		f := firstKindSegment(it.row.Kind)
 		if f == "" {
@@ -558,13 +599,16 @@ func kindTreeFromItems(items []enriched, viewKey string) KindTreeBlock {
 			pathHashes[p] = append(pathHashes[p], h)
 		}
 	}
-	var trunk []KindTrunkNode
-	var outliers []KindOutlierLeaf
+	return firstCount, pathCount, pathHashes
+}
+
+func kindTrunkFromCounts(firstCount map[string]int) []KindTrunkNode {
 	var firstSlots []string
 	for s := range firstCount {
 		firstSlots = append(firstSlots, s)
 	}
 	sort.Strings(firstSlots)
+	var trunk []KindTrunkNode
 	for _, slot := range firstSlots {
 		c := firstCount[slot]
 		if c <= 1 {
@@ -578,29 +622,46 @@ func kindTreeFromItems(items []enriched, viewKey string) KindTreeBlock {
 		}
 		return trunk[i].FirstSlot < trunk[j].FirstSlot
 	})
+	return trunk
+}
+
+func kindOutliersFromItems(items []enriched, firstCount map[string]int, viewKey string) []KindOutlierLeaf {
+	var firstSlots []string
+	for s := range firstCount {
+		firstSlots = append(firstSlots, s)
+	}
+	sort.Strings(firstSlots)
+	var outliers []KindOutlierLeaf
 	for _, slot := range firstSlots {
 		if firstCount[slot] != 1 {
 			continue
 		}
-		var kindPath string
-		for _, it := range items {
-			f := firstKindSegment(it.row.Kind)
-			if f == "" {
-				f = emptyKindLabel
-			}
-			if f == slot {
-				kindPath = strings.TrimSpace(it.row.Kind)
-				break
-			}
-		}
-		if kindPath == "" {
-			kindPath = slot
-		}
+		kindPath := kindPathForFirstSlot(items, slot)
 		why := fmt.Sprintf(`Only mail in view %q whose first slot is %q. KIND is %s.`, viewKey, slot, kindPath)
 		outliers = append(outliers, KindOutlierLeaf{FirstSlot: slot, Kind: kindPath, Why: why})
 	}
 	sort.Slice(outliers, func(i, j int) bool { return outliers[i].FirstSlot < outliers[j].FirstSlot })
+	return outliers
+}
 
+func kindPathForFirstSlot(items []enriched, slot string) string {
+	for _, it := range items {
+		f := firstKindSegment(it.row.Kind)
+		if f == "" {
+			f = emptyKindLabel
+		}
+		if f == slot {
+			p := strings.TrimSpace(it.row.Kind)
+			if p == "" {
+				return slot
+			}
+			return p
+		}
+	}
+	return slot
+}
+
+func kindPathRows(pathCount map[string]int, pathHashes map[string][]string, firstCount map[string]int, viewKey string) []KindPathRow {
 	var paths []string
 	for p := range pathCount {
 		paths = append(paths, p)
@@ -624,7 +685,7 @@ func kindTreeFromItems(items []enriched, viewKey string) KindTreeBlock {
 		}
 		return pathRows[i].Path < pathRows[j].Path
 	})
-	return KindTreeBlock{Trunk: trunk, Outliers: outliers, Paths: pathRows}
+	return pathRows
 }
 
 func fluffFromItems(items []enriched) FluffBlock {
@@ -741,28 +802,8 @@ func trustFromItems(items []enriched) TrustBlock {
 	}
 	var low []scored
 	for _, it := range items {
-		for i := range t.CosineHist.Counts {
-			lo := t.CosineHist.Buckets[i]
-			hi := t.CosineHist.Buckets[i+1]
-			if i == len(t.CosineHist.Counts)-1 {
-				hi = math.Nextafter(hi, hi+1)
-			}
-			c := it.row.Cosine
-			if c >= lo && c < hi {
-				t.CosineHist.Counts[i]++
-			}
-		}
-		for i := range t.JudgeHist.Counts {
-			lo := t.JudgeHist.Buckets[i]
-			hi := t.JudgeHist.Buckets[i+1]
-			if i == len(t.JudgeHist.Counts)-1 {
-				hi = math.Nextafter(hi, hi+1)
-			}
-			j := it.row.JudgeScore
-			if j >= lo && j < hi {
-				t.JudgeHist.Counts[i]++
-			}
-		}
+		bumpHist(&t.CosineHist, it.row.Cosine)
+		bumpHist(&t.JudgeHist, it.row.JudgeScore)
 		if !it.row.AttentionScored {
 			t.NotAttention++
 		}
@@ -778,6 +819,19 @@ func trustFromItems(items []enriched) TrustBlock {
 		t.LowConf = append(t.LowConf, messageLineFrom(low[i].it))
 	}
 	return t
+}
+
+func bumpHist(h *Histogram, v float64) {
+	for i := range h.Counts {
+		lo := h.Buckets[i]
+		hi := h.Buckets[i+1]
+		if i == len(h.Counts)-1 {
+			hi = math.Nextafter(hi, hi+1)
+		}
+		if v >= lo && v < hi {
+			h.Counts[i]++
+		}
+	}
 }
 
 func messageRows(items []enriched, viewKey string, kt KindTreeBlock) []MessageRow {

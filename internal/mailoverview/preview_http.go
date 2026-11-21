@@ -53,7 +53,7 @@ func (p PimdirPreview) MessagePreview(ctx context.Context, hash string) (Message
 	if p.Reader == nil {
 		return MessagePreview{}, sirerr.New(sirerr.CodeUnavailable, op, "mail store is not open")
 	}
-	sum, err := p.Reader.FindByObjectHash(hash)
+	sum, err := p.Reader.FindByObjectHash(ctx, hash)
 	if err != nil {
 		return MessagePreview{}, err
 	}

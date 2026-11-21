@@ -1,7 +1,9 @@
 package pimdir
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 func TestFindByIMAPRef_seqAndCollection(t *testing.T) {
@@ -11,7 +13,9 @@ func TestFindByIMAPRef_seqAndCollection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sum, err := reader.FindByIMAPRef("INBOX", "1")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	sum, err := reader.FindByIMAPRef(ctx, "INBOX", "1")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -250,14 +250,16 @@ func TestFindByObjectHashAndMessageID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	byHash, err := r.FindByObjectHash("abcd1234efgh5678")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	byHash, err := r.FindByObjectHash(ctx, "abcd1234efgh5678")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if byHash.Subject != "Hello pimdir" {
 		t.Fatalf("subject: %q", byHash.Subject)
 	}
-	byMID, err := r.FindByMessageID("<mid@example.com>")
+	byMID, err := r.FindByMessageID(ctx, "<mid@example.com>")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,11 +282,13 @@ func TestReadBlobAndResolveShowRef(t *testing.T) {
 	if !strings.Contains(string(raw), "Hello body") {
 		t.Fatalf("blob: %q", raw)
 	}
-	_, hash, err := r.ResolveShowRef("abcd1234efgh5678")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, hash, err := r.ResolveShowRef(ctx, "abcd1234efgh5678")
 	if err != nil || hash != "abcd1234efgh5678" {
 		t.Fatalf("hash ref: %v %q", err, hash)
 	}
-	_, hash, err = r.ResolveShowRef("<mid@example.com>")
+	_, hash, err = r.ResolveShowRef(ctx, "<mid@example.com>")
 	if err != nil || hash != "abcd1234efgh5678" {
 		t.Fatalf("mid ref: %v %q", err, hash)
 	}

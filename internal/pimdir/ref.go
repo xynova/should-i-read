@@ -1,6 +1,7 @@
 package pimdir
 
 import (
+	"context"
 	"strings"
 	"unicode"
 
@@ -25,7 +26,7 @@ func RefLooksLikeObjectHash(ref string) bool {
 }
 
 // ResolveShowRef maps a CLI ref to summary metadata and an object hash for ReadBlob.
-func (r *Reader) ResolveShowRef(ref string) (EmailSummary, string, error) {
+func (r *Reader) ResolveShowRef(ctx context.Context, ref string) (EmailSummary, string, error) {
 	const op = "pimdir.ResolveShowRef"
 	if r == nil {
 		return EmailSummary{}, "", sirerr.New(sirerr.CodeInvalid, op, "nil reader")
@@ -35,7 +36,7 @@ func (r *Reader) ResolveShowRef(ref string) (EmailSummary, string, error) {
 		return EmailSummary{}, "", sirerr.New(sirerr.CodeInvalid, op, "empty ref")
 	}
 	if RefLooksLikeObjectHash(ref) {
-		s, err := r.FindByObjectHash(ref)
+		s, err := r.FindByObjectHash(ctx, ref)
 		if err != nil {
 			code, ok := sirerr.AsCode(err)
 			if ok && code == sirerr.CodeNotFound {
@@ -49,7 +50,7 @@ func (r *Reader) ResolveShowRef(ref string) (EmailSummary, string, error) {
 		}
 		return s, hash, nil
 	}
-	s, err := r.FindByMessageID(ref)
+	s, err := r.FindByMessageID(ctx, ref)
 	if err != nil {
 		return EmailSummary{}, "", err
 	}

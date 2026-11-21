@@ -41,45 +41,52 @@ func validateAuthorDraft(cat *catalog.Catalog, parents []harness.PackedOption, p
 	kind := strings.TrimSpace(parsed.Kind)
 	switch kind {
 	case harness.DraftKindAlias:
-		leafID := strings.TrimSpace(parsed.LeafID)
-		if leafID == "" {
-			return sirerr.New(sirerr.CodeFailed, op, "alias draft missing leafId")
-		}
-		if cat == nil || !cat.IsLeaf(leafID) {
-			return sirerr.New(sirerr.CodeFailed, op, "leafId not in catalog").With("leafId", leafID)
-		}
-		if !leafInAuthorScope(cat, parents, leafID) {
-			return sirerr.New(sirerr.CodeFailed, op, "leafId not in author scope").With("leafId", leafID)
-		}
-		if strings.TrimSpace(parsed.Alias) == "" {
-			return sirerr.New(sirerr.CodeFailed, op, "alias draft missing alias")
-		}
-		return nil
+		return validateAliasDraft(cat, parents, parsed)
 	case harness.DraftKindNewLeaf:
-		id := strings.TrimSpace(parsed.ID)
-		parent := strings.TrimSpace(parsed.Parent)
-		if id == "" || parent == "" {
-			return sirerr.New(sirerr.CodeFailed, op, "new_leaf draft missing id or parent")
-		}
-		if !isKebabID(id) {
-			return sirerr.New(sirerr.CodeFailed, op, "new_leaf id must be kebab-case").With("id", id)
-		}
-		if !parentInAuthorScope(cat, parents, parent) {
-			return sirerr.New(sirerr.CodeFailed, op, "parent not in author scope").With("parent", parent)
-		}
-		if strings.TrimSpace(parsed.Label) == "" {
-			return sirerr.New(sirerr.CodeFailed, op, "new_leaf draft missing label")
-		}
-		if strings.HasPrefix(id, parent+"-") {
-			return sirerr.New(sirerr.CodeFailed, op, "new_leaf id repeats parent").With("id", id).With("parent", parent)
-		}
-		if err := validateAuthorDescription(parsed.Description); err != nil {
-			return err
-		}
-		return nil
+		return validateNewLeafDraft(cat, parents, parsed)
 	default:
 		return sirerr.New(sirerr.CodeFailed, op, "unknown draft kind").With("kind", kind)
 	}
+}
+
+func validateAliasDraft(cat *catalog.Catalog, parents []harness.PackedOption, parsed authorJSON) error {
+	const op = "mailreport.validateAuthorDraft"
+	leafID := strings.TrimSpace(parsed.LeafID)
+	if leafID == "" {
+		return sirerr.New(sirerr.CodeFailed, op, "alias draft missing leafId")
+	}
+	if cat == nil || !cat.IsLeaf(leafID) {
+		return sirerr.New(sirerr.CodeFailed, op, "leafId not in catalog").With("leafId", leafID)
+	}
+	if !leafInAuthorScope(cat, parents, leafID) {
+		return sirerr.New(sirerr.CodeFailed, op, "leafId not in author scope").With("leafId", leafID)
+	}
+	if strings.TrimSpace(parsed.Alias) == "" {
+		return sirerr.New(sirerr.CodeFailed, op, "alias draft missing alias")
+	}
+	return nil
+}
+
+func validateNewLeafDraft(cat *catalog.Catalog, parents []harness.PackedOption, parsed authorJSON) error {
+	const op = "mailreport.validateAuthorDraft"
+	id := strings.TrimSpace(parsed.ID)
+	parent := strings.TrimSpace(parsed.Parent)
+	if id == "" || parent == "" {
+		return sirerr.New(sirerr.CodeFailed, op, "new_leaf draft missing id or parent")
+	}
+	if !isKebabID(id) {
+		return sirerr.New(sirerr.CodeFailed, op, "new_leaf id must be kebab-case").With("id", id)
+	}
+	if !parentInAuthorScope(cat, parents, parent) {
+		return sirerr.New(sirerr.CodeFailed, op, "parent not in author scope").With("parent", parent)
+	}
+	if strings.TrimSpace(parsed.Label) == "" {
+		return sirerr.New(sirerr.CodeFailed, op, "new_leaf draft missing label")
+	}
+	if strings.HasPrefix(id, parent+"-") {
+		return sirerr.New(sirerr.CodeFailed, op, "new_leaf id repeats parent").With("id", id).With("parent", parent)
+	}
+	return validateAuthorDescription(parsed.Description)
 }
 
 func leafInAuthorScope(cat *catalog.Catalog, parents []harness.PackedOption, leafID string) bool {

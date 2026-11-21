@@ -11,11 +11,8 @@ import (
 
 	"github.com/xynova/should-i-read/internal/hoststore"
 	"github.com/xynova/should-i-read/internal/mailjob"
+	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/sirerr"
-)
-
-const (
-	himalayaMissingHint = "install Himalaya and set pimalaya.himalaya_config via should-i-read configure"
 )
 
 // JobArtifact is written to tmp/delete-job-<id>.json.
@@ -190,7 +187,7 @@ func (s *Service) recoverStuckApply(ctx context.Context, job hoststore.DeleteJob
 }
 
 func (s *Service) markHimalayaMissing(ctx context.Context, jobID string) error {
-	return s.store.SetDeleteJobStatus(ctx, jobID, hoststore.DeleteJobStatusPlanned, himalayaMissingHint, nil)
+	return s.store.SetDeleteJobStatus(ctx, jobID, hoststore.DeleteJobStatusPlanned, pimalaya.HimalayaMissingHint, nil)
 }
 
 func (s *Service) writeArtifact(art JobArtifact) error {

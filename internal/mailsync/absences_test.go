@@ -221,3 +221,11 @@ func TestAbsenceRunnerLookupErrorKeepsFirstReview(t *testing.T) {
 		t.Fatalf("accepts %d", eng.accepts)
 	}
 }
+
+func TestAbsenceRunner_noDeadline(t *testing.T) {
+	runner := &AbsenceRunner{Engine: &fakeEngine{firstRes: &pimalaya.Result{OK: true}}}
+	_, err := runner.Sync(context.Background(), "gmail", nil)
+	if err == nil {
+		t.Fatal("expected missing deadline")
+	}
+}

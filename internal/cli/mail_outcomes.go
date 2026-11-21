@@ -39,7 +39,7 @@ func newMailOutcomesExportCmd(opts *rootOptions, repoRoot string) *cobra.Command
 			if ctx == nil {
 				return sirerr.New(sirerr.CodeInvalid, op, "nil context")
 			}
-			opCtx, cancel := contextWithStoreDeadline(ctx)
+			opCtx, cancel := context.WithTimeout(ctx, hostStoreOpTimeout)
 			defer cancel()
 			st, err := hoststore.CreateStore(hoststore.StoreConfig{Path: cfg.StorePath, Now: time.Now().UTC()})
 			if err != nil {
@@ -93,14 +93,4 @@ func writeOutcomesCSV(path string, rows []hoststore.MessageOutcome) error {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "flush csv")
 	}
 	return nil
-}
-
-func contextWithStoreDeadline(parent context.Context) (context.Context, context.CancelFunc) {
-	if parent == nil {
-		parent = context.Background()
-	}
-	if _, ok := parent.Deadline(); ok {
-		return parent, func() {}
-	}
-	return context.WithTimeout(parent, hostStoreOpTimeout)
 }

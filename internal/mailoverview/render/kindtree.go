@@ -59,6 +59,19 @@ type kindBranch struct {
 // busiest top-level kind and its busiest child start open.
 func buildKindTree(paths []mailoverview.KindPathRow) *KindNode {
 	root := &kindBranch{kids: map[string]*kindBranch{}}
+	total := ingestKindPaths(root, paths)
+	if total == 0 {
+		return nil
+	}
+	maxTop := maxKindBranchCount(root)
+	top := &KindNode{Count: total, Depth: -1, ChildDepth: 0}
+	top.Children, top.Small, top.SmallMessages = foldKindBranch(root, total, maxTop, 0)
+	top.SmallHashAttr = joinNodeHashes(top.Small)
+	openDefaultKindBranches(top)
+	return top
+}
+
+func ingestKindPaths(root *kindBranch, paths []mailoverview.KindPathRow) int {
 	total := 0
 	for _, p := range paths {
 		parts := mailoverview.KindPathParts(p.Path)
@@ -66,44 +79,50 @@ func buildKindTree(paths []mailoverview.KindPathRow) *KindNode {
 			continue
 		}
 		total += p.Count
-		cur := root
-		for i, seg := range parts {
-			next, ok := cur.kids[seg]
-			if !ok {
-				next = &kindBranch{label: seg, kids: map[string]*kindBranch{}}
-				cur.kids[seg] = next
-				cur.order = append(cur.order, seg)
-			}
-			next.count += p.Count
-			if len(p.Hashes) > 0 {
-				next.hashes = append(next.hashes, p.Hashes...)
-			}
-			if i == 0 && p.Why != "" {
-				next.why = p.Why
-			}
-			cur = next
+		ingestOneKindPath(root, parts, p)
+	}
+	return total
+}
+
+func ingestOneKindPath(root *kindBranch, parts []string, p mailoverview.KindPathRow) {
+	cur := root
+	for i, seg := range parts {
+		next, ok := cur.kids[seg]
+		if !ok {
+			next = &kindBranch{label: seg, kids: map[string]*kindBranch{}}
+			cur.kids[seg] = next
+			cur.order = append(cur.order, seg)
 		}
+		next.count += p.Count
+		if len(p.Hashes) > 0 {
+			next.hashes = append(next.hashes, p.Hashes...)
+		}
+		if i == 0 && p.Why != "" {
+			next.why = p.Why
+		}
+		cur = next
 	}
-	if total == 0 {
-		return nil
-	}
+}
+
+func maxKindBranchCount(root *kindBranch) int {
 	maxTop := 0
 	for _, k := range root.kids {
 		if k.count > maxTop {
 			maxTop = k.count
 		}
 	}
-	top := &KindNode{Count: total, Depth: -1, ChildDepth: 0}
-	top.Children, top.Small, top.SmallMessages = foldKindBranch(root, total, maxTop, 0)
-	top.SmallHashAttr = joinNodeHashes(top.Small)
-	if len(top.Children) > 0 {
-		first := top.Children[0]
-		first.Open = true
-		if len(first.Children) > 0 {
-			first.Children[0].Open = true
-		}
+	return maxTop
+}
+
+func openDefaultKindBranches(top *KindNode) {
+	if len(top.Children) == 0 {
+		return
 	}
-	return top
+	first := top.Children[0]
+	first.Open = true
+	if len(first.Children) > 0 {
+		first.Children[0].Open = true
+	}
 }
 
 func foldKindBranch(b *kindBranch, parentCount, maxTop, depth int) ([]*KindNode, []*KindNode, int) {

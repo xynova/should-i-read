@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -93,16 +94,44 @@ func (s *ackHTTP) writeAckList(ctx context.Context, w http.ResponseWriter, skipp
 }
 
 func (s *ackHTTP) addAck(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	items, err := parseAckAddRequest(w, r)
+	if err != nil {
+		writeAckJSON(w, http.StatusBadRequest, ackResponse{Error: err.Error()})
+		return
+	}
+	existing, err := s.AckCart.ListAckCart(ctx)
+	if err != nil {
+		writeAckErr(w, err)
+		return
+	}
+	actioned, err := s.lookupAckActioned(ctx, items)
+	if err != nil {
+		writeAckErr(w, err)
+		return
+	}
+	toAdd, skippedInCart, skippedActioned := filterAckCartAdds(items, existing, actioned)
+	if err := s.dropDeleteCartHashes(ctx, objectHashesOfAck(toAdd)); err != nil {
+		writeAckErr(w, err)
+		return
+	}
+	if len(toAdd) > 0 {
+		if err := s.AckCart.AddAckCart(ctx, toAdd); err != nil {
+			writeAckErr(w, err)
+			return
+		}
+	}
+	s.writeAckList(ctx, w, skippedInCart, skippedActioned)
+}
+
+func parseAckAddRequest(w http.ResponseWriter, r *http.Request) ([]hoststore.AckCartItem, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, cartMaxBody)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeAckJSON(w, http.StatusBadRequest, ackResponse{Error: "could not read ack items"})
-		return
+		return nil, errors.New("could not read ack items")
 	}
 	var in ackAddRequest
 	if err := json.Unmarshal(raw, &in); err != nil {
-		writeAckJSON(w, http.StatusBadRequest, ackResponse{Error: "ack items must be JSON"})
-		return
+		return nil, errors.New("ack items must be JSON")
 	}
 	items := make([]hoststore.AckCartItem, 0, len(in.Items))
 	for _, row := range in.Items {
@@ -113,25 +142,22 @@ func (s *ackHTTP) addAck(ctx context.Context, w http.ResponseWriter, r *http.Req
 			MailedAt:   row.Date,
 		})
 	}
-	existing, err := s.AckCart.ListAckCart(ctx)
-	if err != nil {
-		writeAckErr(w, err)
-		return
-	}
-	actioned := map[string]maildelete.ActionedInfo{}
+	return items, nil
+}
+
+func (s *ackHTTP) lookupAckActioned(ctx context.Context, items []hoststore.AckCartItem) (map[string]maildelete.ActionedInfo, error) {
 	lookup := s.actionedLookup()
-	if lookup != nil {
-		hashes := make([]string, 0, len(items))
-		for _, item := range items {
-			hashes = append(hashes, item.ObjectHash)
-		}
-		got, aerr := lookup.LookupActioned(ctx, hashes)
-		if aerr != nil {
-			writeAckErr(w, aerr)
-			return
-		}
-		actioned = got
+	if lookup == nil {
+		return map[string]maildelete.ActionedInfo{}, nil
 	}
+	hashes := make([]string, 0, len(items))
+	for _, item := range items {
+		hashes = append(hashes, item.ObjectHash)
+	}
+	return lookup.LookupActioned(ctx, hashes)
+}
+
+func filterAckCartAdds(items, existing []hoststore.AckCartItem, actioned map[string]maildelete.ActionedInfo) ([]hoststore.AckCartItem, int, int) {
 	have := map[string]struct{}{}
 	for _, item := range existing {
 		have[item.ObjectHash] = struct{}{}
@@ -155,17 +181,7 @@ func (s *ackHTTP) addAck(ctx context.Context, w http.ResponseWriter, r *http.Req
 		have[h] = struct{}{}
 		toAdd = append(toAdd, item)
 	}
-	if err := s.dropDeleteCartHashes(ctx, objectHashesOfAck(toAdd)); err != nil {
-		writeAckErr(w, err)
-		return
-	}
-	if len(toAdd) > 0 {
-		if err := s.AckCart.AddAckCart(ctx, toAdd); err != nil {
-			writeAckErr(w, err)
-			return
-		}
-	}
-	s.writeAckList(ctx, w, skippedInCart, skippedActioned)
+	return toAdd, skippedInCart, skippedActioned
 }
 
 func (s *ackHTTP) removeAck(ctx context.Context, w http.ResponseWriter, r *http.Request) {

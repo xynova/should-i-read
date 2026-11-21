@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -33,27 +32,25 @@ type embedResponse struct {
 
 // ProbeEmbed smokes POST /v1/embeddings for classify readiness.
 func (c *Client) ProbeEmbed(ctx context.Context, model string) error {
-	if ctx == nil {
-		return sirerr.New(sirerr.CodeInvalid, "polypus.Client.ProbeEmbed", "nil context")
+	const op = "polypus.Client.ProbeEmbed"
+	if c == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil client")
 	}
-	if _, ok := ctx.Deadline(); !ok {
-		return sirerr.New(sirerr.CodeInvalid, "polypus.Client.ProbeEmbed", "context must have a deadline")
+	if err := requireDeadline(ctx, op); err != nil {
+		return err
 	}
 	_, err := c.Embed(ctx, EmbedRequest{Model: model, Input: []string{"probe"}})
 	return err
 }
 
 // Embed posts to /v1/embeddings and returns vectors in input order.
-func (c *Client) Embed(ctx context.Context, req EmbedRequest) ([][]float64, error) {
+func (c *Client) Embed(ctx context.Context, req EmbedRequest) (out [][]float64, err error) {
 	const op = "polypus.Client.Embed"
 	if c == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil client")
 	}
-	if ctx == nil {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return nil, sirerr.New(sirerr.CodeInvalid, op, "context must have a deadline")
+	if err = requireDeadline(ctx, op); err != nil {
+		return nil, err
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
@@ -62,24 +59,13 @@ func (c *Client) Embed(ctx context.Context, req EmbedRequest) ([][]float64, erro
 	if len(req.Input) == 0 {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "input required")
 	}
-	const maxAttempts = 2
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
-			if err := sleepContext(ctx, 2*time.Second); err != nil {
-				return nil, sirerr.Wrap(err, sirerr.CodeUnavailable, op, "embed retry wait")
-			}
-		}
-		out, retry, err := c.embedOnce(ctx, model, req)
-		if err == nil {
-			return out, nil
-		}
-		lastErr = err
-		if !retry || attempt+1 >= maxAttempts {
-			return nil, err
-		}
-	}
-	return nil, lastErr
+	ctx, span := hopSpan(ctx, "polypus.Client.Embed", model, "/v1/embeddings")
+	defer func() { endHopSpan(span, err) }()
+	out, err = runHop(ctx, func() ([][]float64, error) {
+		vecs, _, onceErr := c.embedOnce(ctx, model, req)
+		return vecs, onceErr
+	})
+	return out, err
 }
 
 func (c *Client) embedOnce(ctx context.Context, model string, req EmbedRequest) ([][]float64, bool, error) {
@@ -97,7 +83,7 @@ func (c *Client) embedOnce(ctx context.Context, model string, req EmbedRequest) 
 	applyTimeoutHeader(httpReq)
 	client := c.ChatHTTP
 	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+		client = c.HTTPClient
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {

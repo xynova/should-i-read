@@ -6,10 +6,7 @@ import (
 	"strings"
 )
 
-// BarChart renders a horizontal bar chart; values must be non-negative.
-// The x label and caption may be empty, and the colour may be any CSS colour,
-// including var().
-func BarChart(width, height float64, title, xLabel, caption string, categories []string, values []int, color string) string {
+func barChart(width, height float64, title, xLabel, caption string, categories []string, values []int, color string) string {
 	if len(categories) != len(values) || len(categories) == 0 {
 		return ""
 	}
@@ -65,8 +62,7 @@ func BarChart(width, height float64, title, xLabel, caption string, categories [
 	return b.String()
 }
 
-// StackedBar is one row with two segments (counts a and b).
-func StackedBar(width, height float64, title, aLabel, bLabel string, a, b int, colorA, colorB string) string {
+func stackedBar(width, height float64, title, aLabel, bLabel string, a, b int, colorA, colorB string) string {
 	total := a + b
 	if total == 0 {
 		total = 1
@@ -198,6 +194,21 @@ func HeatmapGrid(width, height float64, title, caption string, weekLabels, theme
 	if len(weekLabels) == 0 || len(themeLabels) == 0 {
 		return ``
 	}
+	g := newHeatmapGeom(width, height, weekLabels, themeLabels, cells)
+	var b strings.Builder
+	writeHeatmapFrame(&b, g, title, weekLabels, themeLabels, themeHashes)
+	writeHeatmapCells(&b, g, weekLabels, themeLabels, cells, cellHashes)
+	writeHeatmapTotals(&b, g, themeLabels, themeHashes, caption)
+	return b.String()
+}
+
+type heatmapGeom struct {
+	height, marginL, marginT, cellW, cellH, totalX, svgW float64
+	maxC, maxT                                           int
+	totals                                               []int
+}
+
+func newHeatmapGeom(width, height float64, weekLabels, themeLabels []string, cells [][]int) heatmapGeom {
 	maxC := 1
 	for _, row := range cells {
 		for _, c := range row {
@@ -224,7 +235,7 @@ func HeatmapGrid(width, height float64, title, caption string, weekLabels, theme
 			maxT = totals[ti]
 		}
 	}
-	const totalGap, totalBarMax, totalW = 24.0, 150.0, 210.0
+	const totalGap, totalW = 24.0, 210.0
 	marginL := math.Min(math.Max(float64(longest)*6.6+16, 72), 190)
 	marginT := 52.0
 	marginB := 26.0
@@ -232,55 +243,66 @@ func HeatmapGrid(width, height float64, title, caption string, weekLabels, theme
 	cellW := math.Min((width-marginL-totalGap-totalW)/nw, 120)
 	cellH := (height - marginT - marginB) / float64(len(themeLabels))
 	totalX := marginL + cellW*nw + totalGap
-	svgW := totalX + totalW
-	var b strings.Builder
-	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%.0f" height="%.0f" viewBox="0 0 %.0f %.0f" role="img">`, svgW, height, svgW, height)
-	fmt.Fprintf(&b, `<title>%s</title>`, escape(title))
-	fmt.Fprintf(&b, `<text x="0" y="16" fill="currentColor" font-size="13" font-weight="600">%s</text>`, escape(title))
+	return heatmapGeom{
+		height: height, marginL: marginL, marginT: marginT, cellW: cellW, cellH: cellH,
+		totalX: totalX, svgW: totalX + totalW, maxC: maxC, maxT: maxT, totals: totals,
+	}
+}
+
+func writeHeatmapFrame(b *strings.Builder, g heatmapGeom, title string, weekLabels, themeLabels, themeHashes []string) {
+	fmt.Fprintf(b, `<svg xmlns="http://www.w3.org/2000/svg" width="%.0f" height="%.0f" viewBox="0 0 %.0f %.0f" role="img">`, g.svgW, g.height, g.svgW, g.height)
+	fmt.Fprintf(b, `<title>%s</title>`, escape(title))
+	fmt.Fprintf(b, `<text x="0" y="16" fill="currentColor" font-size="13" font-weight="600">%s</text>`, escape(title))
 	for wi, wk := range weekLabels {
-		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" fill="currentColor" font-size="11" opacity="0.75" text-anchor="middle">%s</text>`,
-			marginL+float64(wi)*cellW+cellW/2, marginT-10, escape(truncate(wk, 12)))
+		fmt.Fprintf(b, `<text x="%.1f" y="%.1f" fill="currentColor" font-size="11" opacity="0.75" text-anchor="middle">%s</text>`,
+			g.marginL+float64(wi)*g.cellW+g.cellW/2, g.marginT-10, escape(truncate(wk, 12)))
 	}
 	for ti, th := range themeLabels {
-		fmt.Fprintf(&b, `<text x="%.0f" y="%.1f" fill="currentColor" font-size="12" text-anchor="end" dominant-baseline="middle"%s>%s</text>`, marginL-10, marginT+float64(ti)*cellH+cellH/2, dataHashesAttr(hashAt(themeHashes, ti)), escape(truncate(th, 28)))
+		fmt.Fprintf(b, `<text x="%.0f" y="%.1f" fill="currentColor" font-size="12" text-anchor="end" dominant-baseline="middle"%s>%s</text>`,
+			g.marginL-10, g.marginT+float64(ti)*g.cellH+g.cellH/2, dataHashesAttr(hashAt(themeHashes, ti)), escape(truncate(th, 28)))
 	}
+}
+
+func writeHeatmapCells(b *strings.Builder, g heatmapGeom, weekLabels, themeLabels []string, cells [][]int, cellHashes [][]string) {
 	for wi := range weekLabels {
 		for ti := range themeLabels {
 			c := 0
 			if wi < len(cells) && ti < len(cells[wi]) {
 				c = cells[wi][ti]
 			}
-			x := marginL + float64(wi)*cellW
-			y := marginT + float64(ti)*cellH
-			t := float64(c) / float64(maxC)
-			fmt.Fprintf(&b, `<g%s>`, dataHashesAttr(cellHashAt(cellHashes, wi, ti)))
+			x := g.marginL + float64(wi)*g.cellW
+			y := g.marginT + float64(ti)*g.cellH
+			t := float64(c) / float64(g.maxC)
+			fmt.Fprintf(b, `<g%s>`, dataHashesAttr(cellHashAt(cellHashes, wi, ti)))
 			if c == 0 {
-				fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="3" fill="currentColor" fill-opacity="0.05">`, x+2, y+2, cellW-4, cellH-4)
+				fmt.Fprintf(b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="3" fill="currentColor" fill-opacity="0.05">`, x+2, y+2, g.cellW-4, g.cellH-4)
 			} else {
-				fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="3" style="fill:var(--chart-strong)" fill-opacity="%.2f">`, x+2, y+2, cellW-4, cellH-4, 0.15+0.85*t)
+				fmt.Fprintf(b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="3" style="fill:var(--chart-strong)" fill-opacity="%.2f">`, x+2, y+2, g.cellW-4, g.cellH-4, 0.15+0.85*t)
 			}
-			fmt.Fprintf(&b, `<title>Week of %s, %s: %d</title></rect>`, escape(weekLabels[wi]), escape(themeLabels[ti]), c)
+			fmt.Fprintf(b, `<title>Week of %s, %s: %d</title></rect>`, escape(weekLabels[wi]), escape(themeLabels[ti]), c)
 			if c > 0 {
-				// Pastel cells stay light enough for the page text colour.
-				fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" style="fill:var(--text)" font-size="11" text-anchor="middle" dominant-baseline="middle">%d</text>`, x+cellW/2, y+cellH/2, c)
+				fmt.Fprintf(b, `<text x="%.1f" y="%.1f" style="fill:var(--text)" font-size="11" text-anchor="middle" dominant-baseline="middle">%d</text>`, x+g.cellW/2, y+g.cellH/2, c)
 			}
-			fmt.Fprintf(&b, `</g>`)
+			fmt.Fprintf(b, `</g>`)
 		}
 	}
-	fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" fill="currentColor" font-size="11" font-weight="600" opacity="0.85">Total</text>`, totalX, marginT-10)
-	for ti, tot := range totals {
-		y := marginT + float64(ti)*cellH
-		w := math.Max(float64(tot)/float64(maxT)*totalBarMax, 2)
-		barH := math.Min(cellH-10, 14)
-		fmt.Fprintf(&b, `<g%s>`, dataHashesAttr(hashAt(themeHashes, ti)))
-		fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="3" style="fill:var(--chart)">`, totalX, y+cellH/2-barH/2, w, barH)
-		fmt.Fprintf(&b, `<title>%s, all weeks shown: %d</title></rect>`, escape(themeLabels[ti]), tot)
-		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" fill="currentColor" font-size="12" font-weight="600" dominant-baseline="middle">%d</text>`, totalX+w+6, y+cellH/2, tot)
-		fmt.Fprintf(&b, `</g>`)
+}
+
+func writeHeatmapTotals(b *strings.Builder, g heatmapGeom, themeLabels, themeHashes []string, caption string) {
+	const totalBarMax = 150.0
+	fmt.Fprintf(b, `<text x="%.1f" y="%.1f" fill="currentColor" font-size="11" font-weight="600" opacity="0.85">Total</text>`, g.totalX, g.marginT-10)
+	for ti, tot := range g.totals {
+		y := g.marginT + float64(ti)*g.cellH
+		w := math.Max(float64(tot)/float64(g.maxT)*totalBarMax, 2)
+		barH := math.Min(g.cellH-10, 14)
+		fmt.Fprintf(b, `<g%s>`, dataHashesAttr(hashAt(themeHashes, ti)))
+		fmt.Fprintf(b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="3" style="fill:var(--chart)">`, g.totalX, y+g.cellH/2-barH/2, w, barH)
+		fmt.Fprintf(b, `<title>%s, all weeks shown: %d</title></rect>`, escape(themeLabels[ti]), tot)
+		fmt.Fprintf(b, `<text x="%.1f" y="%.1f" fill="currentColor" font-size="12" font-weight="600" dominant-baseline="middle">%d</text>`, g.totalX+w+6, y+g.cellH/2, tot)
+		fmt.Fprintf(b, `</g>`)
 	}
-	fmt.Fprintf(&b, `<text x="0" y="%.0f" fill="currentColor" font-size="11" opacity="0.7">%s</text>`, height-6, escape(caption))
-	fmt.Fprintf(&b, `</svg>`)
-	return b.String()
+	fmt.Fprintf(b, `<text x="0" y="%.0f" fill="currentColor" font-size="11" opacity="0.7">%s</text>`, g.height-6, escape(caption))
+	fmt.Fprintf(b, `</svg>`)
 }
 
 // Sparkline polyline from integer series (at least 2 points).

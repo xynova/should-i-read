@@ -156,72 +156,88 @@ FROM mail_shapes WHERE fingerprint = ?`, n.Fingerprint).Scan(
 	}
 
 	if !found {
-		status := ShapeStatusAccumulating
-		promoted := false
-		if minRepeats <= 1 {
-			status = ShapeStatusActive
-			promoted = true
-		}
-		_, err = tx.ExecContext(ctx, `
+		return shapeHitInsertNew(ctx, tx, op, n, minRepeats, stamp)
+	}
+	if existing.PromptHash != n.PromptHash {
+		return shapeHitResetPrompt(ctx, tx, op, n, stamp)
+	}
+	if existing.Status == ShapeStatusDisabled {
+		return shapeHitCommitNoop(tx, op, "commit disabled no-op")
+	}
+	if existing.Kind != n.Kind {
+		return shapeHitDisableKind(ctx, tx, op, n.Fingerprint, stamp)
+	}
+	return shapeHitIncrement(ctx, tx, op, existing, n, minRepeats, stamp)
+}
+
+func shapeHitCommitNoop(tx *sql.Tx, op, label string) (ShapeHitResult, error) {
+	if err := tx.Commit(); err != nil {
+		return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, label)
+	}
+	return ShapeHitResult{Promoted: false}, nil
+}
+
+func shapeHitInsertNew(ctx context.Context, tx *sql.Tx, op string, n ShapeHit, minRepeats int, stamp string) (ShapeHitResult, error) {
+	status := ShapeStatusAccumulating
+	promoted := false
+	if minRepeats <= 1 {
+		status = ShapeStatusActive
+		promoted = true
+	}
+	_, err := tx.ExecContext(ctx, `
 INSERT INTO mail_shapes (
   fingerprint, sender_domain, subject_template, kind, term_id, canonical_term_id,
   last_slot, prompt_hash, essence_model, seed_object_hash, hit_count, confirm_count,
   reject_count, status, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, ?, ?)`,
-			n.Fingerprint, n.Domain, n.Template, n.Kind, n.TermID, n.CanonicalTermID,
-			n.LastSlot, n.PromptHash, n.EssenceModel, n.SeedObjectHash,
-			status, stamp,
-		)
-		if err != nil {
-			return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "insert mail_shapes")
-		}
-		if err := tx.Commit(); err != nil {
-			return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "commit insert")
-		}
-		return ShapeHitResult{Promoted: promoted}, nil
+		n.Fingerprint, n.Domain, n.Template, n.Kind, n.TermID, n.CanonicalTermID,
+		n.LastSlot, n.PromptHash, n.EssenceModel, n.SeedObjectHash,
+		status, stamp,
+	)
+	if err != nil {
+		return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "insert mail_shapes")
 	}
+	if err := tx.Commit(); err != nil {
+		return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "commit insert")
+	}
+	return ShapeHitResult{Promoted: promoted}, nil
+}
 
-	if existing.PromptHash != n.PromptHash {
-		_, err = tx.ExecContext(ctx, `
+func shapeHitResetPrompt(ctx context.Context, tx *sql.Tx, op string, n ShapeHit, stamp string) (ShapeHitResult, error) {
+	_, err := tx.ExecContext(ctx, `
 UPDATE mail_shapes SET
   sender_domain=?, subject_template=?, kind=?, term_id=?, canonical_term_id=?,
   last_slot=?, prompt_hash=?, essence_model=?, seed_object_hash=?,
   hit_count=1, confirm_count=0, reject_count=0, status=?, updated_at=?
 WHERE fingerprint=?`,
-			n.Domain, n.Template, n.Kind, n.TermID, n.CanonicalTermID,
-			n.LastSlot, n.PromptHash, n.EssenceModel, n.SeedObjectHash,
-			ShapeStatusAccumulating, stamp, n.Fingerprint,
-		)
-		if err != nil {
-			return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "reset prompt_hash")
-		}
-		if err := tx.Commit(); err != nil {
-			return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "commit reset")
-		}
-		return ShapeHitResult{Promoted: false}, nil
+		n.Domain, n.Template, n.Kind, n.TermID, n.CanonicalTermID,
+		n.LastSlot, n.PromptHash, n.EssenceModel, n.SeedObjectHash,
+		ShapeStatusAccumulating, stamp, n.Fingerprint,
+	)
+	if err != nil {
+		return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "reset prompt_hash")
 	}
-
-	if existing.Status == ShapeStatusDisabled {
-		if err := tx.Commit(); err != nil {
-			return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "commit disabled no-op")
-		}
-		return ShapeHitResult{Promoted: false}, nil
+	if err := tx.Commit(); err != nil {
+		return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "commit reset")
 	}
+	return ShapeHitResult{Promoted: false}, nil
+}
 
-	if existing.Kind != n.Kind {
-		_, err = tx.ExecContext(ctx, `
+func shapeHitDisableKind(ctx context.Context, tx *sql.Tx, op, fingerprint, stamp string) (ShapeHitResult, error) {
+	_, err := tx.ExecContext(ctx, `
 UPDATE mail_shapes SET status=?, updated_at=? WHERE fingerprint=?`,
-			ShapeStatusDisabled, stamp, n.Fingerprint,
-		)
-		if err != nil {
-			return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "disable kind mismatch")
-		}
-		if err := tx.Commit(); err != nil {
-			return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "commit disable")
-		}
-		return ShapeHitResult{Promoted: false}, nil
+		ShapeStatusDisabled, stamp, fingerprint,
+	)
+	if err != nil {
+		return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "disable kind mismatch")
 	}
+	if err := tx.Commit(); err != nil {
+		return ShapeHitResult{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "commit disable")
+	}
+	return ShapeHitResult{Promoted: false}, nil
+}
 
+func shapeHitIncrement(ctx context.Context, tx *sql.Tx, op string, existing MailShapeRow, n ShapeHit, minRepeats int, stamp string) (ShapeHitResult, error) {
 	newHit := existing.HitCount + 1
 	promoted := false
 	newStatus := existing.Status
@@ -229,7 +245,7 @@ UPDATE mail_shapes SET status=?, updated_at=? WHERE fingerprint=?`,
 		newStatus = ShapeStatusActive
 		promoted = true
 	}
-	_, err = tx.ExecContext(ctx, `
+	_, err := tx.ExecContext(ctx, `
 UPDATE mail_shapes SET
   term_id=?, canonical_term_id=?, last_slot=?, essence_model=?,
   hit_count=?, status=?, updated_at=?

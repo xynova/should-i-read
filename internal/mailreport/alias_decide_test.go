@@ -54,20 +54,16 @@ func testAliasRunner(t *testing.T, aliasJudge harness.Judge, minScore float64, c
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipe, err := CreatePipeline(PipelineConfig{Harness: h, Seats: seats})
-	if err != nil {
-		t.Fatal(err)
-	}
 	runner, err := CreateRunner(RunnerConfig{
 		Harness:       h,
 		Seats:         seats,
-		Pipeline:      pipe,
 		CatalogPath:   catalogPath,
 		ApplyCatalog:  true,
 		Store:         testLedger(t),
 		ClassifyMax:   10,
 		AliasJudge:    aliasJudge,
 		MinJudgeScore: minScore,
+		Now:           testNow(),
 	}, vocab, cat)
 	if err != nil {
 		t.Fatal(err)

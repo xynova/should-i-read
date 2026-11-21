@@ -75,7 +75,7 @@ func runMailSimilar(cmd *cobra.Command, opts *rootOptions, repoRoot, hash string
 	for _, h := range hits {
 		n := similarNeighborJSON{ObjectHash: h.ObjectHash, Cosine: h.Cosine}
 		if reader != nil {
-			if sum, findErr := reader.FindByObjectHash(h.ObjectHash); findErr == nil {
+			if sum, findErr := reader.FindByObjectHash(ctx, h.ObjectHash); findErr == nil {
 				n.Subject = sum.Subject
 				n.Sender = sum.Sender
 			}

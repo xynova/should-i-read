@@ -16,6 +16,12 @@ import (
 	"github.com/xynova/should-i-read/internal/pimdir"
 )
 
+type fakePim struct{}
+
+func (f *fakePim) SummariesByObjectHash(_ context.Context, _ []string) (map[string]pimdir.EmailSummary, error) {
+	return map[string]pimdir.EmailSummary{}, nil
+}
+
 type recordingFlagger struct {
 	folder string
 	env    string
@@ -45,7 +51,7 @@ func TestApplySeenSuccessUpsertsOutcome(t *testing.T) {
 	}
 	flagger := &recordingFlagger{}
 	svc, err := CreateAckJobService(JobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Flagger: flagger,
+		Store: st, Pimdir: &fakePim{}, Flagger: flagger,
 		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
@@ -88,7 +94,7 @@ func TestApplyRecordsFlagAddSpan(t *testing.T) {
 		{ObjectHash: "h1", Folder: "INBOX", EnvelopeID: "9", Status: hoststore.AckJobItemPlanned},
 	})
 	svc, err := CreateAckJobService(JobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Flagger: &recordingFlagger{},
+		Store: st, Pimdir: &fakePim{}, Flagger: &recordingFlagger{},
 		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
@@ -118,7 +124,7 @@ func TestApplyRecordsFlagAddSpan(t *testing.T) {
 func TestApplyRejectsWrongConfirm(t *testing.T) {
 	st, ctx := openTestStore(t)
 	svc, err := CreateAckJobService(JobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Flagger: &recordingFlagger{},
+		Store: st, Pimdir: &fakePim{}, Flagger: &recordingFlagger{},
 		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {

@@ -182,34 +182,44 @@ func (w *Wizard) Run(ctx context.Context) (Result, error) {
 		return Result{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "context canceled")
 	}
 
-	var (
-		configPath string
-		created    bool
-	)
+	configPath, created, err := w.wizardEnsureConfigPath(op)
+	if err != nil {
+		return Result{}, err
+	}
+	status := w.resolveStatus()
+	w.wizardPrintCredentialBanner(status)
+	mode, err := w.wizardResolveMode(ctx, op)
+	if err != nil {
+		return Result{}, err
+	}
+	res := wizardBaseResult(configPath, created, mode, status)
+	if err := w.wizardRunMode(ctx, op, mode, &res); err != nil {
+		return res, err
+	}
+	res.Status = w.resolveStatus()
+	return res, nil
+}
+
+func (w *Wizard) wizardEnsureConfigPath(op string) (path string, created bool, err error) {
 	if !w.skipInit {
 		example := w.exampleSrc
 		if len(example) == 0 {
 			p := filepath.Join(w.repoRoot, "config", "should-i-read.example.yaml")
-			if raw, err := os.ReadFile(p); err == nil {
+			if raw, rerr := os.ReadFile(p); rerr == nil {
 				example = raw
 			}
 		}
-		path, wasCreated, err := config.WriteInit(false, example)
+		path, created, err = config.WriteInit(false, example)
 		if err != nil {
-			return Result{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "ensure config init")
+			return "", false, sirerr.Wrap(err, sirerr.CodeFailed, op, "ensure config init")
 		}
-		configPath = path
-		created = wasCreated
-	} else {
-		path, err := config.UserConfigFilePath()
-		if err != nil {
-			return Result{}, err
-		}
-		configPath = path
+		return path, created, nil
 	}
+	path, err = config.UserConfigFilePath()
+	return path, false, err
+}
 
-	productReady := w.hasProduct()
-	status := w.resolveStatus()
+func (w *Wizard) wizardPrintCredentialBanner(status map[string]string) {
 	_, _ = fmt.Fprintf(w.out, "Mail OAuth setup\n")
 	_, _ = fmt.Fprintf(w.out, "  Tokens and mail stay on this computer.\n")
 	_, _ = fmt.Fprintf(w.out, "  OAuth client ids only identify which app is asking for access.\n")
@@ -219,25 +229,28 @@ func (w *Wizard) Run(ctx context.Context) (Result, error) {
 		status[oauthcred.EnvGmailClientSecret],
 		status[oauthcred.EnvOutlookClientID],
 	)
+}
 
-	mode := w.forceMode
-	if mode == "" {
-		if productReady {
-			mode = ModeProduct
-			_, _ = fmt.Fprintf(w.out, "Product or env credentials already resolve. Skipping paste.\n")
-		} else {
-			if w.prompter == nil {
-				return Result{}, sirerr.New(sirerr.CodeInvalid, op, "no credentials resolved and no prompter configured")
-			}
-			selected, err := w.prompter.SelectMode(ctx, false)
-			if err != nil {
-				return Result{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "select mode")
-			}
-			mode = selected
-		}
+func (w *Wizard) wizardResolveMode(ctx context.Context, op string) (Mode, error) {
+	if w.forceMode != "" {
+		return w.forceMode, nil
 	}
+	if w.hasProduct() {
+		_, _ = fmt.Fprintf(w.out, "Product or env credentials already resolve. Skipping paste.\n")
+		return ModeProduct, nil
+	}
+	if w.prompter == nil {
+		return "", sirerr.New(sirerr.CodeInvalid, op, "no credentials resolved and no prompter configured")
+	}
+	selected, err := w.prompter.SelectMode(ctx, false)
+	if err != nil {
+		return "", sirerr.Wrap(err, sirerr.CodeFailed, op, "select mode")
+	}
+	return selected, nil
+}
 
-	res := Result{
+func wizardBaseResult(configPath string, created bool, mode Mode, status map[string]string) Result {
+	return Result{
 		ConfigPath: configPath,
 		ConfigNew:  created,
 		Mode:       mode,
@@ -249,30 +262,22 @@ func (w *Wizard) Run(ctx context.Context) (Result, error) {
 			"AGENTS.md — full operator sequence (host CLI only)",
 		},
 	}
+}
 
+func (w *Wizard) wizardRunMode(ctx context.Context, op string, mode Mode, res *Result) error {
 	switch mode {
 	case ModeProduct:
 		res.Notes = append(res.Notes, "Using product/env/Keychain OAuth client credentials.")
-		res.Status = w.resolveStatus()
-		return res, nil
+		return nil
 	case ModeBYO:
-		if err := w.runBYO(ctx, &res); err != nil {
-			return res, err
-		}
+		return w.runBYO(ctx, res)
 	case ModeGuided:
-		if err := w.runGuided(ctx, &res); err != nil {
-			return res, err
-		}
+		return w.runGuided(ctx, res)
 	case ModeGCloud:
-		if err := w.runGCloud(ctx, &res); err != nil {
-			return res, err
-		}
+		return w.runGCloud(ctx, res)
 	default:
-		return res, sirerr.New(sirerr.CodeInvalid, op, "unknown setup mode").With("mode", string(mode))
+		return sirerr.New(sirerr.CodeInvalid, op, "unknown setup mode").With("mode", string(mode))
 	}
-
-	res.Status = w.resolveStatus()
-	return res, nil
 }
 
 func (w *Wizard) runBYO(ctx context.Context, res *Result) error {

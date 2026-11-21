@@ -5,10 +5,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/xynova/should-i-read/internal/polypus"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
+
+func checkCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
 
 func TestCheckOK(t *testing.T) {
 	t.Parallel()
@@ -30,7 +38,7 @@ func TestCheckOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	got, err := client.Check(context.Background())
+	got, err := client.Check(checkCtx(t))
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -59,7 +67,7 @@ func TestCheckZeroModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	_, err = client.Check(context.Background())
+	_, err = client.Check(checkCtx(t))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -85,7 +93,7 @@ func TestCheckAPIsUnreachable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	_, err = client.Check(context.Background())
+	_, err = client.Check(checkCtx(t))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -113,7 +121,7 @@ func TestCheckAPIsEmptyCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	_, err = client.Check(context.Background())
+	_, err = client.Check(checkCtx(t))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -134,8 +142,44 @@ func TestCheckHealthDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	_, err = client.Check(context.Background())
+	_, err = client.Check(checkCtx(t))
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestCheck_noDeadline(t *testing.T) {
+	t.Parallel()
+	client, err := polypus.Create("http://127.0.0.1:1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Check(context.Background())
+	if err == nil {
+		t.Fatal("expected missing deadline")
+	}
+}
+
+func TestCheckMalformedHealth(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`not-json`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	client, err := polypus.Create(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Check(checkCtx(t))
+	if err == nil {
+		t.Fatal("expected decode error")
+	}
+	code, ok := sirerr.AsCode(err)
+	if !ok || code != sirerr.CodeFailed {
+		t.Fatalf("code = %v ok=%v err=%v", code, ok, err)
 	}
 }

@@ -112,44 +112,20 @@ func runPimConfigure(cmd *cobra.Command, repoRoot string, opts *rootOptions, fla
 	if ctx == nil {
 		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
-	providerRaw := strings.TrimSpace(flags.provider)
-	emailRaw := strings.TrimSpace(flags.email)
-	if providerRaw == "" || emailRaw == "" {
-		if !isTerminal(os.Stdin) {
-			return sirerr.New(sirerr.CodeInvalid, op, "provider and email required (or run from a TTY for prompts)")
-		}
-		var err error
-		if providerRaw == "" {
-			providerRaw, err = promptLine(cmd.ErrOrStderr(), "Mail provider (gmail/outlook): ")
-			if err != nil {
-				return err
-			}
-		}
-		if emailRaw == "" {
-			emailRaw, err = promptLine(cmd.ErrOrStderr(), "Mailbox email: ")
-			if err != nil {
-				return err
-			}
-		}
+	providerRaw, emailRaw, err := requireMailProviderEmail(cmd, flags.provider, flags.email, op, "provider and email required (or run from a TTY for prompts)")
+	if err != nil {
+		return err
 	}
 	prov, err := mailsync.ParseProvider(providerRaw)
 	if err != nil {
 		return err
 	}
-	hostBin := filepath.Join(repoRoot, "bin", "should-i-read")
-	if _, statErr := os.Stat(hostBin); statErr != nil {
-		if exe, exeErr := os.Executable(); exeErr == nil {
-			hostBin = exe
-		}
-	}
+	hostBin := resolvePimHostBin(repoRoot)
 	svc, err := mailsync.Create(repoRoot, hostBin, nil)
 	if err != nil {
 		return err
 	}
-	var excludes []string
-	if cfg, loadErr := opts.mustLoad(repoRoot); loadErr == nil {
-		excludes = cfg.Pimalaya.SyncExcludeCollections
-	}
+	excludes := pimSyncExcludeCollections(opts, repoRoot)
 	res, err := svc.Configure(ctx, mailsync.Options{
 		Provider:           prov,
 		Account:            flags.account,
@@ -161,21 +137,10 @@ func runPimConfigure(cmd *cobra.Command, repoRoot string, opts *rootOptions, fla
 		ExcludeCollections: excludes,
 	})
 	if err != nil {
-		var partial *mailsync.ConfigureError
-		if errors.As(err, &partial) && partial != nil {
-			if wantJSON(cmd) {
-				_ = printJSON(cmd.OutOrStdout(), partial.Result)
-			} else {
-				_, _ = io.WriteString(cmd.OutOrStdout(), formatMailConfigureResult(partial.Result)+"\n")
-			}
-		}
+		emitPartialMailConfigureResult(cmd, err)
 		return err
 	}
-	if wantJSON(cmd) {
-		return printJSON(cmd.OutOrStdout(), res)
-	}
-	_, err = io.WriteString(cmd.OutOrStdout(), formatMailConfigureResult(res)+"\n")
-	return err
+	return emitMailConfigureResult(cmd, res)
 }
 
 func newPimInitCmd(opts *rootOptions, repoRoot string) *cobra.Command {
@@ -218,6 +183,69 @@ func isTerminal(f *os.File) bool {
 	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
+func requireMailProviderEmail(cmd *cobra.Command, providerRaw, emailRaw, op, nonTTYMsg string) (string, string, error) {
+	providerRaw = strings.TrimSpace(providerRaw)
+	emailRaw = strings.TrimSpace(emailRaw)
+	if providerRaw != "" && emailRaw != "" {
+		return providerRaw, emailRaw, nil
+	}
+	if !isTerminal(os.Stdin) {
+		return "", "", sirerr.New(sirerr.CodeInvalid, op, nonTTYMsg)
+	}
+	var err error
+	if providerRaw == "" {
+		providerRaw, err = promptLine(cmd.ErrOrStderr(), "Mail provider (gmail/outlook): ")
+		if err != nil {
+			return "", "", err
+		}
+	}
+	if emailRaw == "" {
+		emailRaw, err = promptLine(cmd.ErrOrStderr(), "Mailbox email: ")
+		if err != nil {
+			return "", "", err
+		}
+	}
+	return providerRaw, emailRaw, nil
+}
+
+func resolvePimHostBin(repoRoot string) string {
+	hostBin := filepath.Join(repoRoot, "bin", "should-i-read")
+	if _, statErr := os.Stat(hostBin); statErr != nil {
+		if exe, exeErr := os.Executable(); exeErr == nil {
+			hostBin = exe
+		}
+	}
+	return hostBin
+}
+
+func pimSyncExcludeCollections(opts *rootOptions, repoRoot string) []string {
+	cfg, loadErr := opts.mustLoad(repoRoot)
+	if loadErr != nil {
+		return nil
+	}
+	return cfg.Pimalaya.SyncExcludeCollections
+}
+
+func emitMailConfigureResult(cmd *cobra.Command, res mailsync.Result) error {
+	if wantJSON(cmd) {
+		return printJSON(cmd.OutOrStdout(), res)
+	}
+	_, err := io.WriteString(cmd.OutOrStdout(), formatMailConfigureResult(res)+"\n")
+	return err
+}
+
+func emitPartialMailConfigureResult(cmd *cobra.Command, err error) {
+	var partial *mailsync.ConfigureError
+	if !errors.As(err, &partial) || partial == nil {
+		return
+	}
+	if wantJSON(cmd) {
+		_ = printJSON(cmd.OutOrStdout(), partial.Result)
+		return
+	}
+	_, _ = io.WriteString(cmd.OutOrStdout(), formatMailConfigureResult(partial.Result)+"\n")
+}
+
 func promptLine(w io.Writer, label string) (string, error) {
 	if w != nil {
 		if err := writeCLIString(w, label); err != nil {
@@ -244,7 +272,9 @@ func newPimDigestCheckCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := client.Check(cmd.Context()); err != nil {
+			checkCtx, checkCancel := context.WithTimeout(cmd.Context(), classifyModelResolveTimeout)
+			defer checkCancel()
+			if _, err := client.Check(checkCtx); err != nil {
 				return err
 			}
 			art := triage.DigestArtifact{

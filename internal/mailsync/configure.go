@@ -102,9 +102,50 @@ func (s *Service) Configure(ctx context.Context, opts Options) (Result, error) {
 	if opts.Provider == "" {
 		return Result{}, sirerr.New(sirerr.CodeInvalid, op, "provider is required")
 	}
+	dest, err := resolveConfigureDest(opts, s.hostBin)
+	if err != nil {
+		return Result{}, err
+	}
+	body, himalayaBody, err := renderConfigureBodies(opts, dest)
+	if err != nil {
+		return Result{}, err
+	}
+	res := Result{
+		Provider:       string(opts.Provider),
+		Account:        dest.account,
+		Email:          dest.email,
+		MailSyncConfig: dest.mailSyncPath,
+		HimalayaConfig: dest.himalayaPath,
+		PimdirPath:     dest.storeRoot,
+	}
+	if err := writeMailSyncIfNeeded(dest.mailSyncPath, body, opts.Force, &res); err != nil {
+		return Result{}, err
+	}
+	written, err := writeConfigFileIfNeeded(ctx, dest.himalayaPath, himalayaBody, opts.Force, op)
+	if err != nil {
+		return res, err
+	}
+	if written {
+		res.HimalayaWritten = true
+	}
+	hostPath, patched, err := config.PimalayaPatch(dest.mailSyncPath, dest.storeRoot, dest.account, dest.himalayaPath)
+	if err != nil {
+		return res, err
+	}
+	res.HostConfigPath = hostPath
+	res.HostConfigPatched = patched
+	return s.maybeInitReplica(ctx, opts, dest, res)
+}
+
+type configureDest struct {
+	email, account, storeRoot, mailSyncPath, himalayaPath, hostBin string
+}
+
+func resolveConfigureDest(opts Options, serviceHostBin string) (configureDest, error) {
+	const op = "mailsync.Configure"
 	email := strings.TrimSpace(opts.Email)
 	if email == "" {
-		return Result{}, sirerr.New(sirerr.CodeInvalid, op, "email is required")
+		return configureDest{}, sirerr.New(sirerr.CodeInvalid, op, "email is required")
 	}
 	account := strings.TrimSpace(opts.Account)
 	if account == "" {
@@ -112,102 +153,81 @@ func (s *Service) Configure(ctx context.Context, opts Options) (Result, error) {
 	}
 	mailSyncPath, err := config.DefaultMailSyncConfigPath()
 	if err != nil {
-		return Result{}, err
+		return configureDest{}, err
 	}
 	himalayaPath, err := config.DefaultHimalayaConfigPath()
 	if err != nil {
-		return Result{}, err
+		return configureDest{}, err
 	}
 	storeRoot := strings.TrimSpace(opts.StoreRoot)
 	if storeRoot == "" {
 		storeRoot = config.DefaultPimStoreDir(account)
 	}
 	if storeRoot == "" {
-		return Result{}, sirerr.New(sirerr.CodeFailed, op, "could not resolve pimdir store path")
+		return configureDest{}, sirerr.New(sirerr.CodeFailed, op, "could not resolve pimdir store path")
 	}
-
 	hostBin := strings.TrimSpace(opts.HostBin)
 	if hostBin == "" {
-		hostBin = s.hostBin
+		hostBin = serviceHostBin
 	}
-	tokenArgv, err := formatTokenCommandTOML(buildTokenArgv(hostBin, opts.Provider, account))
+	return configureDest{
+		email: email, account: account, storeRoot: storeRoot,
+		mailSyncPath: mailSyncPath, himalayaPath: himalayaPath, hostBin: hostBin,
+	}, nil
+}
+
+func renderConfigureBodies(opts Options, dest configureDest) (body, himalayaBody string, err error) {
+	tokenArgv, err := formatTokenCommandTOML(buildTokenArgv(dest.hostBin, opts.Provider, dest.account))
 	if err != nil {
-		return Result{}, err
+		return "", "", err
 	}
 	excludes := opts.ExcludeCollections
 	if excludes == nil {
 		excludes = config.DefaultSyncExcludeCollections()
 	}
-	body, err := renderAccountTOML(accountTemplateData{
-		Account:            account,
+	body, err = renderAccountTOML(accountTemplateData{
+		Account:            dest.account,
 		IMAPServer:         opts.Provider.imapServer(),
-		Email:              email,
-		StoreRoot:          storeRoot,
+		Email:              dest.email,
+		StoreRoot:          dest.storeRoot,
 		TokenCommandTOML:   tokenArgv,
 		ExcludeCollections: excludes,
 	})
 	if err != nil {
-		return Result{}, err
+		return "", "", err
 	}
-	himalayaBody, err := renderHimalayaTOML(account, storeRoot, opts.Provider.trashMailbox())
-	if err != nil {
-		return Result{}, err
-	}
+	himalayaBody, err = renderHimalayaTOML(dest.account, dest.storeRoot, opts.Provider.trashMailbox())
+	return body, himalayaBody, err
+}
 
-	res := Result{
-		Provider:       string(opts.Provider),
-		Account:        account,
-		Email:          email,
-		MailSyncConfig: mailSyncPath,
-		HimalayaConfig: himalayaPath,
-		PimdirPath:     storeRoot,
-	}
-
-	existing, readErr := os.ReadFile(mailSyncPath)
-	if readErr == nil && !opts.Force {
+func writeMailSyncIfNeeded(path, body string, force bool, res *Result) error {
+	const op = "mailsync.Configure"
+	existing, readErr := os.ReadFile(path)
+	if readErr == nil && !force {
 		if string(existing) == body {
 			res.AlreadyConfigured = true
-		} else {
-			return Result{}, sirerr.New(sirerr.CodeFailed, op, "mail sync config exists; re-run with --force or remove file").
-				With("path", mailSyncPath)
+			return nil
 		}
-	} else if readErr != nil && !os.IsNotExist(readErr) {
-		return Result{}, sirerr.Wrap(readErr, sirerr.CodeFailed, op, "read mail sync config").With("path", mailSyncPath)
+		return sirerr.New(sirerr.CodeFailed, op, "mail sync config exists; re-run with --force or remove file").
+			With("path", path)
 	}
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return sirerr.Wrap(readErr, sirerr.CodeFailed, op, "read mail sync config").With("path", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "create config dir")
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "write mail sync config").With("path", path)
+	}
+	res.ConfigWritten = true
+	return nil
+}
 
-	if !res.AlreadyConfigured {
-		if err := os.MkdirAll(filepath.Dir(mailSyncPath), 0o700); err != nil {
-			return Result{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "create config dir")
-		}
-		if err := os.WriteFile(mailSyncPath, []byte(body), 0o600); err != nil {
-			return Result{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "write mail sync config").With("path", mailSyncPath)
-		}
-		res.ConfigWritten = true
-	}
-
-	written, err := writeConfigFileIfNeeded(ctx, himalayaPath, himalayaBody, opts.Force, op)
-	if err != nil {
-		return res, err
-	}
-	if written {
-		res.HimalayaWritten = true
-	}
-
-	hostPath, patched, err := config.PimalayaPatch(mailSyncPath, storeRoot, account, himalayaPath)
-	if err != nil {
-		return res, err
-	}
-	res.HostConfigPath = hostPath
-	res.HostConfigPatched = patched
-
-	if opts.SkipInit {
+func (s *Service) maybeInitReplica(ctx context.Context, opts Options, dest configureDest, res Result) (Result, error) {
+	if opts.SkipInit || !oauthTokenReady(opts.Provider, dest.account) {
 		res.InitSkipped = true
-		res.NextSteps = nextSteps(opts.Provider, account)
-		return res, nil
-	}
-	if !oauthTokenReady(opts.Provider, account) {
-		res.InitSkipped = true
-		res.NextSteps = nextSteps(opts.Provider, account)
+		res.NextSteps = nextSteps(opts.Provider, dest.account)
 		return res, nil
 	}
 	initFn := opts.InitReplica
@@ -218,10 +238,10 @@ func (s *Service) Configure(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return res, err
 	}
-	if err := initFn(ctx, cfg, account); err != nil {
+	if err := initFn(ctx, cfg, dest.account); err != nil {
 		return res, &ConfigureError{Result: res, Err: err}
 	}
-	res.NextSteps = nextSteps(opts.Provider, account)
+	res.NextSteps = nextSteps(opts.Provider, dest.account)
 	return res, nil
 }
 

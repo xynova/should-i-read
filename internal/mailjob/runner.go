@@ -7,12 +7,12 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/xynova/should-i-read/internal/pimalaya"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
 const (
-	defaultItemTimeout  = 30 * time.Second
-	himalayaMissingHint = "install Himalaya and set pimalaya.himalaya_config via should-i-read configure"
+	defaultItemTimeout = 30 * time.Second
 )
 
 // Config wires an apply runner for one Kind.
@@ -138,11 +138,12 @@ func (r *Runner) Apply(ctx context.Context, jobID, confirm string) (err error) {
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "list applyable items")
 	}
-	if rerr := r.refreshBindings(ctx, jobID, items); rerr == nil {
-		items, err = r.store.ListApplyableItems(ctx, jobID)
-		if err != nil {
-			return sirerr.Wrap(err, sirerr.CodeFailed, op, "reload applyable items")
-		}
+	if err := r.refreshBindings(ctx, jobID, items); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "refresh bindings")
+	}
+	items, err = r.store.ListApplyableItems(ctx, jobID)
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "reload applyable items")
 	}
 	var jobErr string
 	for _, it := range items {
@@ -163,14 +164,14 @@ func (r *Runner) Apply(ctx context.Context, jobID, confirm string) (err error) {
 
 func (r *Runner) markHimalayaMissing(ctx context.Context, jobID string) error {
 	const op = "mailjob.Runner.markHimalayaMissing"
-	if err := r.store.SetJobStatus(ctx, jobID, r.spec.JobPlanned, himalayaMissingHint, nil); err != nil {
+	if err := r.store.SetJobStatus(ctx, jobID, r.spec.JobPlanned, pimalaya.HimalayaMissingHint, nil); err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "mark himalaya missing")
 	}
 	return nil
 }
 
 func himalayaUnavailable(op string) error {
-	return sirerr.New(sirerr.CodeUnavailable, op, himalayaMissingHint)
+	return sirerr.New(sirerr.CodeUnavailable, op, pimalaya.HimalayaMissingHint)
 }
 
 func (r *Runner) recordAsyncFailure(ctx context.Context, jobID string, applyErr error) error {
@@ -208,7 +209,7 @@ func (r *Runner) finalizeJob(ctx context.Context, span trace.Span, jobID, jobErr
 			if it.Status == r.spec.FailedStatus {
 				failed++
 			}
-		case r.spec.UnresolvedStatus:
+		case r.spec.UnresolvedStatus, r.spec.RefusedStatus:
 			status = r.spec.JobPartial
 		case r.spec.SuccessStatus:
 			success++

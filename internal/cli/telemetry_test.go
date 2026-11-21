@@ -17,8 +17,8 @@ func TestSkipTelemetryForCmd_mailReadiness(t *testing.T) {
 	mail.AddCommand(readiness)
 	root.AddCommand(mail)
 
-	if !skipTelemetryForCmd(readiness) {
-		t.Fatal("expected mail readiness to skip telemetry")
+	if skipTelemetryForCmd(readiness) {
+		t.Fatal("expected mail readiness to keep telemetry")
 	}
 }
 
@@ -34,8 +34,8 @@ func TestSkipTelemetryForCmd_mailOverviewServe(t *testing.T) {
 	if skipTelemetryForCmd(serve) {
 		t.Fatal("expected mail overview serve to keep telemetry")
 	}
-	if !skipTelemetryForCmd(overview) {
-		t.Fatal("expected mail overview generate to skip telemetry")
+	if skipTelemetryForCmd(overview) {
+		t.Fatal("expected mail overview generate to keep telemetry")
 	}
 }
 
@@ -58,8 +58,8 @@ func TestSkipTelemetryForCmd_polypus(t *testing.T) {
 	polypus.AddCommand(check)
 	root.AddCommand(polypus)
 
-	if !skipTelemetryForCmd(check) {
-		t.Fatal("expected polypus check to skip telemetry")
+	if skipTelemetryForCmd(check) {
+		t.Fatal("expected polypus check to keep telemetry")
 	}
 }
 

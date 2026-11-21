@@ -55,6 +55,7 @@ func testShapeRunner(t *testing.T, store *hoststore.Store, judge harness.Judge) 
 		EmbedModel:         "embed-model",
 		EssenceModel:       "essence-model",
 		PolypusURL:         "http://127.0.0.1:1320",
+		Now:                testNow(),
 	}, vocab, cat)
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +128,7 @@ func TestShapePromoteUsesJoinedEssencePrompt(t *testing.T) {
 		EssenceModel:        "essence-model",
 		PolypusURL:          "http://127.0.0.1:1320",
 		EssenceSystemPrompt: joined,
+		Now:                 testNow(),
 	}, vocab, cat)
 	if err != nil {
 		t.Fatal(err)

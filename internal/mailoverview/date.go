@@ -15,8 +15,7 @@ func weekKeyOrNone(weekKey string) string {
 	return weekKey
 }
 
-// ParseMailDate parses pimdir mail_summary.date (often RFC3339).
-func ParseMailDate(s string, loc *time.Location) (time.Time, bool) {
+func parseMailDate(s string, loc *time.Location) (time.Time, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return time.Time{}, false
@@ -48,8 +47,7 @@ func ParseMailDate(s string, loc *time.Location) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// MondayWeekStart returns the Monday of the week for t in loc.
-func MondayWeekStart(t time.Time, loc *time.Location) time.Time {
+func mondayWeekStart(t time.Time, loc *time.Location) time.Time {
 	if loc == nil {
 		loc = time.Local
 	}

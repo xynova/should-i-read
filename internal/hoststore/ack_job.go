@@ -222,7 +222,10 @@ WHERE job_id=? AND object_hash=?`,
 		if err != nil {
 			return sirerr.Wrap(err, sirerr.CodeFailed, op, "update item").With("object_hash", hash)
 		}
-		n, _ := res.RowsAffected()
+		n, nerr := res.RowsAffected()
+		if nerr != nil {
+			return sirerr.Wrap(nerr, sirerr.CodeFailed, op, "rows affected").With("object_hash", hash)
+		}
 		if n == 0 {
 			return sirerr.New(sirerr.CodeNotFound, op, "job item not found").
 				With("job_id", id).With("object_hash", hash)
@@ -258,7 +261,10 @@ WHERE id=?`, status, clipRunes(strings.TrimSpace(errText), deleteCartTLDRMax), c
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "update job")
 	}
-	n, _ := res.RowsAffected()
+	n, nerr := res.RowsAffected()
+	if nerr != nil {
+		return sirerr.Wrap(nerr, sirerr.CodeFailed, op, "rows affected")
+	}
 	if n == 0 {
 		return sirerr.New(sirerr.CodeNotFound, op, "job not found").With("job_id", id)
 	}
@@ -287,7 +293,10 @@ WHERE job_id=? AND object_hash=?`,
 	if err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "update item")
 	}
-	n, _ := res.RowsAffected()
+	n, nerr := res.RowsAffected()
+	if nerr != nil {
+		return sirerr.Wrap(nerr, sirerr.CodeFailed, op, "rows affected")
+	}
 	if n == 0 {
 		return sirerr.New(sirerr.CodeNotFound, op, "job item not found").With("object_hash", hash)
 	}

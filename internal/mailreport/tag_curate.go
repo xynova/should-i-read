@@ -101,15 +101,13 @@ func (c *TagCurator) Run(parent context.Context) (CurateResult, error) {
 		return CurateResult{}, sirerr.New(sirerr.CodeInvalid, op, "nil curator")
 	}
 	if parent == nil {
-		parent = context.Background()
+		return CurateResult{}, sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
 	if err := parent.Err(); err != nil {
 		return CurateResult{}, err
 	}
 	if _, ok := parent.Deadline(); !ok {
-		var cancel context.CancelFunc
-		parent, cancel = context.WithTimeout(parent, tagCurateJevTimeout+tagCurateStoreTimeout*2)
-		defer cancel()
+		return CurateResult{}, sirerr.New(sirerr.CodeInvalid, op, "missing deadline")
 	}
 	res, err := c.inner.Run(parent)
 	if err != nil {

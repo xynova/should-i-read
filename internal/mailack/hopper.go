@@ -16,7 +16,7 @@ type seenHopper struct {
 func (h seenHopper) Hop(ctx context.Context, folder, envelopeID string) error {
 	const op = "mailack.seenHopper.Hop"
 	if h.flagger == nil {
-		return sirerr.New(sirerr.CodeUnavailable, op, himalayaMissingHint)
+		return sirerr.New(sirerr.CodeUnavailable, op, pimalaya.HimalayaMissingHint)
 	}
 	res, err := h.flagger.FlagAdd(ctx, folder, envelopeID, pimalaya.FlagSeen)
 	if err != nil {

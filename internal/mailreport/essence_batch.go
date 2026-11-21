@@ -101,7 +101,14 @@ func (r *parallelChatRunner) runChatLines(ctx context.Context, lines []openaibat
 				mu.Unlock()
 				return
 			}
+			if perr := waitJobPace(ctx); perr != nil {
+				mu.Lock()
+				out[id] = openaibatch.LineResult{ErrMessage: perr.Error()}
+				mu.Unlock()
+				return
+			}
 			content, err := r.client.Chat(ctx, chatRequestFromLine(ln, r.model, reasoning))
+			noteChatPace(ctx, err)
 			res := openaibatch.LineResult{Content: content}
 			if err != nil {
 				res.ErrMessage = err.Error()

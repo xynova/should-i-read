@@ -3,7 +3,6 @@ package mailsync
 import (
 	"context"
 	"strings"
-	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -16,8 +15,6 @@ import (
 	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
-
-const absencesRunTimeout = 2 * time.Hour
 
 // Engine is Neverest sync with an optional --accept-absences retry.
 type Engine interface {
@@ -59,9 +56,7 @@ func (r *AbsenceRunner) Sync(ctx context.Context, account string, excludeCollect
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
 	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, absencesRunTimeout)
-		defer cancel()
+		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing deadline")
 	}
 
 	tracer := otel.Tracer("github.com/xynova/should-i-read/internal/mailsync")

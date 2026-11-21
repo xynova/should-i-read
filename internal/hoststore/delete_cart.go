@@ -3,6 +3,7 @@ package hoststore
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"strconv"
 	"strings"
@@ -46,12 +47,27 @@ func (s *Store) AddDeleteCart(ctx context.Context, items []DeleteCartItem) error
 		return sirerr.New(sirerr.CodeInvalid, op, "too many cart items").
 			With("count", strconv.Itoa(len(items)))
 	}
+	cleaned, err := dedupeDeleteCartItems(op, items)
+	if err != nil {
+		return err
+	}
+	if err := s.guardDeleteCartTotal(ctx, op, cleaned); err != nil {
+		return err
+	}
+	batchGroup, err := resolveDeleteCartBatchGroup(cleaned)
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "new group id")
+	}
+	return s.upsertDeleteCartRows(ctx, op, cleaned, batchGroup)
+}
+
+func dedupeDeleteCartItems(op string, items []DeleteCartItem) ([]DeleteCartItem, error) {
 	cleaned := make([]DeleteCartItem, 0, len(items))
 	seen := map[string]struct{}{}
 	for _, in := range items {
 		item, err := normalizeDeleteCartItem(op, in)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if _, ok := seen[item.ObjectHash]; ok {
 			continue
@@ -59,23 +75,19 @@ func (s *Store) AddDeleteCart(ctx context.Context, items []DeleteCartItem) error
 		seen[item.ObjectHash] = struct{}{}
 		cleaned = append(cleaned, item)
 	}
-	if err := s.guardDeleteCartTotal(ctx, op, cleaned); err != nil {
-		return err
-	}
-	batchGroup := ""
+	return cleaned, nil
+}
+
+func resolveDeleteCartBatchGroup(cleaned []DeleteCartItem) (string, error) {
 	for _, item := range cleaned {
 		if item.GroupID != "" {
-			batchGroup = item.GroupID
-			break
+			return item.GroupID, nil
 		}
 	}
-	if batchGroup == "" {
-		id, err := newDeleteCartGroupID()
-		if err != nil {
-			return sirerr.Wrap(err, sirerr.CodeFailed, op, "new group id")
-		}
-		batchGroup = id
-	}
+	return newDeleteCartGroupID()
+}
+
+func (s *Store) upsertDeleteCartRows(ctx context.Context, op string, cleaned []DeleteCartItem, batchGroup string) error {
 	stamp := s.stamp()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -86,7 +98,18 @@ func (s *Store) AddDeleteCart(ctx context.Context, items []DeleteCartItem) error
 		if item.GroupID == "" {
 			item.GroupID = batchGroup
 		}
-		_, err := tx.ExecContext(ctx, `
+		if err := execDeleteCartUpsert(ctx, tx, op, item, stamp); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "commit")
+	}
+	return nil
+}
+
+func execDeleteCartUpsert(ctx context.Context, tx *sql.Tx, op string, item DeleteCartItem, stamp string) error {
+	_, err := tx.ExecContext(ctx, `
 INSERT INTO delete_cart (object_hash, sender, subject, mailed_at, tldr, group_id, group_label, added_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(object_hash) DO UPDATE SET
@@ -96,14 +119,10 @@ ON CONFLICT(object_hash) DO UPDATE SET
   tldr=excluded.tldr,
   group_id=excluded.group_id,
   group_label=excluded.group_label`,
-			item.ObjectHash, item.Sender, item.Subject, item.MailedAt, item.TLDR, item.GroupID, item.GroupLabel, stamp)
-		if err != nil {
-			return sirerr.Wrap(err, sirerr.CodeFailed, op, "upsert cart row").
-				With("object_hash", item.ObjectHash)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "commit")
+		item.ObjectHash, item.Sender, item.Subject, item.MailedAt, item.TLDR, item.GroupID, item.GroupLabel, stamp)
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "upsert cart row").
+			With("object_hash", item.ObjectHash)
 	}
 	return nil
 }

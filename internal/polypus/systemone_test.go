@@ -28,7 +28,7 @@ func TestSystemOne_success(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := c.SystemOne(context.Background(), SystemOneRequest{
+	out, err := c.SystemOne(hopTestCtx(t), SystemOneRequest{
 		Model: "cf_local/typesafe/jev",
 		State: "a message",
 		Questions: map[string]SystemOneQuestion{
@@ -74,7 +74,7 @@ func TestSystemOne_noulAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := c.SystemOne(context.Background(), SystemOneRequest{
+	out, err := c.SystemOne(hopTestCtx(t), SystemOneRequest{
 		Model: "cf_local/typesafe/jev",
 		State: "a message",
 		Questions: map[string]SystemOneQuestion{
@@ -130,8 +130,23 @@ func TestSystemOne_emptyModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.SystemOne(context.Background(), SystemOneRequest{State: "s", Questions: map[string]SystemOneQuestion{"q": {Type: "noul"}}})
+	_, err = c.SystemOne(hopTestCtx(t), SystemOneRequest{State: "s", Questions: map[string]SystemOneQuestion{"q": {Type: "noul"}}})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestSystemOne_noDeadline(t *testing.T) {
+	c, err := Create("http://127.0.0.1:1320", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.SystemOne(context.Background(), SystemOneRequest{
+		Model:     "m",
+		State:     "s",
+		Questions: map[string]SystemOneQuestion{"q": {Type: "noul"}},
+	})
+	if err == nil {
+		t.Fatal("expected missing deadline")
 	}
 }

@@ -36,7 +36,7 @@ func (r ActionedRow) WhenLabel() string {
 }
 
 func shortActionedDate(raw string) string {
-	t, ok := ParseMailDate(raw, time.UTC)
+	t, ok := parseMailDate(raw, time.UTC)
 	if !ok {
 		return strings.TrimSpace(raw)
 	}

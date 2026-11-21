@@ -65,7 +65,7 @@ func TestApplyTrashSuccessRemovesCart(t *testing.T) {
 		{ObjectHash: "h1", Folder: "INBOX", EnvelopeID: "1", Status: hoststore.DeleteJobItemPlanned},
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &recordingDeleter{},
+		Store: st, Pimdir: &fakePim{}, Deleter: &recordingDeleter{},
 		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
@@ -101,7 +101,7 @@ func TestApplyTrashSuccessUpsertsOutcome(t *testing.T) {
 		{ObjectHash: "h1", Folder: "INBOX", EnvelopeID: "1", Status: hoststore.DeleteJobItemPlanned},
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &recordingDeleter{},
+		Store: st, Pimdir: &fakePim{}, Deleter: &recordingDeleter{},
 		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
@@ -147,7 +147,7 @@ exit 0
 		{ObjectHash: "h1", Folder: "INBOX", EnvelopeID: "1", Status: hoststore.DeleteJobItemPlanned},
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &fakeDeleter{script: script},
+		Store: st, Pimdir: &fakePim{}, Deleter: &fakeDeleter{script: script},
 		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
@@ -195,7 +195,7 @@ exit 0
 		{ObjectHash: "h1", Folder: "INBOX", EnvelopeID: "1", Status: hoststore.DeleteJobItemPlanned},
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &fakeDeleter{script: script},
+		Store: st, Pimdir: &fakePim{}, Deleter: &fakeDeleter{script: script},
 		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
@@ -227,7 +227,7 @@ func TestApplyRecordsFailedItemSpan(t *testing.T) {
 		{ObjectHash: "h1", Folder: "gmail/imap/[Gmail]/All Mail", EnvelopeID: "41", Status: hoststore.DeleteJobItemPlanned},
 	})
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &errDeleter{msg: "No message deleted: no id matched in the mailbox"},
+		Store: st, Pimdir: &fakePim{}, Deleter: &errDeleter{msg: "No message deleted: no id matched in the mailbox"},
 		Now: time.Now, ItemTimeout: time.Second, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
@@ -281,7 +281,7 @@ func TestApplyRecordsFailedItemSpan(t *testing.T) {
 func TestApplyConfirmMismatch(t *testing.T) {
 	st, ctx := openTestStore(t)
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Deleter: &fakeDeleter{script: "/bin/false"},
+		Store: st, Pimdir: &fakePim{}, Deleter: &fakeDeleter{script: "/bin/false"},
 		Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
@@ -309,7 +309,7 @@ func TestApplyMissingHimalayaRevertsApplying(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now, ApplyBaseCtx: ctx,
+		Store: st, Pimdir: &fakePim{}, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -355,7 +355,7 @@ func TestApplyPrefersCollectionMailbox(t *testing.T) {
 	})
 	rec := &recordingDeleter{}
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Deleter: rec, Now: time.Now, ApplyBaseCtx: ctx,
+		Store: st, Pimdir: &fakePim{}, Deleter: rec, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -421,7 +421,7 @@ func TestGetJobRecoversStuckApplying(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc, err := CreateDeleteJobService(DeleteJobConfig{
-		Store: st, Pimdir: &pimdir.Reader{}, Now: time.Now, ApplyBaseCtx: ctx,
+		Store: st, Pimdir: &fakePim{}, Now: time.Now, ApplyBaseCtx: ctx,
 	})
 	if err != nil {
 		t.Fatal(err)

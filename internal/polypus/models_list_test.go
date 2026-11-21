@@ -1,7 +1,6 @@
 package polypus_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,7 +30,7 @@ func TestCheckMergesAPICatalogFlavors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	got, err := client.Check(context.Background())
+	got, err := client.Check(checkCtx(t))
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}

@@ -63,66 +63,44 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 	if err := writeOverviewFiles(repoRoot, f.outPath, &page); err != nil {
 		return err
 	}
-	ledger := strings.TrimSpace(f.ledger)
-	if ledger == "" {
-		ledger = cfg.StorePath
-	}
-	st, err := hoststore.CreateStore(hoststore.StoreConfig{Path: ledger, Now: time.Now().UTC()})
+	pageSrv, applyCancel, closer, err := newOverviewPageServer(cmd.Context(), repoRoot, cfg, f, page)
 	if err != nil {
-		return wrapCLIHop(err, op, "open ledger for deletion cart")
+		return err
 	}
-	defer func() { _ = st.Close() }()
-	modelID := strings.TrimSpace(cfg.PolypusEssenceModel)
-	if modelID == "" {
-		modelID = strings.TrimSpace(cfg.PolypusClassifyModel)
-	}
-	client, err := polypus.Create(cfg.PolypusBaseURL, nil)
-	if err != nil {
-		return wrapCLIHop(err, op, "create polypus client")
-	}
-	guesser, err := mailoverview.CreateIntentGuesser(mailoverview.IntentConfig{Chat: client, Model: modelID})
-	if err != nil {
-		return wrapCLIHop(err, op, "create intent guesser")
-	}
-	applyCtx, applyCancel := context.WithTimeout(cmd.Context(), 2*time.Hour)
+	defer closer()
 	defer applyCancel()
-	var jobs *maildelete.Service
-	var ackJobs *mailack.Service
-	var mail *pimdir.Reader
-	if reader, rerr := pimdir.OpenStore(cfg.Pimalaya.PimdirPath); rerr == nil {
-		mail = reader
-		var deleter maildelete.TrashDeleter
-		var flagger mailack.FlagAdder
-		if h, herr := pimalaya.CreateHimalaya(cfg); herr == nil && h != nil {
-			deleter = h
-			flagger = h
-		}
-		jobs, err = maildelete.CreateDeleteJobService(maildelete.DeleteJobConfig{
-			Store: st, Pimdir: reader, Deleter: deleter, Now: time.Now,
-			RepoRoot: repoRoot, ApplyBaseCtx: applyCtx,
-		})
-		if err != nil {
-			return wrapCLIHop(err, op, "create deletion job service")
-		}
-		ackJobs, err = mailack.CreateAckJobService(mailack.JobConfig{
-			Store: st, Pimdir: reader, Flagger: flagger, Now: time.Now,
-			RepoRoot: repoRoot, ApplyBaseCtx: applyCtx,
-		})
-		if err != nil {
-			return wrapCLIHop(err, op, "create ack job service")
-		}
+	return serveOverviewUntilStop(cmd, addr, page, pageSrv, applyCancel)
+}
+
+func newOverviewPageServer(parent context.Context, repoRoot string, cfg config.Config, f mailOverviewFlags, page overviewPage) (*mailoverview.IntentPageServer, context.CancelFunc, func(), error) {
+	const op = "cli.mail.overview.serve"
+	nop := func() {}
+	st, err := hoststore.CreateStore(hoststore.StoreConfig{Path: overviewLedgerPath(f, cfg), Now: time.Now().UTC()})
+	if err != nil {
+		return nil, nop, nop, wrapCLIHop(err, op, "open ledger for deletion cart")
+	}
+	closer := func() { _ = st.Close() }
+	guesser, err := newOverviewIntentGuesser(cfg)
+	if err != nil {
+		closer()
+		return nil, nop, nop, err
+	}
+	applyCtx, applyCancel := context.WithTimeout(parent, 2*time.Hour)
+	jobs, ackJobs, mail, err := openOverviewJobServices(applyCtx, repoRoot, cfg, st)
+	if err != nil {
+		applyCancel()
+		closer()
+		return nil, nop, nop, err
+	}
+	events, err := hostevent.CreateBus(hostevent.BusConfig{Now: time.Now})
+	if err != nil {
+		applyCancel()
+		closer()
+		return nil, nop, nop, wrapCLIHop(err, op, "create event bus")
 	}
 	var preview mailoverview.MailPreviewer
 	if mail != nil {
 		preview = mailoverview.PimdirPreview{Reader: mail}
-	}
-	events, err := hostevent.CreateBus(hostevent.BusConfig{Now: time.Now})
-	if err != nil {
-		return wrapCLIHop(err, op, "create event bus")
-	}
-	var nev mailoverview.MailSyncer
-	if n, nerr := pimalaya.CreateNeverest(cfg); nerr == nil {
-		nev = &mailsync.AbsenceRunner{Engine: n, Store: st, Mail: mail, Events: events}
 	}
 	pageSrv := &mailoverview.IntentPageServer{
 		HTML:     []byte(page.HTML),
@@ -136,6 +114,85 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 		Preview:  preview,
 		Hashes:   page.Hashes,
 		Events:   events,
+	}
+	if err := wireOverviewAfterSync(pageSrv, applyCtx, repoRoot, cfg, f, st, mail, events, jobs, ackJobs); err != nil {
+		applyCancel()
+		closer()
+		return nil, nop, nop, err
+	}
+	return pageSrv, applyCancel, closer, nil
+}
+
+func overviewLedgerPath(f mailOverviewFlags, cfg config.Config) string {
+	ledger := strings.TrimSpace(f.ledger)
+	if ledger == "" {
+		return cfg.StorePath
+	}
+	return ledger
+}
+
+func newOverviewIntentGuesser(cfg config.Config) (*mailoverview.IntentGuesser, error) {
+	const op = "cli.mail.overview.serve"
+	modelID := strings.TrimSpace(cfg.PolypusEssenceModel)
+	if modelID == "" {
+		modelID = strings.TrimSpace(cfg.PolypusClassifyModel)
+	}
+	client, err := polypus.Create(cfg.PolypusBaseURL, nil)
+	if err != nil {
+		return nil, wrapCLIHop(err, op, "create polypus client")
+	}
+	guesser, err := mailoverview.CreateIntentGuesser(mailoverview.IntentConfig{Chat: client, Model: modelID})
+	if err != nil {
+		return nil, wrapCLIHop(err, op, "create intent guesser")
+	}
+	return guesser, nil
+}
+
+func openOverviewJobServices(applyCtx context.Context, repoRoot string, cfg config.Config, st *hoststore.Store) (*maildelete.Service, *mailack.Service, *pimdir.Reader, error) {
+	const op = "cli.mail.overview.serve"
+	reader, rerr := pimdir.OpenStore(cfg.Pimalaya.PimdirPath)
+	if rerr != nil {
+		return nil, nil, nil, nil
+	}
+	var deleter maildelete.TrashDeleter
+	var flagger mailack.FlagAdder
+	if h, herr := pimalaya.CreateHimalaya(cfg); herr == nil && h != nil {
+		deleter = h
+		flagger = h
+	}
+	jobs, err := maildelete.CreateDeleteJobService(maildelete.DeleteJobConfig{
+		Store: st, Pimdir: reader, Deleter: deleter, Now: time.Now,
+		RepoRoot: repoRoot, ApplyBaseCtx: applyCtx,
+	})
+	if err != nil {
+		return nil, nil, nil, wrapCLIHop(err, op, "create deletion job service")
+	}
+	ackJobs, err := mailack.CreateAckJobService(mailack.JobConfig{
+		Store: st, Pimdir: reader, Flagger: flagger, Now: time.Now,
+		RepoRoot: repoRoot, ApplyBaseCtx: applyCtx,
+	})
+	if err != nil {
+		return nil, nil, nil, wrapCLIHop(err, op, "create ack job service")
+	}
+	return jobs, ackJobs, reader, nil
+}
+
+func wireOverviewAfterSync(
+	pageSrv *mailoverview.IntentPageServer,
+	applyCtx context.Context,
+	repoRoot string,
+	cfg config.Config,
+	f mailOverviewFlags,
+	st *hoststore.Store,
+	mail *pimdir.Reader,
+	events *hostevent.Bus,
+	jobs *maildelete.Service,
+	ackJobs *mailack.Service,
+) error {
+	const op = "cli.mail.overview.serve"
+	var nev mailoverview.MailSyncer
+	if n, nerr := pimalaya.CreateNeverest(cfg); nerr == nil {
+		nev = &mailsync.AbsenceRunner{Engine: n, Store: st, Mail: mail, Events: events}
 	}
 	after, aerr := mailoverview.CreateAfterSync(mailoverview.AfterSyncConfig{
 		Classify: func(ctx context.Context, res *pimalaya.Result) (int, bool, error) {
@@ -175,10 +232,14 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 		return wrapCLIHop(err, op, "create mail sync controller")
 	}
 	pageSrv.Sync = syncCtl
-	handler := pageSrv.Handler()
+	return nil
+}
+
+func serveOverviewUntilStop(cmd *cobra.Command, addr string, page overviewPage, pageSrv *mailoverview.IntentPageServer, applyCancel context.CancelFunc) error {
+	const op = "cli.mail.overview.serve"
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           handler,
+		Handler:           pageSrv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -192,11 +253,9 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 	if err := writeCLI(cmd.OutOrStdout(), "%s\n", box); err != nil {
 		return err
 	}
-
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
-
 	select {
 	case err := <-listenErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -206,14 +265,13 @@ func runMailOverviewServe(cmd *cobra.Command, repoRoot string, cfg config.Config
 	case <-sigCh:
 	case <-cmd.Context().Done():
 	}
-
 	applyCancel()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), overviewServeShutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "shutdown")
 	}
-	err = <-listenErr
+	err := <-listenErr
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return sirerr.Wrap(err, sirerr.CodeFailed, op, "listen after shutdown")
 	}

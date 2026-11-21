@@ -56,11 +56,8 @@ func (c *Client) ProbeSystemOne(ctx context.Context, model string) error {
 	if c == nil {
 		return sirerr.New(sirerr.CodeInvalid, op, "nil client")
 	}
-	if ctx == nil {
-		return sirerr.New(sirerr.CodeInvalid, op, "nil context")
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		return sirerr.New(sirerr.CodeInvalid, op, "context must have a deadline")
+	if err := requireDeadline(ctx, op); err != nil {
+		return err
 	}
 	_, err := c.SystemOne(ctx, SystemOneRequest{
 		Model: strings.TrimSpace(model),
@@ -73,13 +70,13 @@ func (c *Client) ProbeSystemOne(ctx context.Context, model string) error {
 }
 
 // SystemOne posts to /v1/systemone.
-func (c *Client) SystemOne(ctx context.Context, req SystemOneRequest) (SystemOneResponse, error) {
+func (c *Client) SystemOne(ctx context.Context, req SystemOneRequest) (out SystemOneResponse, err error) {
 	const op = "polypus.Client.SystemOne"
 	if c == nil {
 		return SystemOneResponse{}, sirerr.New(sirerr.CodeInvalid, op, "nil client")
 	}
-	if ctx == nil {
-		return SystemOneResponse{}, sirerr.New(sirerr.CodeInvalid, op, "nil context")
+	if err = requireDeadline(ctx, op); err != nil {
+		return SystemOneResponse{}, err
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
@@ -91,6 +88,16 @@ func (c *Client) SystemOne(ctx context.Context, req SystemOneRequest) (SystemOne
 	if len(req.Questions) == 0 {
 		return SystemOneResponse{}, sirerr.New(sirerr.CodeInvalid, op, "questions required")
 	}
+	ctx, span := hopSpan(ctx, "polypus.Client.SystemOne", model, "/v1/systemone")
+	defer func() { endHopSpan(span, err) }()
+	out, err = runHop(ctx, func() (SystemOneResponse, error) {
+		return c.systemOneOnce(ctx, model, req)
+	})
+	return out, err
+}
+
+func (c *Client) systemOneOnce(ctx context.Context, model string, req SystemOneRequest) (SystemOneResponse, error) {
+	const op = "polypus.Client.SystemOne"
 	body, err := json.Marshal(systemOneBody{
 		Model:     model,
 		State:     req.State,

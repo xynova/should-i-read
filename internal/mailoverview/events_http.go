@@ -1,14 +1,18 @@
 package mailoverview
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/xynova/should-i-read/internal/hostevent"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const eventsHeartbeat = 15 * time.Second
@@ -38,24 +42,42 @@ func (s *eventsHTTP) serveEvents(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 	span.SetAttributes(attribute.String("http.route", "/events"))
 
+	if !eventsWriteConnected(w, flusher, span) {
+		return
+	}
+	eventsSetWriteDeadline(w, span)
+	ch := s.Events.Subscribe(ctx)
+	ticker := time.NewTicker(eventsHeartbeat)
+	defer ticker.Stop()
+	eventsPumpLoop(ctx, w, flusher, span, ch, ticker)
+}
+
+func eventsSSEHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
+}
+
+func eventsWriteConnected(w http.ResponseWriter, flusher http.Flusher, span trace.Span) bool {
+	eventsSSEHeaders(w)
 	if _, err := fmt.Fprintf(w, ": connected\n\n"); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "write connected")
-		return
+		return false
 	}
 	flusher.Flush()
+	return true
+}
+
+func eventsSetWriteDeadline(w http.ResponseWriter, span trace.Span) {
 	rc := http.NewResponseController(w)
 	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
 		span.RecordError(err)
 	}
+}
 
-	ch := s.Events.Subscribe(ctx)
-	ticker := time.NewTicker(eventsHeartbeat)
-	defer ticker.Stop()
+func eventsPumpLoop(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, span trace.Span, ch <-chan hostevent.Event, ticker *time.Ticker) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -64,24 +86,38 @@ func (s *eventsHTTP) serveEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			payload, err := json.Marshal(ev)
-			if err != nil {
-				span.RecordError(err)
-				continue
-			}
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "write event")
+			if !eventsWriteData(w, flusher, span, ev) {
 				return
 			}
-			flusher.Flush()
 		case <-ticker.C:
-			if _, err := fmt.Fprintf(w, ": ping\n\n"); err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "write ping")
+			if !eventsWritePing(w, flusher, span) {
 				return
 			}
-			flusher.Flush()
 		}
 	}
+}
+
+func eventsWriteData(w http.ResponseWriter, flusher http.Flusher, span trace.Span, ev hostevent.Event) bool {
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		span.RecordError(err)
+		return true
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "write event")
+		return false
+	}
+	flusher.Flush()
+	return true
+}
+
+func eventsWritePing(w http.ResponseWriter, flusher http.Flusher, span trace.Span) bool {
+	if _, err := fmt.Fprintf(w, ": ping\n\n"); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "write ping")
+		return false
+	}
+	flusher.Flush()
+	return true
 }

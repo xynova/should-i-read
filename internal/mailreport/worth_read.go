@@ -18,7 +18,7 @@ type WorthReadPrior struct {
 }
 
 // ScoreWorthReadPrior adds worth_read_prior on messages when prior is enabled and outcomes exist.
-func (r *Runner) ScoreWorthReadPrior(ctx context.Context, art Artifact) (Artifact, error) {
+func (r *PostPasses) ScoreWorthReadPrior(ctx context.Context, art Artifact) (Artifact, error) {
 	const op = "mailreport.Runner.ScoreWorthReadPrior"
 	if r == nil || !r.worthReadPrior {
 		return art, nil
@@ -57,29 +57,37 @@ func (r *Runner) ScoreWorthReadPrior(ctx context.Context, art Artifact) (Artifac
 		minCosine = r.attachMinCosine
 	}
 	for i := range art.Messages {
-		row := &art.Messages[i]
-		hash := strings.TrimSpace(row.ObjectHash)
-		if hash == "" {
-			continue
-		}
-		if p := exactWorthPrior(outcomes[hash]); p != nil {
-			row.WorthReadPrior = p
-			continue
-		}
-		if embedModel != "" {
-			if p, nerr := neighborWorthPrior(ctx, r.store, hash, embedModel, outcomes, r.worthReadSimilarK, minCosine, r.worthReadMinNeighbors); nerr != nil {
-				art.WorthReadError = nerr.Error()
-				return art, nil
-			} else if p != nil {
-				row.WorthReadPrior = p
-				continue
-			}
-		}
-		if p := kindSenderWorthPrior(row, kindRates, hash, r.worthReadMinNeighbors); p != nil {
-			row.WorthReadPrior = p
+		if err := r.scoreWorthReadRow(ctx, &art.Messages[i], embedModel, outcomes, kindRates, minCosine); err != nil {
+			art.WorthReadError = err.Error()
+			return art, nil
 		}
 	}
 	return art, nil
+}
+
+func (r *PostPasses) scoreWorthReadRow(ctx context.Context, row *MessageRow, embedModel string, outcomes map[string]hoststore.MessageOutcome, kindRates map[string]kindSenderRate, minCosine float64) error {
+	hash := strings.TrimSpace(row.ObjectHash)
+	if hash == "" {
+		return nil
+	}
+	if p := exactWorthPrior(outcomes[hash]); p != nil {
+		row.WorthReadPrior = p
+		return nil
+	}
+	if embedModel != "" {
+		p, nerr := neighborWorthPrior(ctx, r.store, hash, embedModel, outcomes, r.worthReadSimilarK, minCosine, r.worthReadMinNeighbors)
+		if nerr != nil {
+			return nerr
+		}
+		if p != nil {
+			row.WorthReadPrior = p
+			return nil
+		}
+	}
+	if p := kindSenderWorthPrior(row, kindRates, hash, r.worthReadMinNeighbors); p != nil {
+		row.WorthReadPrior = p
+	}
+	return nil
 }
 
 func exactWorthPrior(o hoststore.MessageOutcome) *WorthReadPrior {

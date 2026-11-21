@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/xynova/should-i-read/internal/sirerr"
@@ -18,7 +16,7 @@ JOIN mail_summary m ON m.item = i.id
 WHERE i.deleted = 0`
 
 // FindByObjectHash returns metadata for a live item with the given object hash.
-func (r *Reader) FindByObjectHash(hash string) (EmailSummary, error) {
+func (r *Reader) FindByObjectHash(ctx context.Context, hash string) (EmailSummary, error) {
 	const op = "pimdir.FindByObjectHash"
 	if r == nil {
 		return EmailSummary{}, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
@@ -29,11 +27,11 @@ func (r *Reader) FindByObjectHash(hash string) (EmailSummary, error) {
 	}
 	q := summarySelect + `
  AND i.object_hash = ?`
-	return r.queryPreferredSummary(op, q, hash)
+	return r.queryPreferredSummary(ctx, op, q, hash)
 }
 
 // FindByMessageID returns the first live item with a body for the given Message-ID.
-func (r *Reader) FindByMessageID(messageID string) (EmailSummary, error) {
+func (r *Reader) FindByMessageID(ctx context.Context, messageID string) (EmailSummary, error) {
 	const op = "pimdir.FindByMessageID"
 	if r == nil {
 		return EmailSummary{}, sirerr.New(sirerr.CodeInvalid, op, "nil reader")
@@ -46,20 +44,16 @@ func (r *Reader) FindByMessageID(messageID string) (EmailSummary, error) {
  AND m.message_id = ?
  AND i.object_hash IS NOT NULL AND TRIM(i.object_hash) != ''
  LIMIT 1`
-	return r.queryOneSummary(op, q, messageID)
+	return r.queryOneSummary(ctx, op, q, messageID)
 }
 
-func (r *Reader) queryOneSummary(op, q string, arg string) (EmailSummary, error) {
-	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
-	db, err := sql.Open("sqlite", dsn)
+func (r *Reader) queryOneSummary(ctx context.Context, op, q string, arg string) (EmailSummary, error) {
+	db, err := r.openRo(ctx, op)
 	if err != nil {
-		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+		return EmailSummary{}, err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
-		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
-	}
-	row := db.QueryRow(q, arg)
+	row := db.QueryRowContext(ctx, q, arg)
 	s, err := scanEmailSummary(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -70,17 +64,13 @@ func (r *Reader) queryOneSummary(op, q string, arg string) (EmailSummary, error)
 	return s, nil
 }
 
-func (r *Reader) queryPreferredSummary(op, q string, arg string) (EmailSummary, error) {
-	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
-	db, err := sql.Open("sqlite", dsn)
+func (r *Reader) queryPreferredSummary(ctx context.Context, op, q string, arg string) (EmailSummary, error) {
+	db, err := r.openRo(ctx, op)
 	if err != nil {
-		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+		return EmailSummary{}, err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
-		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
-	}
-	rows, err := db.Query(q, arg)
+	rows, err := db.QueryContext(ctx, q, arg)
 	if err != nil {
 		return EmailSummary{}, sirerr.Wrap(err, sirerr.CodeFailed, op, "query mail summary")
 	}
@@ -121,15 +111,11 @@ func (r *Reader) ListLiveObjectHashesForFolder(ctx context.Context, folder strin
 	if folder == "" {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "empty folder")
 	}
-	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
-	db, err := sql.Open("sqlite", dsn)
+	db, err := r.openRo(ctx, op)
 	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
+		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
-	}
 	q := `
 SELECT DISTINCT i.object_hash
 FROM items i
@@ -175,6 +161,30 @@ func (r *Reader) SummariesByObjectHash(ctx context.Context, hashes []string) (ma
 	if ctx == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
+	uniq := dedupeObjectHashes(hashes)
+	if len(uniq) == 0 {
+		return map[string]EmailSummary{}, nil
+	}
+	db, err := r.openRo(ctx, op)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	out := make(map[string]EmailSummary, len(uniq))
+	const batchSize = 400
+	for i := 0; i < len(uniq); i += batchSize {
+		j := i + batchSize
+		if j > len(uniq) {
+			j = len(uniq)
+		}
+		if err := r.mergeSummaryBatch(ctx, op, db, uniq[i:j], out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func dedupeObjectHashes(hashes []string) []string {
 	uniq := make([]string, 0, len(hashes))
 	seen := make(map[string]struct{}, len(hashes))
 	for _, h := range hashes {
@@ -188,55 +198,38 @@ func (r *Reader) SummariesByObjectHash(ctx context.Context, hashes []string) (ma
 		seen[h] = struct{}{}
 		uniq = append(uniq, h)
 	}
-	if len(uniq) == 0 {
-		return map[string]EmailSummary{}, nil
-	}
-	dsn := fmt.Sprintf("file:%s?mode=ro", filepath.ToSlash(r.dbPath))
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "open sqlite")
-	}
-	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
-		return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "pragma foreign_keys")
-	}
-	out := make(map[string]EmailSummary, len(uniq))
-	const batchSize = 400
-	for i := 0; i < len(uniq); i += batchSize {
-		j := i + batchSize
-		if j > len(uniq) {
-			j = len(uniq)
-		}
-		chunk := uniq[i:j]
-		placeholders := sqlPlaceholders(len(chunk))
-		q := summarySelect + `
+	return uniq
+}
+
+func (r *Reader) mergeSummaryBatch(ctx context.Context, op string, db *sql.DB, chunk []string, out map[string]EmailSummary) error {
+	placeholders := sqlPlaceholders(len(chunk))
+	q := summarySelect + `
  AND i.object_hash IN (` + placeholders + `)`
-		args := make([]any, len(chunk))
-		for k, h := range chunk {
-			args[k] = h
-		}
-		rows, err := db.QueryContext(ctx, q, args...)
-		if err != nil {
-			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "query batch")
-		}
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			s, err := scanEmailSummaryRow(rows)
-			if err != nil {
-				return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "scan batch row")
-			}
-			h := strings.TrimSpace(s.ObjectHash)
-			if h == "" {
-				continue
-			}
-			prev, ok := out[h]
-			out[h] = keepPreferredSummary(prev, s, ok)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate batch")
-		}
+	args := make([]any, len(chunk))
+	for k, h := range chunk {
+		args[k] = h
 	}
-	return out, nil
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "query batch")
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		s, err := scanEmailSummaryRow(rows)
+		if err != nil {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "scan batch row")
+		}
+		h := strings.TrimSpace(s.ObjectHash)
+		if h == "" {
+			continue
+		}
+		prev, ok := out[h]
+		out[h] = keepPreferredSummary(prev, s, ok)
+	}
+	if err := rows.Err(); err != nil {
+		return sirerr.Wrap(err, sirerr.CodeFailed, op, "iterate batch")
+	}
+	return nil
 }
 
 func scanEmailSummary(row *sql.Row) (EmailSummary, error) {

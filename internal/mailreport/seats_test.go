@@ -221,6 +221,24 @@ func TestCreateSeats_sameOptionSetOneEval(t *testing.T) {
 	}
 }
 
+func TestBatchDecide_noDeadline(t *testing.T) {
+	client, err := polypus.Create("http://127.0.0.1:1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := CreateSeats(SeatsConfig{Client: client, JudgeModel: "jev", AuthorModel: "chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	judge := seats.Judge.(*polypusJudge)
+	_, err = judge.BatchDecide(context.Background(), []JudgeBatchItem{
+		{RowID: "hash-a", In: harness.DecideIn{Text: "a", Options: []harness.PackedOption{{Choice: "skip"}}}},
+	})
+	if err == nil {
+		t.Fatal("expected missing deadline")
+	}
+}
+
 func TestCreateSeats_emptyJudge(t *testing.T) {
 	c, err := polypus.Create("http://127.0.0.1:1320", nil)
 	if err != nil {

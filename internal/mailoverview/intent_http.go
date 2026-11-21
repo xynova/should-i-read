@@ -7,12 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/xynova/should-i-read/internal/hostevent"
 	"github.com/xynova/should-i-read/internal/hoststore"
-	"github.com/xynova/should-i-read/internal/mailack"
 	"github.com/xynova/should-i-read/internal/maildelete"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
@@ -37,25 +34,16 @@ type ActionedLookup interface {
 	LookupActioned(ctx context.Context, hashes []string) (map[string]maildelete.ActionedInfo, error)
 }
 
-// IntentPageServer serves overview HTML, POST /intent, and the deletion cart.
+// IntentPageServer composes page, cart, ack, and intent servers for overview mux.
 type IntentPageServer struct {
-	pageMu   sync.RWMutex
-	HTML     []byte
-	Guess    *IntentGuesser
-	Cart     CartStore
-	Jobs     *maildelete.Service
-	AckCart  AckCartStore
-	AckJobs  *mailack.Service
-	Actioned ActionedLookup
-	Outcomes OutcomeStore
-	Preview  MailPreviewer
-	Hashes   []string
-	Sync     *SyncController
-	Events   *hostevent.Bus
+	PageServer
+	CartServer
+	AckServer
+	IntentServer
 }
 
 // ReplacePage swaps the served HTML and hash list after a post-sync report.
-func (s *IntentPageServer) ReplacePage(html []byte, hashes []string) {
+func (s *PageServer) ReplacePage(html []byte, hashes []string) {
 	if s == nil {
 		return
 	}
@@ -65,14 +53,14 @@ func (s *IntentPageServer) ReplacePage(html []byte, hashes []string) {
 	s.pageMu.Unlock()
 }
 
-// Handler returns the overview mux.
+// Handler mounts page, cart, ack, and intent servers onto one mux.
 func (s *IntentPageServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.mountHandlers(mux)
 	return mux
 }
 
-func (s *IntentPageServer) actionedLookup() ActionedLookup {
+func (s *CartServer) actionedLookup() ActionedLookup {
 	if s == nil {
 		return nil
 	}
