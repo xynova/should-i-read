@@ -44,9 +44,11 @@ type MonthSection struct {
 	Heatmap   HeatmapData    `json:"heatmap"`
 	Fluff     FluffBlock     `json:"fluff"`
 	KindTree  KindTreeBlock  `json:"kind_tree"`
-	Pipeline  PipelineBlock  `json:"pipeline"`
-	Trust     TrustBlock     `json:"trust"`
-	Messages  []MessageRow   `json:"messages"`
+	// HappenedKindTree is the full month, including actioned mail.
+	HappenedKindTree KindTreeBlock `json:"happened_kind_tree"`
+	Pipeline         PipelineBlock `json:"pipeline"`
+	Trust            TrustBlock    `json:"trust"`
+	Messages         []MessageRow  `json:"messages"`
 }
 
 // SummaryStats appears in the summary strip.

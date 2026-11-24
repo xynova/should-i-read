@@ -50,7 +50,27 @@ func startSyncSpan(ctx context.Context, runID, account string, excludes []string
 			attribute.String("sync.run_id", runID),
 			attribute.String("sync.account", account),
 			attribute.StringSlice("sync.exclude_collections", excludes),
+			attribute.Int64("sync.timeout_ms", syncRunTimeout.Milliseconds()),
 		),
+	)
+}
+
+func startPreviewSpan(ctx context.Context, objectHash string) (context.Context, trace.Span) {
+	tracer := otel.Tracer("github.com/xynova/should-i-read/internal/mailoverview")
+	return tracer.Start(ctx, "mailoverview.MessagePreview",
+		trace.WithAttributes(
+			attribute.String("preview.object_hash", objectHash),
+		),
+	)
+}
+
+func setPreviewSpanOutcome(span trace.Span, hasHTML, htmlTruncated bool) {
+	if span == nil {
+		return
+	}
+	span.SetAttributes(
+		attribute.Bool("preview.has_html", hasHTML),
+		attribute.Bool("preview.html_truncated", htmlTruncated),
 	)
 }
 

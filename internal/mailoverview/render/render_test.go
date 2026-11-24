@@ -34,6 +34,9 @@ func sampleBoardModel() mailoverview.Model {
 					Trunk: []mailoverview.KindTrunkNode{{FirstSlot: "root", Count: 1}},
 					Paths: []mailoverview.KindPathRow{{Path: "root > leaf", Count: 1, Hashes: []string{"leafh"}}},
 				},
+				HappenedKindTree: mailoverview.KindTreeBlock{
+					Paths: []mailoverview.KindPathRow{{Path: "root > leaf", Count: 2, Hashes: []string{"leafh", "actedh"}}},
+				},
 				Fluff: mailoverview.FluffBlock{ByWeek: []mailoverview.WeekFluff{{WeekKey: "w", Label: "w", Minutes: 1}}},
 				Pipeline: mailoverview.PipelineBlock{
 					HopFlow: mailoverview.HopFlow{
@@ -65,6 +68,10 @@ func sampleBoardModel() mailoverview.Model {
 				Outliers: []mailoverview.KindOutlierLeaf{{FirstSlot: "x", Kind: "x > y", Why: "only"}},
 				Paths:    []mailoverview.KindPathRow{{Path: "x > y", Count: 1, Why: "w"}},
 			},
+			HappenedKindTree: mailoverview.KindTreeBlock{
+				Outliers: []mailoverview.KindOutlierLeaf{{FirstSlot: "x", Kind: "x > y", Why: "only"}},
+				Paths:    []mailoverview.KindPathRow{{Path: "x > y", Count: 2, Why: "w", Hashes: []string{"h", "actedh"}}},
+			},
 			Fluff: mailoverview.FluffBlock{
 				ByWeek:     []mailoverview.WeekFluff{{WeekKey: "w", Minutes: 0.1}},
 				TopSenders: []mailoverview.SenderFluff{{Sender: "a@x", Minutes: 0.1, Messages: 2, Hashes: []string{"h1", "h2"}}},
@@ -82,7 +89,7 @@ func sampleBoardModel() mailoverview.Model {
 			Messages: []mailoverview.MessageRow{{MessageLine: mailoverview.MessageLine{ObjectHash: "h"}}},
 		},
 		Actioned: []mailoverview.ActionedRow{
-			{Sender: "n@github.com", Count: 2, Outcome: "already in Trash", Hashes: []string{"t1", "t2"}},
+			{Sender: "n@github.com", Count: 2, Outcome: "already in Trash", MonthKey: "2025-10", Hashes: []string{"t1", "t2"}},
 		},
 		Shapes: []mailoverview.ShapeInfo{{Fingerprint: "f", Status: hoststore.ShapeStatusActive}},
 	}
@@ -99,13 +106,29 @@ func mustRenderHTML(t *testing.T, m mailoverview.Model) string {
 
 func TestRenderHTML_sections_kind_and_fluff(t *testing.T) {
 	html := mustRenderHTML(t, sampleBoardModel())
-	for _, id := range []string{"sec-summary-all", "sec-attention-all", "sec-themes-all", "sec-fluff-all", "sec-pipeline-all", "sec-trust-all", "sec-messages-all"} {
+	for _, id := range []string{"sec-summary-all", "sec-attention-all", "sec-themes-all", "sec-happened-all", "sec-fluff-all", "sec-pipeline-all", "sec-trust-all", "sec-messages-all"} {
 		if !strings.Contains(html, `id="`+id+`"`) {
 			t.Fatalf("missing %s", id)
 		}
 	}
 	if !strings.Contains(html, "Kind tree") || !strings.Contains(html, `class="kbadge" title="w"`) {
 		t.Fatal("missing kind tree with one-off badge")
+	}
+	if !strings.Contains(html, ">What is pending<") || strings.Contains(html, ">What arrived<") {
+		t.Fatal("Mail overview kind tree must be What is pending, the live remainder")
+	}
+	if !strings.Contains(html, ">What happened<") {
+		t.Fatal("Report kind tree must be What happened, the full month")
+	}
+	if !strings.Contains(html, `class="panel page-overview" id="sec-themes-all"`) {
+		t.Fatal("What is pending must sit on Mail overview only")
+	}
+	if !strings.Contains(html, `id="sec-happened-all"`) {
+		t.Fatal("What happened must sit on Report")
+	}
+	if !strings.Contains(html, `body[data-page="overview"] .page-report:not(.page-overview)`) ||
+		!strings.Contains(html, `body[data-page="report"] .page-overview:not(.page-report)`) {
+		t.Fatal("page CSS must hide Report on Mail overview and pending on Report")
 	}
 	if !strings.Contains(html, `data-hashes="leafh"`) {
 		t.Fatal("kind tree rows should carry message hashes")
@@ -191,6 +214,9 @@ func TestRenderHTML_header_pages_and_report(t *testing.T) {
 	if !strings.Contains(html, `class="panel page-actioned"`) || strings.Contains(html, `id="sec-actioned" class="panel actioned-board page-overview"`) {
 		t.Fatal("Actioned table and charts must sit on the Actioned tab, not Mail overview")
 	}
+	if !strings.Contains(html, `id="sec-actioned-full-report" class="panel page-report"`) || !strings.Contains(html, `id="sec-actioned-full" class="panel actioned-board page-report"`) {
+		t.Fatal("Report must hold the full actioned charts and table")
+	}
 	if !strings.Contains(html, `<h1 id="board-title">should-i-read</h1>`) || !strings.Contains(html, `class="brand-mark"`) {
 		t.Fatal("header must keep the should-i-read mark and heading on both pages")
 	}
@@ -217,6 +243,23 @@ func TestRenderHTML_header_pages_and_report(t *testing.T) {
 	if !strings.Contains(html, `id="sec-actioned-report"`) || !strings.Contains(html, "function paintActionedCharts") {
 		t.Fatal("Actioned tab must chart by outcome and sender")
 	}
+	if strings.Contains(html, `body[data-page="report"] .month-row`) || strings.Contains(html, `body[data-page="actioned"] .month-row`) {
+		t.Fatal("Actioned and Report must keep the month tabs")
+	}
+	if !strings.Contains(html, "function actionedRowsForMonth") || !strings.Contains(html, "function paintActionedView") {
+		t.Fatal("Actioned must filter charts and rows by the selected month")
+	}
+	if !strings.Contains(html, "function paintActionedFull") {
+		t.Fatal("Report must paint the full actioned pile without the month filter")
+	}
+	summaryIdx := strings.Index(html, `id="sec-summary-all"`)
+	heatIdx := strings.Index(html, "Message types by week (week starting Monday)")
+	if summaryIdx < 0 || heatIdx < 0 || heatIdx < summaryIdx {
+		t.Fatal("week heatmap must sit on Report with the summary")
+	}
+	if !strings.Contains(html, `data-sender="n@github.com" data-month="2025-10"`) || !strings.Contains(html, `"month_key": "2025-10"`) {
+		t.Fatal("actioned rows must carry a month key")
+	}
 	if !strings.Contains(html, `id="sec-provenance"`) || !strings.Contains(html, `id="sec-provenance" class="panel page-report"`) {
 		t.Fatal("Provenance must sit on Report, not a page-wide footer")
 	}
@@ -233,14 +276,41 @@ func TestRenderHTML_intent_panel(t *testing.T) {
 	if !strings.Contains(html, `id="intent-panel"`) || !strings.Contains(html, "function openActionRow") {
 		t.Fatal("Reply and Decide rows must open a message preview")
 	}
+	if !strings.Contains(html, "function showMessagePreview") || !strings.Contains(html, "data.html") ||
+		!strings.Contains(html, "srcdoc") || !strings.Contains(html, "sandbox") || !strings.Contains(html, "msg-body") ||
+		!strings.Contains(html, "function sizeMessageHTMLFrame") ||
+		!strings.Contains(html, "function watchMessageHTMLFrame") {
+		t.Fatal("message preview must support data.html iframe and msg-body fallback")
+	}
+	if strings.Contains(html, `statusEl.textContent = from`) {
+		t.Fatal("message preview must not repeat the sender above the subject")
+	}
+	if !strings.Contains(html, "iframe.msg-html") {
+		t.Fatal("missing iframe.msg-html styles")
+	}
 	if !strings.Contains(html, "sir-mail-overview-nav") || !strings.Contains(html, "function restoreNav") {
 		t.Fatal("overview must remember page, month, and scroll in localStorage")
 	}
 	if strings.Contains(html, "Asking Polypus") || !strings.Contains(html, "function showWait") || !strings.Contains(html, "Summarizing this sender") {
 		t.Fatal("intent wait must use a spinner, not Asking Polypus")
 	}
-	if !strings.Contains(html, `id="intent-worth"`) || !strings.Contains(html, `id="intent-mark"`) || !strings.Contains(html, `id="delete-cart"`) {
-		t.Fatal("missing worth-reading checkbox, mark, or cart")
+	if !strings.Contains(html, `id="intent-worth"`) || !strings.Contains(html, `id="intent-mark"`) || !strings.Contains(html, `id="stage-panel"`) {
+		t.Fatal("missing worth-reading checkbox, mark, or staging panel")
+	}
+	if !strings.Contains(html, `id="intent-ack"`) || !strings.Contains(html, `id="intent-prev"`) || !strings.Contains(html, `id="intent-next"`) {
+		t.Fatal("preview must have Acked, Previous, and Next")
+	}
+	ackIdx := strings.Index(html, `id="intent-ack"`)
+	prevIdx := strings.Index(html, `id="intent-prev"`)
+	if ackIdx < 0 || prevIdx < 0 || ackIdx > prevIdx {
+		t.Fatal("Acked and Deletable must sit left of Previous and Next")
+	}
+	if strings.Count(html, `class="intent-action-icon"`) < 5 {
+		t.Fatal("preview actions must each have an icon")
+	}
+	if !strings.Contains(html, "function collectPreviewQueue") || !strings.Contains(html, "function stepPreview") ||
+		!strings.Contains(html, "function advancePreviewAfterStage") {
+		t.Fatal("preview must walk sibling messages and keep the panel open after Acked or Deletable")
 	}
 	if !strings.Contains(html, `id="intent-outliers-wrap"`) || !strings.Contains(html, "function paintOutlierBullets") {
 		t.Fatal("missing outlier bullets under TLDR")
@@ -256,6 +326,10 @@ func TestRenderHTML_intent_panel(t *testing.T) {
 	}
 	if !strings.Contains(html, "function onOutsideIntent") {
 		t.Fatal("clicking outside the sender panel must close it")
+	}
+	if !strings.Contains(html, `id="intent-backdrop"`) || !strings.Contains(html, "backdrop-filter") ||
+		!strings.Contains(html, "function setIntentOpen") {
+		t.Fatal("message panel must dim the board and dismiss on backdrop click")
 	}
 	worthIdx := strings.Index(html, `Could not save worth reading.`)
 	if worthIdx < 0 {
@@ -280,11 +354,11 @@ func TestRenderHTML_intent_panel(t *testing.T) {
 	if !strings.Contains(html, `id="cart-resize"`) {
 		t.Fatal("missing cart resize handle")
 	}
-	if !strings.Contains(html, `#delete-cart:not([hidden])`) || !strings.Contains(html, `font-size: 0.85rem`) {
-		t.Fatal("missing compact cart type")
+	if !strings.Contains(html, `#stage-panel:not([hidden])`) || !strings.Contains(html, `font-size: 0.85rem`) {
+		t.Fatal("missing compact staging panel type")
 	}
-	if !strings.Contains(html, `#delete-cart h2`) || !strings.Contains(html, `font-size: 0.92rem`) {
-		t.Fatal("missing cart heading size")
+	if !strings.Contains(html, `.stage-tabs`) || !strings.Contains(html, `font-size: 0.92rem`) {
+		t.Fatal("missing staging tab size")
 	}
 	if !strings.Contains(html, `content: "Show "`) {
 		t.Fatal("missing cart folder expand hint")
@@ -314,6 +388,33 @@ func TestRenderHTML_apply_cart_and_actioned(t *testing.T) {
 	if strings.Contains(html, "Move to Trash at source") || strings.Contains(html, "Mark as read at source") {
 		t.Fatal("Acked and Cart must share one Apply at source button")
 	}
+	if !strings.Contains(html, `id="stage-apply"`) || !strings.Contains(html, `id="stage-close"`) || !strings.Contains(html, `id="stage-help"`) {
+		t.Fatal("staging drawer must have Apply and Close")
+	}
+	if strings.Contains(html, `id="stage-sync"`) {
+		t.Fatal("staging drawer must not keep a Sync button")
+	}
+	if strings.Contains(html, `id="stage-close">Close`) {
+		t.Fatal("Close must be an X icon, not the word Close")
+	}
+	if !strings.Contains(html, `class="stage-close-icon"`) || !strings.Contains(html, `id="stage-apply"`) {
+		t.Fatal("Apply must keep the upload icon; Close must be an X")
+	}
+	applyIdx := strings.Index(html, `id="stage-apply"`)
+	closeIdx := strings.Index(html, `id="stage-close"`)
+	listIdx := strings.Index(html, `id="ack-list"`)
+	if applyIdx < 0 || closeIdx < 0 || listIdx < 0 || applyIdx > closeIdx || closeIdx > listIdx {
+		t.Fatal("Apply and Close must sit together above the staging lists")
+	}
+	if !strings.Contains(html, "Apply does Read and Trash together") {
+		t.Fatal("staging help must say Apply covers Read and Trash")
+	}
+	if !strings.Contains(html, `class="stage-job"`) || !strings.Contains(html, "function appliedSourceLine") {
+		t.Fatal("finished jobs must land on the apply stripe, not in the cart")
+	}
+	if !strings.Contains(html, `title.textContent = "Empty"`) || !strings.Contains(html, "cart-empty-hint") {
+		t.Fatal("empty cart must show a titled empty state")
+	}
 	if !strings.Contains(html, "Checking out deletion cart…") || !strings.Contains(html, "/cart/checkout") {
 		t.Fatal("missing cart checkout in-progress copy")
 	}
@@ -331,6 +432,15 @@ func TestRenderHTML_apply_cart_and_actioned(t *testing.T) {
 	}
 	if !strings.Contains(html, "function syncLiveChrome") || !strings.Contains(html, "[data-hash].is-actioned") {
 		t.Fatal("trashed mail must recount tiles, tabs, and the kind tree")
+	}
+	if !strings.Contains(html, `data-full-count="`) || !strings.Contains(html, "function paintMonthTabCounts") {
+		t.Fatal("month tabs must keep the full-month count for Report")
+	}
+	if !strings.Contains(html, `data-actioned-count="2"`) || !strings.Contains(html, `page === "actioned"`) {
+		t.Fatal("Actioned month tabs must show how many were actioned, not what is left")
+	}
+	if !strings.Contains(html, `el.closest(".page-report")`) {
+		t.Fatal("Report must keep actioned mail visible")
 	}
 	if !strings.Contains(html, "lastActioned[h]") {
 		t.Fatal("kind-tree clicks must skip hashes already in Trash before the cart cap")
@@ -365,11 +475,35 @@ func TestRenderHTML_headerSync(t *testing.T) {
 	if !strings.Contains(html, `id="mail-sync"`) || !strings.Contains(html, "/sync") {
 		t.Fatal("missing header sync control")
 	}
-	if !strings.Contains(html, `class="mail-sync-spinner"`) || !strings.Contains(html, `class="mail-sync-label"`) {
-		t.Fatal("sync button must include label and in-button spinner")
+	if !strings.Contains(html, `class="mail-sync-spinner"`) || strings.Contains(html, `class="mail-sync-label"`) {
+		t.Fatal("sync button must include an in-button spinner and no Sync word")
 	}
 	if !strings.Contains(html, `id="mail-sync-when"`) || !strings.Contains(html, `data-local="board"`) || !strings.Contains(html, "function localizeTimes") {
-		t.Fatal("Sync must show a compact local generated time")
+		t.Fatal("Sync must show a compact local generated date")
+	}
+	if !strings.Contains(html, `class="mail-sync-icon"`) || !strings.Contains(html, `weekday: "short"`) {
+		t.Fatal("Sync must show a sync icon and weekday-day stamp")
+	}
+	if !strings.Contains(html, `class="theme-sun"`) || strings.Contains(html, "Light / dark") {
+		t.Fatal("theme toggle must be a half-sun icon")
+	}
+	if !strings.Contains(html, `id="theme-toggle"`) || !strings.Contains(html, `data-tooltip="Switch light or dark theme"`) {
+		t.Fatal("theme toggle must have a hover tooltip")
+	}
+	if !strings.Contains(html, `data-tooltip="Sync mail with the configured account"`) || !strings.Contains(html, `data-tooltip="Open Read and Trash staging"`) {
+		t.Fatal("Sync and Staging must have hover tooltips")
+	}
+	if !strings.Contains(html, `content: attr(data-tooltip)`) || !strings.Contains(html, "function setButtonTip") {
+		t.Fatal("icon buttons must paint CSS tooltips from data-tooltip")
+	}
+	if !strings.Contains(html, `.title-row`) || !strings.Contains(html, "z-index: 2") || !strings.Contains(html, "z-index: 50") {
+		t.Fatal("title-row and hovered icon buttons must stack above the month row so tooltips stay visible")
+	}
+	if strings.Contains(html, `title="Switch light or dark theme"`) || strings.Contains(html, `title="Sync mail with the configured account"`) {
+		t.Fatal("icon buttons must not use native title tooltips")
+	}
+	if !strings.Contains(html, `hour: "numeric"`) || !strings.Contains(html, ">Wed 1 00:00<") {
+		t.Fatal("Sync date fallback must be weekday, day, and time")
 	}
 	if !strings.Contains(html, `mail-sync-spin`) {
 		t.Fatal("sync spinner keyframes must ship in CSS")
@@ -381,25 +515,26 @@ func TestRenderHTML_headerSync(t *testing.T) {
 	}
 	actions := html[actionsStart:monthStart]
 	month := html[monthStart:]
-	if strings.Contains(actions, `id="ack-toggle"`) || strings.Contains(actions, `id="cart-toggle"`) || strings.Contains(actions, `id="mail-sync-stripe"`) {
-		t.Fatal("Acked, Cart, and the sync error stripe do not belong on the title row")
+	if strings.Contains(actions, `id="stage-toggle"`) || strings.Contains(actions, `id="ack-toggle"`) || strings.Contains(actions, `id="cart-toggle"`) || strings.Contains(actions, `id="mail-sync-stripe"`) {
+		t.Fatal("Staging, Acked, Cart, and the sync error stripe do not belong on the title row")
 	}
 	if !strings.Contains(actions, `id="mail-sync"`) || !strings.Contains(actions, `id="theme-toggle"`) {
-		t.Fatal("title row must keep Light / dark and Sync")
+		t.Fatal("title row must keep theme and Sync")
 	}
-	ackIdx := strings.Index(month, `id="ack-toggle"`)
-	cartIdx := strings.Index(month, `id="cart-toggle"`)
-	if ackIdx < 0 || cartIdx < 0 {
-		t.Fatal("month row must keep Acked and Cart")
+	if strings.Contains(month, `id="ack-toggle"`) || strings.Contains(month, `id="cart-toggle"`) {
+		t.Fatal("month row must not keep Acked and Cart chips")
+	}
+	if !strings.Contains(month, `id="stage-toggle"`) {
+		t.Fatal("month row must keep Staging")
+	}
+	if !strings.Contains(html, `data-stage-tab="read"`) || !strings.Contains(html, `data-stage-tab="trash"`) {
+		t.Fatal("staging panel must have Read and Trash tabs")
 	}
 	if strings.Contains(month, `id="mail-sync-when"`) || strings.Contains(month, "Generated ") {
 		t.Fatal("generated time must sit inside Sync, not on the month row")
 	}
-	if ackIdx >= cartIdx {
-		t.Fatal("Acked then Cart must sit together on the month row")
-	}
 	if !strings.Contains(month, `id="apply-source"`) {
-		t.Fatal("Apply at source must sit with Acked and Cart on the month row")
+		t.Fatal("Apply at source must sit with Staging on the month row")
 	}
 	if !strings.Contains(month, `class="apply-source-icon"`) || !strings.Contains(month, `aria-label="Apply at source"`) {
 		t.Fatal("Apply at source must be an icon-only control on the month row")
@@ -417,6 +552,15 @@ func TestRenderHTML_headerSync(t *testing.T) {
 	}
 	if !strings.Contains(html, `.mail-sync-stripe.is-progress`) || !strings.Contains(html, "#243447") {
 		t.Fatal("sync progress stripe must be a slate bar")
+	}
+	if !strings.Contains(html, `.mail-sync-stripe.is-success`) || !strings.Contains(html, "#15472d") {
+		t.Fatal("apply success stripe must be a green bar")
+	}
+	if !strings.Contains(html, `"success"`) || !strings.Contains(html, "Applied at source.") {
+		t.Fatal("apply success must paint the green stripe, not the red error bar")
+	}
+	if strings.Contains(html, "Sync in this drawer pushes Gmail") {
+		t.Fatal("apply success must show job counts on the stripe, not drawer sync copy")
 	}
 	if !strings.Contains(html, "isolation: isolate") {
 		t.Fatal("site header must isolate so table headers cannot paint over the sync stripe")

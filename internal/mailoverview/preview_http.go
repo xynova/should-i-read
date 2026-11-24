@@ -8,11 +8,15 @@ import (
 	"strings"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/mailtext"
 	"github.com/xynova/should-i-read/internal/pimdir"
 	"github.com/xynova/should-i-read/internal/sirerr"
 )
 
-const previewMaxBody = 8192
+const (
+	previewMaxBody = 8192
+	previewMaxHTML = 256 * 1024
+)
 
 // MessagePreview is one message for the Reply/Decide panel.
 type MessagePreview struct {
@@ -20,6 +24,7 @@ type MessagePreview struct {
 	From      string
 	Date      string
 	Body      string
+	HTML      string
 	Truncated bool
 }
 
@@ -34,6 +39,7 @@ type previewResponse struct {
 	From      string `json:"from,omitempty"`
 	Date      string `json:"date,omitempty"`
 	Body      string `json:"body,omitempty"`
+	HTML      string `json:"html,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
 	Kept      bool   `json:"kept,omitempty"`
 	Error     string `json:"error,omitempty"`
@@ -44,12 +50,14 @@ type PimdirPreview struct {
 	Reader *pimdir.Reader
 }
 
-// MessagePreview reads headers and a capped plain-text body.
-func (p PimdirPreview) MessagePreview(ctx context.Context, hash string) (MessagePreview, error) {
+// MessagePreview reads headers, a capped plain-text body, and optional locked-down HTML.
+func (p PimdirPreview) MessagePreview(ctx context.Context, hash string) (prev MessagePreview, err error) {
 	const op = "mailoverview.PimdirPreview.MessagePreview"
 	if ctx == nil {
 		return MessagePreview{}, sirerr.New(sirerr.CodeInvalid, op, "nil context")
 	}
+	ctx, span := startPreviewSpan(ctx, hash)
+	defer func() { endOverviewSpan(span, err) }()
 	if p.Reader == nil {
 		return MessagePreview{}, sirerr.New(sirerr.CodeUnavailable, op, "mail store is not open")
 	}
@@ -61,10 +69,21 @@ func (p PimdirPreview) MessagePreview(ctx context.Context, hash string) (Message
 	if err != nil {
 		return MessagePreview{}, err
 	}
-	prev, err := pimdir.DecodeMessagePreview(blob, previewMaxBody)
+	decoded, err := pimdir.DecodeMessagePreview(blob, previewMaxBody)
 	if err != nil {
 		return MessagePreview{}, err
 	}
+	truncated := decoded.Truncated
+	htmlOut := ""
+	var htmlTrunc bool
+	if htmlRaw, herr := mailtext.HTMLFromRFC822(blob); herr == nil && strings.TrimSpace(htmlRaw) != "" {
+		safe := mailtext.SafePreviewHTML(htmlRaw)
+		if safe != "" {
+			htmlOut, htmlTrunc = mailtext.TruncateHTMLBytes(safe, previewMaxHTML)
+			truncated = truncated || htmlTrunc
+		}
+	}
+	setPreviewSpanOutcome(span, htmlOut != "", htmlTrunc)
 	from := strings.TrimSpace(sum.SenderName)
 	if from == "" {
 		from = strings.TrimSpace(sum.Sender)
@@ -75,8 +94,9 @@ func (p PimdirPreview) MessagePreview(ctx context.Context, hash string) (Message
 		Subject:   strings.TrimSpace(sum.Subject),
 		From:      from,
 		Date:      strings.TrimSpace(sum.Date),
-		Body:      prev.Body,
-		Truncated: prev.Truncated,
+		Body:      decoded.Body,
+		HTML:      htmlOut,
+		Truncated: truncated,
 	}, nil
 }
 
@@ -101,6 +121,9 @@ func (s *previewHTTP) servePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(parent, cartHTTPTimeout)
 	defer cancel()
+	ctx, span := startPreviewSpan(ctx, hash)
+	var err error
+	defer func() { endOverviewSpan(span, err) }()
 	prev, err := s.Preview.MessagePreview(ctx, hash)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -119,6 +142,7 @@ func (s *previewHTTP) servePreview(w http.ResponseWriter, r *http.Request) {
 		writePreviewJSON(w, status, previewResponse{Error: strings.TrimSpace(err.Error())})
 		return
 	}
+	setPreviewSpanOutcome(span, prev.HTML != "", false)
 	kept := false
 	if s.Outcomes != nil {
 		if o, ok, gerr := s.Outcomes.GetOutcome(ctx, hash); gerr == nil && ok && strings.TrimSpace(o.Outcome) == hoststore.OutcomeKept {
@@ -127,7 +151,7 @@ func (s *previewHTTP) servePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	writePreviewJSON(w, http.StatusOK, previewResponse{
 		OK: true, Subject: prev.Subject, From: prev.From, Date: prev.Date,
-		Body: prev.Body, Truncated: prev.Truncated, Kept: kept,
+		Body: prev.Body, HTML: prev.HTML, Truncated: prev.Truncated, Kept: kept,
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xynova/should-i-read/internal/hoststore"
+	"github.com/xynova/should-i-read/internal/maildelete"
 	"github.com/xynova/should-i-read/internal/mailreport"
 	"github.com/xynova/should-i-read/internal/pimdir"
 )
@@ -51,19 +52,21 @@ func BuildModel(
 	gitRevision string,
 	shapes []hoststore.MailShapeRow,
 	errRows []hoststore.ErrorRow,
+	actioned map[string]maildelete.ActionedInfo,
 ) Model {
 	if loc == nil {
 		loc = time.Local
 	}
-	items := enrichOverviewItems(rows, summaries, loc)
-	monthKeys := monthKeysFromItems(items, in)
-	seriesByMonth := monthSeries(items)
+	allItems := itemsInRange(enrichOverviewItems(rows, summaries, loc), in)
+	liveItems := dropActionedItems(allItems, actioned)
+	monthKeys := monthKeysFromItems(allItems, in)
+	seriesByMonth := monthSeries(allItems)
 	sparkMonths := lastNMonthKeys(now, loc, 6)
-	sections := monthSectionsFromItems(monthKeys, items, sparkMonths, seriesByMonth, in)
-	allSec := buildMonthSection(monthKeyAll, "All", items, "", sparkMonths, seriesByMonth, in)
+	sections := monthSectionsFromItems(monthKeys, liveItems, allItems, sparkMonths, seriesByMonth, in)
+	allSec := buildMonthSection(monthKeyAll, "All", liveItems, allItems, "", sparkMonths, seriesByMonth, in)
 	shapeOut, promptHashes := shapeInfosFromRows(shapes)
 	errOut := errorInfosFromRows(errRows)
-	matched := countMatchedMail(items)
+	matched := countMatchedMail(allItems)
 	eg := errorGroupsFromRows(errRows)
 
 	m := Model{
@@ -73,15 +76,16 @@ func BuildModel(
 		MailStorePath: mailStorePath,
 		CLIVersion:    version,
 		Provenance: Provenance{
-			CompleteRows: len(items),
+			CompleteRows: len(allItems),
 			MailMatched:  matched,
-			MailMissing:  len(items) - matched,
+			MailMissing:  len(allItems) - matched,
 			GitRevision:  gitRevision,
 		},
 		Months:    sections,
 		All:       allSec,
 		Shapes:    shapeOut,
 		ErrorRows: errOut,
+		Actioned:  GroupActioned(actioned),
 	}
 	// Global prompt hash rollups for the pipeline section on "All"
 	m.All.Pipeline.PromptHashes = promptHashes
@@ -152,15 +156,14 @@ func monthSeries(items []enriched) map[string]int {
 	return seriesByMonth
 }
 
-func monthSectionsFromItems(monthKeys []string, items []enriched, sparkMonths []string, seriesByMonth map[string]int, in Input) []MonthSection {
+func monthSectionsFromItems(monthKeys []string, live, all []enriched, sparkMonths []string, seriesByMonth map[string]int, in Input) []MonthSection {
 	var sections []MonthSection
 	for _, mk := range monthKeys {
-		flt := filterMonth(items, mk)
 		prevKey := prevCalendarMonthKey(mk)
-		sections = append(sections, buildMonthSection(mk, monthLabel(mk), flt, prevKey, sparkMonths, seriesByMonth, in))
+		sections = append(sections, buildMonthSection(mk, monthLabel(mk), filterMonth(live, mk), filterMonth(all, mk), prevKey, sparkMonths, seriesByMonth, in))
 	}
-	if unknown := filterMonth(items, monthKeyUnknown); len(unknown) > 0 && inRangeMonth(monthKeyUnknown, in.SinceMonth, in.UntilMonth) {
-		sections = append(sections, buildMonthSection(monthKeyUnknown, "Unknown month", unknown, "", sparkMonths, seriesByMonth, in))
+	if unknown := filterMonth(all, monthKeyUnknown); len(unknown) > 0 && inRangeMonth(monthKeyUnknown, in.SinceMonth, in.UntilMonth) {
+		sections = append(sections, buildMonthSection(monthKeyUnknown, "Unknown month", filterMonth(live, monthKeyUnknown), unknown, "", sparkMonths, seriesByMonth, in))
 	}
 	return sections
 }
@@ -257,6 +260,32 @@ func inRangeMonth(m, since, until string) bool {
 	return true
 }
 
+func itemsInRange(items []enriched, in Input) []enriched {
+	if in.SinceMonth == "" && in.UntilMonth == "" {
+		return items
+	}
+	out := make([]enriched, 0, len(items))
+	for _, it := range items {
+		if inRangeMonth(it.month, in.SinceMonth, in.UntilMonth) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// DefaultSinceMonth is the most recent August on or before now (UTC YYYY-MM).
+func DefaultSinceMonth(now time.Time) string {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	now = now.UTC()
+	aug := time.Date(now.Year(), time.August, 1, 0, 0, 0, 0, time.UTC)
+	if now.Before(aug) {
+		aug = aug.AddDate(-1, 0, 0)
+	}
+	return aug.Format("2006-01")
+}
+
 func filterMonth(items []enriched, month string) []enriched {
 	var out []enriched
 	for _, it := range items {
@@ -301,27 +330,30 @@ func lastNMonthKeys(now time.Time, loc *time.Location, n int) []string {
 
 func buildMonthSection(
 	key, label string,
-	items []enriched,
+	live, all []enriched,
 	prevMonthKey string,
 	sparkMonths []string,
 	seriesByMonth map[string]int,
 	in Input,
 ) MonthSection {
+	if all == nil {
+		all = live
+	}
 	sec := MonthSection{Key: key, Label: label}
-	sec.Summary = summaryFromItems(items, key, prevMonthKey, sparkMonths, seriesByMonth)
-	sec.Attention = attentionFromItems(items)
-	sec.Themes, sec.Heatmap = themesAndHeatmap(items)
-	sec.Fluff = fluffFromItems(items)
-	kt := kindTreeFromItems(items, key)
-	sec.KindTree = kt
-	sec.Pipeline = pipelineFromItems(items)
+	sec.Summary = summaryFromItems(all, key, prevMonthKey, sparkMonths, seriesByMonth)
+	sec.Attention = attentionFromItems(live)
+	sec.Themes, sec.Heatmap = themesAndHeatmap(all)
+	sec.Fluff = fluffFromItems(live)
+	sec.KindTree = kindTreeFromItems(live, key)
+	sec.HappenedKindTree = kindTreeFromItems(all, key)
+	sec.Pipeline = pipelineFromItems(all)
 	if key == monthKeyAll {
 		// PromptHashes set on Model after build
 	} else {
 		sec.Pipeline.PromptHashes = map[string]int{}
 	}
-	sec.Trust = trustFromItems(items)
-	sec.Messages = messageRows(items, key, kt)
+	sec.Trust = trustFromItems(all)
+	sec.Messages = messageRows(all, key, sec.HappenedKindTree)
 	return sec
 }
 

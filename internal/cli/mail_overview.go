@@ -34,7 +34,7 @@ type mailOverviewFlags struct {
 func bindMailOverviewFlags(cmd *cobra.Command, f *mailOverviewFlags) {
 	cmd.Flags().StringVar(&f.outPath, "out", "", "Output path stem (default tmp/mail-overview-<ts>; writes .html and .json)")
 	cmd.Flags().StringVar(&f.store, "store", "", "Local mail store directory (overrides config pimdir path)")
-	cmd.Flags().StringVar(&f.since, "since", "", "First mail month YYYY-MM (inclusive)")
+	cmd.Flags().StringVar(&f.since, "since", "", "First mail month YYYY-MM (inclusive; default: most recent August)")
 	cmd.Flags().StringVar(&f.until, "until", "", "Last mail month YYYY-MM (inclusive)")
 	cmd.Flags().IntVar(&f.maxRows, "max-rows", 2000, "Max message rows per month in HTML (JSON keeps all)")
 	cmd.Flags().StringVar(&f.ledger, "ledger", "", "Classify ledger path (overrides config store path)")
@@ -157,11 +157,15 @@ func buildOverviewPage(parent context.Context, repoRoot string, cfg config.Confi
 	}
 
 	gitRev := gitRevision(repoRoot)
+	since := strings.TrimSpace(f.since)
+	if since == "" {
+		since = mailoverview.DefaultSinceMonth(time.Now())
+	}
 	model := mailoverview.BuildModel(
 		time.Now(),
 		time.Local,
-		mailoverview.Input{SinceMonth: f.since, UntilMonth: f.until, MaxTable: 0},
-		mailoverview.DropActionedRows(rows, actioned),
+		mailoverview.Input{SinceMonth: since, UntilMonth: f.until, MaxTable: 0},
+		rows,
 		summaries,
 		ledger,
 		mailDir,
@@ -169,8 +173,8 @@ func buildOverviewPage(parent context.Context, repoRoot string, cfg config.Confi
 		gitRev,
 		shapes,
 		errRows,
+		actioned,
 	)
-	model.Actioned = mailoverview.GroupActioned(actioned)
 	jsonBytes, err := json.MarshalIndent(model, "", "  ")
 	if err != nil {
 		return overviewPage{}, wrapCLIHop(err, op, "marshal json")

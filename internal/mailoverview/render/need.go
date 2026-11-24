@@ -322,13 +322,13 @@ func humanLabel(slot string) string {
 	return string(r)
 }
 
-// generatedLabel formats the RFC 3339 stamp as "6 Nov 2026, 22:50 UTC".
+// generatedLabel formats the RFC 3339 stamp as "Fri 6 22:50" (weekday, day, UTC time).
 func generatedLabel(stamp string) string {
 	t, err := time.Parse(time.RFC3339, stamp)
 	if err != nil {
 		return stamp
 	}
-	return t.UTC().Format("2 Jan 2006, 15:04") + " UTC"
+	return t.UTC().Format("Mon 2 15:04")
 }
 
 // yearOf returns the year of an RFC 3339 stamp, or 0 when it does not parse.

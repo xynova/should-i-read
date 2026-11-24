@@ -68,6 +68,37 @@ func TestServePreviewReturnsBodyAndKept(t *testing.T) {
 	}
 }
 
+func TestServePreviewReturnsHTMLField(t *testing.T) {
+	t.Parallel()
+	const htmlDoc = "<html><body>Hi</body></html>"
+	srv := (&IntentPageServer{
+		HTML: []byte("h"),
+		Preview: stubPreview{prev: MessagePreview{
+			Subject: "Sub", Body: "plain", HTML: htmlDoc,
+		}},
+	}).Handler()
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/preview?hash=h1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var out previewResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out.HTML != htmlDoc {
+		t.Fatalf("html field %q", out.HTML)
+	}
+}
+
 func TestServePreviewUnavailableWithoutMail(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer((&IntentPageServer{HTML: []byte("h")}).Handler())

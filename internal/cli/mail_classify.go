@@ -35,8 +35,6 @@ type classifyOpts struct {
 	Events          *hostevent.Bus
 }
 
-const postSyncReportLimit = 500
-
 func newMailReportCmd(opts *rootOptions, repoRoot string) *cobra.Command {
 	var (
 		inPath    string
@@ -313,11 +311,16 @@ func continueClassifyAfterSync(rep pimalaya.EngineReport) bool {
 }
 
 func postSyncClassifyItems(ctx context.Context, reader *pimdir.Reader, res *pimalaya.Result, rep pimalaya.EngineReport, maxBody int, excludeCollections, collections []string) ([]mailreport.Item, int, string, error) {
+	return postSyncClassifyItemsAt(ctx, reader, res, rep, maxBody, excludeCollections, collections, time.Now().UTC())
+}
+
+func postSyncClassifyItemsAt(ctx context.Context, reader *pimdir.Reader, res *pimalaya.Result, rep pimalaya.EngineReport, maxBody int, excludeCollections, collections []string, now time.Time) ([]mailreport.Item, int, string, error) {
+	window := pimdir.CalendarMonthWindow(now)
 	if rep.Fetch > 0 {
-		items, unresolved := itemsFromFetchHunks(ctx, reader, pimalaya.FetchedHunks(res.Raw), maxBody, excludeCollections)
+		items, unresolved := itemsFromFetchHunks(ctx, reader, pimalaya.FetchedHunks(res.Raw), maxBody, excludeCollections, window)
 		return items, unresolved, mailreport.SourceSyncFetch, nil
 	}
-	items, err := loadReportItems(ctx, reader, "", pimdir.DateWindow{}, postSyncReportLimit, true, maxBody, collections)
+	items, err := loadReportItems(ctx, reader, "", window, 0, false, maxBody, collections)
 	if err != nil {
 		return nil, 0, "", err
 	}
@@ -451,7 +454,7 @@ func shortClassifyErr(err error) string {
 	return s
 }
 
-func itemsFromFetchHunks(ctx context.Context, reader *pimdir.Reader, hunks []pimalaya.HunkRef, maxBody int, excludeCollections []string) ([]mailreport.Item, int) {
+func itemsFromFetchHunks(ctx context.Context, reader *pimdir.Reader, hunks []pimalaya.HunkRef, maxBody int, excludeCollections []string, window pimdir.DateWindow) ([]mailreport.Item, int) {
 	var items []mailreport.Item
 	unresolved := 0
 	for _, h := range hunks {
@@ -467,9 +470,19 @@ func itemsFromFetchHunks(ctx context.Context, reader *pimdir.Reader, hunks []pim
 			unresolved++
 			continue
 		}
+		if !keepSyncClassifySummary(sum, window) {
+			continue
+		}
 		items = append(items, itemFromSummary(reader, sum, maxBody))
 	}
 	return items, unresolved
+}
+
+func keepSyncClassifySummary(sum pimdir.EmailSummary, window pimdir.DateWindow) bool {
+	if window.Zero() {
+		return true
+	}
+	return window.ContainsStamp(sum.Date)
 }
 
 func itemFromSummary(reader *pimdir.Reader, sum pimdir.EmailSummary, maxBody int) mailreport.Item {

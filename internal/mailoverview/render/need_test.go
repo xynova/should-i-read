@@ -140,7 +140,7 @@ func TestLabels(t *testing.T) {
 	if got := weekLabel(mailoverview.NoWeekKey); got != "No date" {
 		t.Fatalf("weekLabel no-date %q", got)
 	}
-	if got := generatedLabel("2026-11-06T22:50:18Z"); got != "6 Nov 2026, 22:50 UTC" {
+	if got := generatedLabel("2026-11-06T22:50:18Z"); got != "Fri 6 22:50" {
 		t.Fatalf("generatedLabel %q", got)
 	}
 }
@@ -183,7 +183,7 @@ func TestRenderHTML_tilesListsAndMinorTabs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Need a reply", ">Reply <", ">Decide <", ">Urgent <", ">Delete <", `<th class="col-subject">Subject</th>`, `<th class="col-tldr">TLDR</th>`, `<th class="col-ack">Acked</th>`, "ack-mark", "seen-at-source", `id="ack-cart"`, "table-layout: fixed", `class="delete-parent"`, `class="delete-entry"`, `table.delete-table th.col-ack`, `<th class="col-mark">Mark as deletable</th>`, "delete-mark", "function onDeleteListClick", "function stageAckParent", "function parentHasFreeHashes", "function syncExclusiveRow", `class="month-more"`, `class="minor" data-month="2016-02"`, `data-month="2025-10" aria-selected="true"`, `data-page="actioned"`, `data-page="report"`, `page-actioned`, `id="sec-actioned-report"`, `id="sec-provenance"`, "function activatePage", `<h1 id="board-title">should-i-read</h1>`, `class="brand-mark"`, `class="month-row"`, `class="month-meta"`, `id="mail-sync"`, `id="mail-sync-stripe"`, "function startMailSync", "/sync", "then Sync pushes Gmail", `id="apply-source"`, `class="apply-source-icon"`, `class="apply-source-spinner"`, `aria-label="Apply at source"`, "function applyAtSource", `EventSource("/events")`, "is-progress", "function showMailSyncProgress", "reloadBoardIfSyncDone", "location.reload"} {
+	for _, want := range []string{"Need a reply", ">Reply <", ">Decide <", ">Urgent <", ">Delete <", `<th class="col-subject">Subject</th>`, `<th class="col-tldr">TLDR</th>`, `<th class="col-ack">Acked</th>`, "ack-mark", "seen-at-source", `id="stage-panel"`, "table-layout: fixed", `class="delete-parent"`, `class="delete-entry"`, `table.delete-table th.col-ack`, `<th class="col-mark">Mark as deletable</th>`, "delete-mark", "function onDeleteListClick", "function stageAckParent", "function parentHasFreeHashes", "function syncExclusiveRow", `class="month-more"`, `class="minor" data-month="2016-02"`, `data-month="2025-10" aria-selected="true"`, `data-page="actioned"`, `data-page="report"`, `page-actioned`, `id="sec-actioned-report"`, `id="sec-provenance"`, "function activatePage", `<h1 id="board-title">should-i-read</h1>`, `class="brand-mark"`, `class="month-row"`, `class="month-meta"`, `id="mail-sync"`, `id="mail-sync-stripe"`, "function startMailSync", "/sync", "Apply does Read and Trash together", `id="stage-close"`, `class="stage-close-icon"`, `id="apply-source"`, `class="apply-source-icon"`, `class="apply-source-spinner"`, `aria-label="Apply at source"`, "function applyAtSource", `EventSource("/events")`, "is-progress", "function showMailSyncProgress", "reloadBoardIfSyncDone", "location.reload"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("missing %q", want)
 		}

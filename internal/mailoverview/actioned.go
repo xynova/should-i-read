@@ -11,12 +11,13 @@ import (
 
 // ActionedRow is one concise sender group on the actioned strip.
 type ActionedRow struct {
-	Sender  string   `json:"sender"`
-	Count   int      `json:"count"`
-	From    string   `json:"from,omitempty"`
-	Until   string   `json:"until,omitempty"`
-	Outcome string   `json:"outcome"`
-	Hashes  []string `json:"hashes"`
+	Sender   string   `json:"sender"`
+	Count    int      `json:"count"`
+	From     string   `json:"from,omitempty"`
+	Until    string   `json:"until,omitempty"`
+	Outcome  string   `json:"outcome"`
+	MonthKey string   `json:"month_key"`
+	Hashes   []string `json:"hashes"`
 }
 
 // HashAttr joins hashes for data-hashes.
@@ -43,6 +44,14 @@ func shortActionedDate(raw string) string {
 	return t.Format("2 Jan 2006")
 }
 
+func actionedMonthKey(raw string) string {
+	t, ok := parseMailDate(raw, time.UTC)
+	if !ok {
+		return monthKeyUnknown
+	}
+	return t.Format("2006-01")
+}
+
 // DropActionedRows keeps overview rows that are still live on the month board.
 func DropActionedRows(rows []hoststore.OverviewRow, actioned map[string]maildelete.ActionedInfo) []hoststore.OverviewRow {
 	if len(actioned) == 0 {
@@ -58,13 +67,28 @@ func DropActionedRows(rows []hoststore.OverviewRow, actioned map[string]maildele
 	return out
 }
 
-// GroupActioned rolls actioned hashes into sender rows. It is not a kind tree.
+func dropActionedItems(items []enriched, actioned map[string]maildelete.ActionedInfo) []enriched {
+	if len(actioned) == 0 {
+		return items
+	}
+	out := make([]enriched, 0, len(items))
+	for _, it := range items {
+		if _, ok := actioned[strings.TrimSpace(it.row.ObjectHash)]; ok {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+// GroupActioned rolls actioned hashes into sender rows by month. It is not a kind tree.
 func GroupActioned(actioned map[string]maildelete.ActionedInfo) []ActionedRow {
 	type agg struct {
-		sender  string
-		outcome string
-		hashes  []string
-		dates   []string
+		sender   string
+		outcome  string
+		monthKey string
+		hashes   []string
+		dates    []string
 	}
 	groups := map[string]*agg{}
 	for h, info := range actioned {
@@ -75,10 +99,11 @@ func GroupActioned(actioned map[string]maildelete.ActionedInfo) []ActionedRow {
 		if sender == "" {
 			sender = "(unknown sender)"
 		}
-		key := sender + "\x00" + info.Outcome
+		monthKey := actionedMonthKey(info.Date)
+		key := sender + "\x00" + info.Outcome + "\x00" + monthKey
 		g, ok := groups[key]
 		if !ok {
-			g = &agg{sender: sender, outcome: info.Outcome}
+			g = &agg{sender: sender, outcome: info.Outcome, monthKey: monthKey}
 			groups[key] = g
 		}
 		g.hashes = append(g.hashes, h)
@@ -91,10 +116,11 @@ func GroupActioned(actioned map[string]maildelete.ActionedInfo) []ActionedRow {
 		sort.Strings(g.hashes)
 		sort.Strings(g.dates)
 		row := ActionedRow{
-			Sender:  g.sender,
-			Count:   len(g.hashes),
-			Outcome: g.outcome,
-			Hashes:  g.hashes,
+			Sender:   g.sender,
+			Count:    len(g.hashes),
+			Outcome:  g.outcome,
+			MonthKey: g.monthKey,
+			Hashes:   g.hashes,
 		}
 		if len(g.dates) > 0 {
 			row.From = shortActionedDate(g.dates[0])
@@ -106,9 +132,24 @@ func GroupActioned(actioned map[string]maildelete.ActionedInfo) []ActionedRow {
 		if out[i].Sender != out[j].Sender {
 			return out[i].Sender < out[j].Sender
 		}
+		if out[i].MonthKey != out[j].MonthKey {
+			return out[i].MonthKey < out[j].MonthKey
+		}
 		return out[i].Outcome < out[j].Outcome
 	})
 	return out
+}
+
+// ActionedCountForMonth is how many actioned messages sit in key.
+// key "all" (or empty) is the whole board.
+func ActionedCountForMonth(rows []ActionedRow, key string) int {
+	n := 0
+	for _, r := range rows {
+		if key == "" || key == monthKeyAll || r.MonthKey == key {
+			n += r.Count
+		}
+	}
+	return n
 }
 
 const actionedSenderBarLimit = 8

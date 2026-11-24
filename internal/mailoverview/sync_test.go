@@ -68,6 +68,40 @@ func testSyncController(t *testing.T, runner MailSyncer, applyingFn func(context
 	return ctl
 }
 
+func TestSyncRunTimeoutIsFifteenMinutes(t *testing.T) {
+	t.Parallel()
+	if syncRunTimeout != 15*time.Minute {
+		t.Fatalf("syncRunTimeout %s", syncRunTimeout)
+	}
+}
+
+func TestSyncControllerStartSurvivesExpiredApplyCtx(t *testing.T) {
+	t.Parallel()
+	dead, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctl, err := CreateSyncController(SyncConfig{
+		Runner:       &holdSyncer{},
+		Account:      "gmail",
+		ApplyBaseCtx: dead,
+		RunBaseCtx:   context.Background(),
+		Now:          time.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ctl.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if ctl.Snapshot().Status == SyncStatusDone {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("final %+v", ctl.Snapshot())
+}
+
 func TestSyncControllerStartRunsOnce(t *testing.T) {
 	t.Parallel()
 	block := make(chan struct{})
@@ -293,6 +327,10 @@ func TestSyncControllerRunSyncSpanSuccess(t *testing.T) {
 	gotAccount, _ := attrs.Value(attribute.Key("sync.account"))
 	if gotAccount.AsString() != "gmail" {
 		t.Fatalf("account %q", gotAccount.AsString())
+	}
+	gotTimeout, ok := attrs.Value(attribute.Key("sync.timeout_ms"))
+	if !ok || gotTimeout.AsInt64() != syncRunTimeout.Milliseconds() {
+		t.Fatalf("timeout_ms %v ok=%v", gotTimeout, ok)
 	}
 	if runSpan.Status().Code == codes.Error {
 		t.Fatalf("status %+v", runSpan.Status())

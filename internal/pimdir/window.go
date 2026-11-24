@@ -15,6 +15,48 @@ type DateWindow struct {
 	To   time.Time // UTC exclusive
 }
 
+// CalendarMonthWindow is the UTC calendar month that contains now: [first, next first).
+func CalendarMonthWindow(now time.Time) DateWindow {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	now = now.UTC()
+	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return DateWindow{From: from, To: from.AddDate(0, 1, 0)}
+}
+
+// ContainsStamp reports whether s (RFC3339, RFC3339Nano, or YYYY-MM-DD prefix) is in [From, To).
+// Empty or unparseable stamps are outside the window.
+func (w DateWindow) ContainsStamp(s string) bool {
+	if w.Zero() {
+		return true
+	}
+	t, ok := parseWindowStamp(s)
+	if !ok {
+		return false
+	}
+	t = t.UTC()
+	return !t.Before(w.From.UTC()) && t.Before(w.To.UTC())
+}
+
+func parseWindowStamp(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05", "2006-01-02 15:04:05"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	if len(s) >= 10 {
+		if t, err := time.ParseInLocation(dateLayout, s[:10], time.UTC); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // Zero reports whether no window was set.
 func (w DateWindow) Zero() bool {
 	return w.From.IsZero() && w.To.IsZero()
