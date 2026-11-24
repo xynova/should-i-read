@@ -136,3 +136,21 @@ func TestDateWindowZero(t *testing.T) {
 		t.Fatal("partial window is not zero")
 	}
 }
+
+func TestCalendarMonthWindow(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 22, 13, 0, 0, 0, time.UTC)
+	w := CalendarMonthWindow(now)
+	if w.DateFrom() != "2026-11-01" || w.DateTo() != "2026-12-01" {
+		t.Fatalf("november: from=%s to=%s", w.DateFrom(), w.DateTo())
+	}
+	if !w.ContainsStamp("2026-11-01T00:00:00Z") || !w.ContainsStamp("2026-11-30T23:59:59Z") {
+		t.Fatal("expected November stamps inside the window")
+	}
+	if w.ContainsStamp("2026-10-31T23:59:59Z") || w.ContainsStamp("2026-12-01T00:00:00Z") {
+		t.Fatal("expected adjacent months outside the window")
+	}
+	if w.ContainsStamp("") || w.ContainsStamp("not-a-date") {
+		t.Fatal("empty and garbage stamps are outside")
+	}
+}

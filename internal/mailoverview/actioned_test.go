@@ -20,6 +20,19 @@ func TestDropActionedRows(t *testing.T) {
 	}
 }
 
+func TestDropActionedItems(t *testing.T) {
+	items := []enriched{
+		{row: hoststore.OverviewRow{ObjectHash: "live"}},
+		{row: hoststore.OverviewRow{ObjectHash: "trash"}},
+	}
+	out := dropActionedItems(items, map[string]maildelete.ActionedInfo{
+		"trash": {Outcome: maildelete.OutcomeAlreadyInTrash},
+	})
+	if len(out) != 1 || out[0].row.ObjectHash != "live" {
+		t.Fatalf("%+v", out)
+	}
+}
+
 func TestGroupActioned(t *testing.T) {
 	rows := GroupActioned(map[string]maildelete.ActionedInfo{
 		"h2": {
@@ -42,11 +55,45 @@ func TestGroupActioned(t *testing.T) {
 	if gh.Sender != "notifications@github.com" || gh.Count != 2 {
 		t.Fatalf("%+v", gh)
 	}
+	if gh.MonthKey != "2026-09" {
+		t.Fatalf("month %+v", gh)
+	}
 	if gh.From != "19 Sep 2026" || gh.Until != "30 Sep 2026" {
 		t.Fatalf("when %+v", gh)
 	}
 	if gh.WhenLabel() != "19 Sep 2026 through 30 Sep 2026" {
 		t.Fatalf("label %q", gh.WhenLabel())
+	}
+	if rows[0].MonthKey != monthKeyUnknown {
+		t.Fatalf("gitlab month %+v", rows[0])
+	}
+}
+
+func TestGroupActioned_splitsMonths(t *testing.T) {
+	rows := GroupActioned(map[string]maildelete.ActionedInfo{
+		"h1": {
+			Sender: "notifications@github.com", Outcome: maildelete.OutcomeAlreadyInTrash,
+			Date: "2026-09-30",
+		},
+		"h2": {
+			Sender: "notifications@github.com", Outcome: maildelete.OutcomeAlreadyInTrash,
+			Date: "2026-10-02",
+		},
+	})
+	if len(rows) != 2 {
+		t.Fatalf("%d %+v", len(rows), rows)
+	}
+	if rows[0].MonthKey != "2026-09" || rows[0].Count != 1 {
+		t.Fatalf("sep %+v", rows[0])
+	}
+	if rows[1].MonthKey != "2026-10" || rows[1].Count != 1 {
+		t.Fatalf("oct %+v", rows[1])
+	}
+	if ActionedCountForMonth(rows, "2026-09") != 1 || ActionedCountForMonth(rows, "2026-10") != 1 {
+		t.Fatalf("month counts %+v", rows)
+	}
+	if ActionedCountForMonth(rows, monthKeyAll) != 2 {
+		t.Fatalf("all %d", ActionedCountForMonth(rows, monthKeyAll))
 	}
 }
 

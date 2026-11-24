@@ -8,6 +8,7 @@
   var monthTabs = document.querySelector(".month-tabs");
   var restoringNav = false;
   var navSaveTimer = 0;
+  var onBoardMonth = function () {};
 
   function readNav() {
     try {
@@ -86,7 +87,30 @@
       var b = pageButtons[i];
       b.setAttribute("aria-selected", b.getAttribute("data-page") === page ? "true" : "false");
     }
+    paintMonthTabCounts();
+    onBoardMonth(currentMonthKey());
     scheduleNavSave();
+  }
+
+  function paintMonthTabCounts() {
+    var page = document.body.getAttribute("data-page");
+    var els = document.querySelectorAll(".month-tabs .tab-count");
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var full = el.getAttribute("data-full-count");
+      var live = el.getAttribute("data-live-count");
+      if (page === "report" && full) {
+        el.textContent = full;
+        continue;
+      }
+      if (page === "actioned") {
+        el.textContent = el.getAttribute("data-actioned-count") || "0";
+        continue;
+      }
+      if (live) {
+        el.textContent = live;
+      }
+    }
   }
 
   for (var pb = 0; pb < pageButtons.length; pb++) {
@@ -137,6 +161,7 @@
       p.classList.add("active");
     }
     syncMonthMore();
+    onBoardMonth(key);
     scheduleNavSave();
   }
 
@@ -185,13 +210,32 @@
     if (!d) {
       return "";
     }
-    var time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    var today = new Date();
-    if (d.toDateString() === today.toDateString()) {
-      return time;
+    var wd = d.toLocaleDateString(undefined, { weekday: "short" }).replace(/[.,]$/g, "");
+    var tm = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    return wd + " " + String(d.getDate()) + " " + tm;
+  }
+
+  function formatLocalBoardTitle(iso) {
+    var d = parseStamp(iso);
+    if (!d) {
+      return "";
     }
-    var day = d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-    return day + ", " + time;
+    return d.toLocaleString(undefined, {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  }
+
+  function setButtonTip(el, aria, tip) {
+    if (!el) {
+      return;
+    }
+    el.setAttribute("aria-label", aria);
+    el.setAttribute("data-tooltip", tip || aria);
   }
 
   function formatLocalDate(iso) {
@@ -214,6 +258,14 @@
       var next = el.getAttribute("data-local") === "board" ? formatLocalBoard(iso) : formatLocalDate(iso);
       if (next) {
         el.textContent = next;
+      }
+      if (el.getAttribute("data-local") === "board") {
+        var title = formatLocalBoardTitle(iso);
+        var btn = document.getElementById("mail-sync");
+        if (btn && next && btn.getAttribute("aria-busy") !== "true") {
+          var syncName = "Sync mail, last built " + next;
+          setButtonTip(btn, syncName, title ? "Sync mail. Last built " + title : syncName);
+        }
       }
     }
   }
@@ -408,11 +460,15 @@
 
   function wireHighlight() {
     var panel = document.getElementById("intent-panel");
+    var backdrop = document.getElementById("intent-backdrop");
     var titleEl = document.getElementById("intent-title");
     var statusEl = document.getElementById("intent-status");
     var textEl = document.getElementById("intent-text");
     var closeBtn = document.getElementById("intent-close");
     var markBtn = document.getElementById("intent-mark");
+    var ackBtn = document.getElementById("intent-ack");
+    var prevBtn = document.getElementById("intent-prev");
+    var nextBtn = document.getElementById("intent-next");
     var outliersWrap = document.getElementById("intent-outliers-wrap");
     var outliersList = document.getElementById("intent-outliers");
     var worthBox = document.getElementById("intent-worth");
@@ -422,7 +478,12 @@
 
     var lastItems = [];
     var lastActioned = {};
+    var lastActionedRows = null;
+    var lastStagedSet = {};
+    var lastAckedSet = {};
     var previewHash = "";
+    var previewQueue = [];
+    var previewIndex = -1;
     var hashIndex = null;
     var cartItemCap = 200;
     var worthBusy = false;
@@ -441,15 +502,26 @@
       }
     }
 
+    function setIntentOpen(open) {
+      panel.hidden = !open;
+      if (!open) {
+        panel.classList.remove("intent-html");
+      }
+      if (backdrop) {
+        backdrop.hidden = !open;
+      }
+    }
+
     function dismissPanel() {
       panelSeq += 1;
-      panel.hidden = true;
+      setIntentOpen(false);
       clearOutlierBullets();
+      clearPreviewQueue();
     }
 
     function beginPanel() {
       panelSeq += 1;
-      panel.hidden = false;
+      setIntentOpen(true);
       return panelSeq;
     }
 
@@ -459,6 +531,13 @@
 
     if (closeBtn) {
       closeBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        dismissPanel();
+      });
+    }
+    if (backdrop) {
+      backdrop.addEventListener("click", function (ev) {
         ev.preventDefault();
         ev.stopPropagation();
         dismissPanel();
@@ -491,7 +570,10 @@
       if (panel.contains(ev.target)) {
         return;
       }
-      if (ev.target.closest && ev.target.closest("#delete-cart, #ack-cart")) {
+      if (backdrop && (ev.target === backdrop || (backdrop.contains && backdrop.contains(ev.target)))) {
+        return;
+      }
+      if (ev.target.closest && ev.target.closest("#stage-panel")) {
         return;
       }
       if (clickOpensIntent(ev.target)) {
@@ -796,6 +878,176 @@
       markBtn.disabled = !on;
     }
 
+    function setAckEnabled(on) {
+      if (!ackBtn) {
+        return;
+      }
+      ackBtn.disabled = !on;
+    }
+
+    function updatePreviewNav() {
+      var prevOn = previewIndex > 0;
+      var nextOn = previewIndex >= 0 && previewIndex < previewQueue.length - 1;
+      if (prevBtn) {
+        prevBtn.disabled = !prevOn;
+      }
+      if (nextBtn) {
+        nextBtn.disabled = !nextOn;
+      }
+    }
+
+    function previewItemUsable(h, keepHash) {
+      if (!h) {
+        return false;
+      }
+      if (keepHash && h === keepHash) {
+        return true;
+      }
+      if (lastActioned[h] || lastStagedSet[h] || lastAckedSet[h]) {
+        return false;
+      }
+      return true;
+    }
+
+    function collectRowItems(rows, keepHash) {
+      var out = [];
+      var seen = {};
+      for (var r = 0; r < rows.length; r++) {
+        var got = enrichItems(itemsFromEl(rows[r]));
+        for (var g = 0; g < got.length; g++) {
+          var it = got[g];
+          var h = it && it.object_hash;
+          if (!h || seen[h] || !previewItemUsable(h, keepHash)) {
+            continue;
+          }
+          seen[h] = true;
+          out.push(it);
+        }
+      }
+      return out;
+    }
+
+    function collectPreviewQueue(tr, items, keepHash) {
+      var rows = [];
+      if (tr && tr.classList && tr.classList.contains("delete-entry")) {
+        var parent = tr.getAttribute("data-parent") || "";
+        var all = document.querySelectorAll("tr.delete-entry[data-hashes]");
+        for (var i = 0; i < all.length; i++) {
+          if ((all[i].getAttribute("data-parent") || "") === parent) {
+            rows.push(all[i]);
+          }
+        }
+      } else if (tr && tr.closest) {
+        var table = tr.closest("table.action-table");
+        if (table) {
+          var arows = table.querySelectorAll("tbody tr[data-hashes]");
+          for (var a = 0; a < arows.length; a++) {
+            rows.push(arows[a]);
+          }
+        }
+      }
+      var out = [];
+      if (rows.length) {
+        out = collectRowItems(rows, keepHash);
+      }
+      if (!out.length) {
+        var seed = enrichItems(items || []);
+        var seen = {};
+        for (var s = 0; s < seed.length; s++) {
+          var it = seed[s];
+          var h = it && it.object_hash;
+          if (!h || seen[h] || !previewItemUsable(h, keepHash)) {
+            continue;
+          }
+          seen[h] = true;
+          out.push(it);
+        }
+      }
+      return out;
+    }
+
+    function collectOutlierQueue(keepHash) {
+      if (!outliersList) {
+        return [];
+      }
+      var cards = outliersList.querySelectorAll(".outlier-card[data-hash]");
+      var rows = [];
+      for (var i = 0; i < cards.length; i++) {
+        rows.push(cards[i]);
+      }
+      return collectRowItems(rows, keepHash);
+    }
+
+    function setPreviewQueue(items, hash) {
+      previewQueue = items || [];
+      previewIndex = -1;
+      if (hash) {
+        for (var i = 0; i < previewQueue.length; i++) {
+          if (previewQueue[i].object_hash === hash) {
+            previewIndex = i;
+            break;
+          }
+        }
+      }
+      updatePreviewNav();
+    }
+
+    function clearPreviewQueue() {
+      previewQueue = [];
+      previewIndex = -1;
+      updatePreviewNav();
+    }
+
+    function openPreviewIndex(i) {
+      if (i < 0 || i >= previewQueue.length) {
+        return;
+      }
+      var it = previewQueue[i];
+      previewIndex = i;
+      previewHash = it.object_hash || "";
+      lastItems = [it];
+      lastIntentKey = "";
+      setMarkEnabled(!!previewHash);
+      setAckEnabled(!!previewHash);
+      setWorthEnabled(!!previewHash);
+      updatePreviewNav();
+      var seq = beginPanel();
+      loadMessagePreview(previewHash, {
+        sender: it.sender || "",
+        subject: it.subject || "",
+        date: it.date || ""
+      }, seq, false);
+    }
+
+    function stepPreview(delta) {
+      openPreviewIndex(previewIndex + delta);
+    }
+
+    function advancePreviewAfterStage() {
+      if (previewIndex < 0 || !previewHash || previewQueue.length < 2) {
+        clearPreviewQueue();
+        return false;
+      }
+      var drop = previewHash;
+      var nextItems = [];
+      for (var i = 0; i < previewQueue.length; i++) {
+        if (previewQueue[i].object_hash !== drop) {
+          nextItems.push(previewQueue[i]);
+        }
+      }
+      if (!nextItems.length) {
+        clearPreviewQueue();
+        return false;
+      }
+      var nextIdx = previewIndex;
+      if (nextIdx >= nextItems.length) {
+        nextIdx = nextItems.length - 1;
+      }
+      previewQueue = nextItems;
+      openPreviewIndex(nextIdx);
+      return true;
+    }
+
     function detailCandidate(meta) {
       if (!meta) {
         return false;
@@ -1038,7 +1290,7 @@
       if (seq !== undefined && !panelIsCurrent(seq)) {
         return;
       }
-      panel.hidden = false;
+      setIntentOpen(true);
       panel.removeAttribute("aria-busy");
       statusEl.textContent = status;
       textEl.innerHTML = markdownify(body);
@@ -1053,7 +1305,7 @@
       if (seq !== undefined && !panelIsCurrent(seq)) {
         return;
       }
-      panel.hidden = false;
+      setIntentOpen(true);
       panel.setAttribute("aria-busy", "true");
       statusEl.textContent = "";
       textEl.innerHTML = '<div class="intent-wait" role="status"><span class="intent-spinner" aria-hidden="true"></span><p>' + escapeHtml(message) + "</p></div>";
@@ -1062,18 +1314,71 @@
       }
     }
 
+    function sizeMessageHTMLFrame(frame) {
+      try {
+        var doc = frame.contentDocument;
+        if (!doc || !doc.documentElement) {
+          return;
+        }
+        var h = Math.max(
+          doc.documentElement.scrollHeight || 0,
+          doc.documentElement.offsetHeight || 0,
+          doc.body ? doc.body.scrollHeight : 0,
+          doc.body ? doc.body.offsetHeight : 0
+        );
+        if (h < 80) {
+          h = 80;
+        }
+        if (h > 8000) {
+          h = 8000;
+        }
+        frame.style.height = h + "px";
+      } catch (err) {
+        /* sandboxed document may be unread */
+      }
+    }
+
+    function watchMessageHTMLFrame(frame) {
+      sizeMessageHTMLFrame(frame);
+      try {
+        var doc = frame.contentDocument;
+        if (!doc) {
+          return;
+        }
+        var imgs = doc.images || [];
+        for (var i = 0; i < imgs.length; i++) {
+          imgs[i].addEventListener("load", function () {
+            sizeMessageHTMLFrame(frame);
+          });
+          imgs[i].addEventListener("error", function () {
+            sizeMessageHTMLFrame(frame);
+          });
+        }
+      } catch (err) {
+        /* ignore */
+      }
+      window.setTimeout(function () {
+        sizeMessageHTMLFrame(frame);
+      }, 250);
+      window.setTimeout(function () {
+        sizeMessageHTMLFrame(frame);
+      }, 1000);
+    }
+
     function showMessagePreview(data, fallback, seq, keepOutliers) {
       if (seq !== undefined && !panelIsCurrent(seq)) {
         return;
       }
-      panel.hidden = false;
+      setIntentOpen(true);
       panel.removeAttribute("aria-busy");
       setPanelTitle("Message");
       var subject = (data && data.subject) || fallback.subject || "";
       var from = (data && data.from) || fallback.sender || "";
       var date = (data && data.date) || fallback.date || "";
       var body = (data && data.body) || "";
-      statusEl.textContent = from || "Message";
+      var mimeHTML = (data && data.html) || "";
+      panel.classList.toggle("intent-html", !!mimeHTML);
+      statusEl.textContent = "";
       var html = '<div class="msg-preview">';
       if (subject) {
         html += '<p class="msg-subject">' + escapeHtml(subject) + "</p>";
@@ -1081,16 +1386,37 @@
       if (from || date) {
         html += '<p class="msg-meta">' + escapeHtml(from) + (date ? " · " + escapeHtml(date) : "") + "</p>";
       }
-      if (body) {
-        html += '<pre class="msg-body">' + escapeHtml(body) + "</pre>";
-      } else {
-        html += '<p class="msg-meta">No body on this page. Serve overview to load the message.</p>';
-      }
-      if (data && data.truncated) {
-        html += '<p class="msg-trunc">Preview truncated.</p>';
-      }
       html += "</div>";
       textEl.innerHTML = html;
+      var wrap = textEl.querySelector(".msg-preview") || textEl;
+      if (mimeHTML) {
+        var frame = document.createElement("iframe");
+        frame.className = "msg-html";
+        frame.setAttribute("sandbox", "allow-same-origin");
+        frame.referrerPolicy = "no-referrer";
+        frame.title = "Message HTML";
+        frame.addEventListener("load", function () {
+          watchMessageHTMLFrame(frame);
+        });
+        frame.srcdoc = mimeHTML;
+        wrap.appendChild(frame);
+      } else if (body) {
+        var pre = document.createElement("pre");
+        pre.className = "msg-body";
+        pre.textContent = body;
+        wrap.appendChild(pre);
+      } else {
+        var empty = document.createElement("p");
+        empty.className = "msg-meta";
+        empty.textContent = "No body on this page. Serve overview to load the message.";
+        wrap.appendChild(empty);
+      }
+      if (data && data.truncated) {
+        var trunc = document.createElement("p");
+        trunc.className = "msg-trunc";
+        trunc.textContent = "Preview truncated.";
+        wrap.appendChild(trunc);
+      }
       if (worthBox) {
         worthBox.checked = !!(data && data.kept);
       }
@@ -1104,7 +1430,9 @@
       lastItems = enrichItems(raw);
       previewHash = "";
       lastIntentKey = "";
+      clearPreviewQueue();
       setMarkEnabled(lastItems.length > 0);
+      setAckEnabled(lastItems.length > 0);
       setWorthEnabled(false);
       clearOutlierBullets();
       var seq = beginPanel();
@@ -1200,7 +1528,9 @@
       lastItems = items;
       lastIntentKey = "";
       previewHash = items.length ? items[0].object_hash : "";
+      setPreviewQueue(collectPreviewQueue(tr, items, previewHash), previewHash);
       setMarkEnabled(items.length > 0);
+      setAckEnabled(items.length > 0);
       setWorthEnabled(!!previewHash);
       clearOutlierBullets();
       var seq = beginPanel();
@@ -1218,8 +1548,15 @@
         return;
       }
       previewHash = hash;
+      setPreviewQueue(collectOutlierQueue(hash), hash);
+      if (previewIndex >= 0) {
+        lastItems = [previewQueue[previewIndex]];
+      } else {
+        lastItems = enrichItems(itemsFromEl(card));
+      }
       setWorthEnabled(true);
       setMarkEnabled(lastItems.length > 0);
+      setAckEnabled(lastItems.length > 0);
       var cards = outliersList ? outliersList.querySelectorAll(".outlier-card") : [];
       for (var i = 0; i < cards.length; i++) {
         if (cards[i] === card) {
@@ -1369,6 +1706,50 @@
       return li;
     }
 
+    function paintStageEmpty(list, kind) {
+      if (!list) {
+        return;
+      }
+      var wrap = document.createElement("div");
+      wrap.className = "cart-empty";
+      wrap.setAttribute("role", "status");
+      var ns = "http://www.w3.org/2000/svg";
+      var svg = document.createElementNS(ns, "svg");
+      svg.setAttribute("class", "cart-empty-icon");
+      svg.setAttribute("viewBox", "0 0 32 32");
+      svg.setAttribute("width", "36");
+      svg.setAttribute("height", "36");
+      svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("focusable", "false");
+      var tray = document.createElementNS(ns, "path");
+      tray.setAttribute("fill", "none");
+      tray.setAttribute("stroke", "currentColor");
+      tray.setAttribute("stroke-width", "1.8");
+      tray.setAttribute("stroke-linejoin", "round");
+      tray.setAttribute("d", "M4.8 13h22.4l-2.1 11.4c-.2 1.1-1.2 1.9-2.3 1.9H9.2c-1.1 0-2.1-.8-2.3-1.9L4.8 13z");
+      var flap = document.createElementNS(ns, "path");
+      flap.setAttribute("fill", "none");
+      flap.setAttribute("stroke", "currentColor");
+      flap.setAttribute("stroke-width", "1.8");
+      flap.setAttribute("stroke-linecap", "round");
+      flap.setAttribute("stroke-linejoin", "round");
+      flap.setAttribute("d", "M11 13l5-6.2L21 13");
+      svg.appendChild(tray);
+      svg.appendChild(flap);
+      var title = document.createElement("p");
+      title.className = "cart-empty-title";
+      title.textContent = "Empty";
+      var hint = document.createElement("p");
+      hint.className = "cart-empty-hint";
+      hint.textContent = kind === "read"
+        ? "Nothing waiting to mark as seen."
+        : "Nothing waiting to move to Trash.";
+      wrap.appendChild(svg);
+      wrap.appendChild(title);
+      wrap.appendChild(hint);
+      list.appendChild(wrap);
+    }
+
     function renderCart(data) {
       var countEl = document.getElementById("cart-count");
       var list = document.getElementById("cart-list");
@@ -1376,6 +1757,8 @@
       if (countEl) {
         countEl.textContent = String(n);
       }
+      updateStageCount();
+      updateStageHelp();
       if (!list) {
         applyStaged(data);
         return;
@@ -1383,10 +1766,7 @@
       list.innerHTML = "";
       var items = (data && data.items) || [];
       if (!items.length) {
-        var empty = document.createElement("p");
-        empty.className = "cart-empty";
-        empty.textContent = "Nothing staged yet.";
-        list.appendChild(empty);
+        paintStageEmpty(list, "trash");
         applyStaged(data);
         return;
       }
@@ -1461,9 +1841,6 @@
       return needAll ? any : false;
     }
 
-    var lastStagedSet = {};
-    var lastAckedSet = {};
-
     function applyStaged(data) {
       var set = {};
       var items = (data && data.items) || [];
@@ -1477,7 +1854,7 @@
       var nodes = document.querySelectorAll("[data-hashes]");
       for (var n = 0; n < nodes.length; n++) {
         var el = nodes[n];
-        if (el.closest && (el.closest("#sec-actioned") || el.closest("#delete-cart") || el.closest("#ack-cart"))) {
+        if (el.closest && (el.closest("#sec-actioned") || el.closest("#sec-actioned-full") || el.closest("#stage-panel"))) {
           continue;
         }
         var parts = String(el.getAttribute("data-hashes") || "").split(",");
@@ -1598,26 +1975,39 @@
       };
     }
 
-    function updateMailSyncButton() {
-      if (!mailSyncBtn) {
+    function mailSyncBlocked() {
+      var applying = cartJob.status === "applying" || (ackJob && ackJob.status === "applying");
+      return mailSyncIsRunning() || applying || cartJob.busy || ackJob.busy;
+    }
+
+    function paintSyncBusy(btn, running, blocked) {
+      if (!btn) {
         return;
       }
-      var applying = cartJob.status === "applying" || (ackJob && ackJob.status === "applying");
-      var running = mailSyncIsRunning();
-      mailSyncBtn.disabled = running || applying || cartJob.busy || ackJob.busy;
-      mailSyncBtn.setAttribute("aria-busy", running ? "true" : "false");
-      var label = mailSyncBtn.querySelector(".mail-sync-label");
-      var spin = mailSyncBtn.querySelector(".mail-sync-spinner");
-      if (label) {
-        label.hidden = running;
-      }
+      btn.disabled = blocked;
+      btn.setAttribute("aria-busy", running ? "true" : "false");
+      var spin = btn.querySelector(".mail-sync-spinner");
       if (spin) {
         spin.hidden = !running;
       }
+    }
+
+    function updateMailSyncButton() {
+      var running = mailSyncIsRunning();
+      var blocked = mailSyncBlocked();
+      paintSyncBusy(mailSyncBtn, running, blocked);
+      if (!mailSyncBtn) {
+        return;
+      }
       if (running) {
-        mailSyncBtn.setAttribute("aria-label", "Syncing mail");
+        setButtonTip(mailSyncBtn, "Syncing mail");
       } else {
-        mailSyncBtn.setAttribute("aria-label", "Sync mail with the configured account");
+        var whenEl = mailSyncBtn.querySelector(".mail-sync-when");
+        var iso = whenEl ? whenEl.getAttribute("datetime") || "" : "";
+        var whenText = whenEl && whenEl.textContent ? whenEl.textContent.trim() : "";
+        var idleName = whenText ? "Sync mail, last built " + whenText : "Sync mail with the configured account";
+        var longTitle = iso ? formatLocalBoardTitle(iso) : "";
+        setButtonTip(mailSyncBtn, idleName, longTitle ? "Sync mail. Last built " + longTitle : idleName);
       }
     }
 
@@ -1674,7 +2064,7 @@
     }
 
     function startMailSync() {
-      if (!mailSyncBtn || mailSyncBtn.disabled) {
+      if (mailSyncBlocked()) {
         return;
       }
       mailSync.busy = true;
@@ -1720,6 +2110,10 @@
     }
 
     var cartJob = { id: "", status: "", poll: null, linePoll: null, last: null, busy: false };
+    var applySession = false;
+    var applyWantedAck = false;
+    var applyWantedCart = false;
+    var stageTab = "read";
     var cartJobConfirm = "trash-at-source";
     var cartJobStatusEl = document.getElementById("cart-job-status");
     var applySourceBtn = document.getElementById("apply-source");
@@ -1730,18 +2124,176 @@
       return el ? parseInt(el.textContent, 10) || 0 : 0;
     }
 
+    function updateStageCount() {
+      var n = cartCountNow() + ackCountNow();
+      var el = document.getElementById("stage-count");
+      if (el) {
+        el.textContent = String(n);
+      }
+      var btn = document.getElementById("stage-toggle");
+      if (btn) {
+        setButtonTip(btn, "Open Read and Trash staging, " + n);
+      }
+    }
+
+    function updateStageHelp() {
+      var staged = cartCountNow() + ackCountNow();
+      var stageHelp = document.getElementById("stage-help");
+      var ackHelp = document.getElementById("ack-help");
+      var cartHelp = document.getElementById("cart-help");
+      if (stageHelp) {
+        stageHelp.hidden = staged === 0;
+      }
+      if (ackHelp) {
+        ackHelp.hidden = stageTab !== "read" || ackCountNow() === 0;
+      }
+      if (cartHelp) {
+        cartHelp.hidden = stageTab !== "trash" || cartCountNow() === 0;
+      }
+    }
+
+    function paintStageJob(el, onTab, job, message, kind) {
+      if (!el) {
+        return;
+      }
+      el.textContent = "";
+      var note = String(message || "").trim();
+      if (!job && !note) {
+        el.hidden = true;
+        return;
+      }
+      if (note) {
+        var msg = document.createElement("span");
+        msg.className = "stage-job-state";
+        msg.textContent = note;
+        el.appendChild(msg);
+        el.hidden = !onTab;
+        return;
+      }
+      var status = String(job.status || "");
+      var title = document.createElement("span");
+      title.className = "stage-job-state";
+      title.textContent = status ? status.charAt(0).toUpperCase() + status.slice(1) : "Job";
+      el.appendChild(title);
+      var c = job.counts || {};
+      var rows = kind === "read"
+        ? [["planned", c.planned], ["unresolved", c.unresolved], ["refused", c.refused], ["read", c.seen], ["failed", c.failed]]
+        : [["planned", c.planned], ["unresolved", c.unresolved], ["refused", c.refused], ["trashed", c.trashed], ["failed", c.failed]];
+      var hideZeros = status === "done" || status === "failed";
+      for (var i = 0; i < rows.length; i++) {
+        var n = rows[i][1] || 0;
+        if (hideZeros && n === 0) {
+          continue;
+        }
+        var chip = document.createElement("span");
+        chip.className = "stage-job-count";
+        chip.textContent = rows[i][0] + " " + n;
+        el.appendChild(chip);
+      }
+      if (kind !== "read" && (c.refused || 0) >= 1) {
+        var extra = document.createElement("span");
+        extra.className = "stage-job-note";
+        extra.textContent = c.refused + " already in Trash.";
+        el.appendChild(extra);
+      }
+      if (job.error) {
+        var err = document.createElement("span");
+        err.className = "stage-job-note";
+        err.textContent = job.error;
+        el.appendChild(err);
+      }
+      el.hidden = !onTab;
+      if (!el.hidden && el.childNodes.length) {
+        var listId = el.id === "ack-job-status" ? "ack-list" : "cart-list";
+        var list = document.getElementById(listId);
+        var empty = list ? list.querySelector(".cart-empty") : null;
+        if (empty) {
+          empty.remove();
+        }
+      }
+    }
+
+    function clearStageJob(el) {
+      if (!el) {
+        return;
+      }
+      el.textContent = "";
+      el.hidden = true;
+    }
+
+    function jobResultBits(job, kind) {
+      if (!job || !job.counts) {
+        return [];
+      }
+      var c = job.counts;
+      var bits = [];
+      if (kind === "read") {
+        if ((c.seen || 0) >= 1) {
+          bits.push("read " + c.seen);
+        }
+      } else if ((c.trashed || 0) >= 1) {
+        bits.push("trashed " + c.trashed);
+      }
+      if (kind !== "read" && (c.refused || 0) >= 1) {
+        bits.push(c.refused + " already in Trash");
+      }
+      if ((c.failed || 0) >= 1) {
+        bits.push("failed " + c.failed);
+      }
+      return bits;
+    }
+
+    function appliedSourceLine() {
+      var bits = [];
+      if (applyWantedAck) {
+        bits = bits.concat(jobResultBits(ackJob ? ackJob.last : null, "read"));
+      }
+      if (applyWantedCart) {
+        bits = bits.concat(jobResultBits(cartJob.last, "trash"));
+      }
+      if (!bits.length) {
+        return "Applied at source.";
+      }
+      return "Applied at source. " + bits.join(" · ");
+    }
+
+    function applyJobsFailed() {
+      if (applyWantedCart && cartJob.last && cartJob.last.status === "failed") {
+        return true;
+      }
+      if (applyWantedAck && ackJob && ackJob.last && ackJob.last.status === "failed") {
+        return true;
+      }
+      return false;
+    }
+
+    function maybePaintApplyStripe() {
+      if (!applySession) {
+        return;
+      }
+      if (applyWantedCart && cartJob && (cartJob.busy || cartJob.status === "applying")) {
+        return;
+      }
+      if (applyWantedAck && ackJob && (ackJob.busy || ackJob.status === "applying")) {
+        return;
+      }
+      showApplySourceStripe(appliedSourceLine(), applyJobsFailed() ? "error" : "success");
+    }
+
     function showCartJobStatus(text) {
-      if (!cartJobStatusEl) {
-        return;
-      }
+      clearStageJob(cartJobStatusEl);
       var t = String(text || "").trim();
-      if (!t) {
-        cartJobStatusEl.hidden = true;
-        cartJobStatusEl.textContent = "";
+      if (!t || t.indexOf("Checking out") === 0) {
         return;
       }
-      cartJobStatusEl.hidden = false;
-      cartJobStatusEl.textContent = t;
+      showApplySourceStripe(t, "error");
+    }
+
+    function showCartJob(job) {
+      clearStageJob(cartJobStatusEl);
+      if (job && job.status !== "applying") {
+        maybePaintApplyStripe();
+      }
     }
 
     function jobLeftover(job) {
@@ -1758,36 +2310,72 @@
       return (ackCount || 0) >= 1 || jobLeftover(ackJob.last);
     }
 
-    function showApplySourceStripe(text) {
+    function showApplySourceStripe(text, tone) {
       if (!applySourceStripe) {
         return;
       }
       var t = String(text || "").trim();
+      applySourceStripe.classList.remove("is-progress", "is-success");
       if (!t) {
         applySourceStripe.hidden = true;
         applySourceStripe.textContent = "";
-        applySourceStripe.classList.remove("is-progress");
+        applySourceStripe.removeAttribute("role");
         return;
+      }
+      if (tone === "success") {
+        applySourceStripe.classList.add("is-success");
+        applySourceStripe.setAttribute("role", "status");
+      } else if (tone === "error") {
+        applySourceStripe.setAttribute("role", "alert");
+      } else {
+        applySourceStripe.classList.add("is-progress");
+        applySourceStripe.setAttribute("role", "status");
       }
       applySourceStripe.hidden = false;
       applySourceStripe.textContent = t;
-      applySourceStripe.classList.add("is-progress");
     }
 
-    function updateApplySourceButton() {
+    function applySourceState() {
       var applying = (cartJob && cartJob.status === "applying") || (ackJob && ackJob.status === "applying");
       var checkingOut = !!(cartJob && cartJob.busy) || !!(ackJob && ackJob.busy);
       var needed = cartHasWork(cartCountNow()) || ackHasWork(ackCountNow());
+      var busy = applying || checkingOut;
+      return {
+        applying: applying,
+        checkingOut: checkingOut,
+        needed: needed,
+        busy: busy,
+        disabled: busy || !needed || mailSyncIsRunning()
+      };
+    }
+
+    function paintApplyButton(btn, state, hideWhenIdle) {
+      if (!btn) {
+        return;
+      }
+      if (hideWhenIdle) {
+        btn.hidden = !state.needed && !state.busy;
+      }
+      btn.disabled = state.disabled;
+      btn.setAttribute("aria-busy", state.busy ? "true" : "false");
+      var spin = btn.querySelector(".apply-source-spinner");
+      if (spin) {
+        spin.hidden = !state.busy;
+      }
+    }
+
+    function updateApplySourceButton() {
+      var state = applySourceState();
+      var applyAria = state.applying ? "Applying at source" : (state.checkingOut ? "Checking out" : "Apply at source");
+      var applyTip = state.busy ? applyAria : "Mark Read as seen and move Trash at the mail source";
+      paintApplyButton(applySourceBtn, state, true);
       if (applySourceBtn) {
-        var busy = applying || checkingOut;
-        applySourceBtn.hidden = !needed && !busy;
-        applySourceBtn.disabled = busy || !needed || mailSyncIsRunning();
-        applySourceBtn.setAttribute("aria-busy", busy ? "true" : "false");
-        applySourceBtn.setAttribute("aria-label", applying ? "Applying at source" : (checkingOut ? "Checking out" : "Apply at source"));
-        var spin = applySourceBtn.querySelector(".apply-source-spinner");
-        if (spin) {
-          spin.hidden = !busy;
-        }
+        setButtonTip(applySourceBtn, applyAria, applyTip);
+      }
+      var stageApply = document.getElementById("stage-apply");
+      paintApplyButton(stageApply, state, false);
+      if (stageApply) {
+        setButtonTip(stageApply, applyAria, applyTip);
       }
       updateMailSyncButton();
     }
@@ -1844,26 +2432,36 @@
     }
 
     function startCartJobPoll(id) {
+      if (cartJob.poll && cartJob.pollDone) {
+        return cartJob.pollDone;
+      }
       stopCartJobPoll();
-      cartJob.poll = setInterval(function () {
-        fetch("/cart/jobs/" + encodeURIComponent(id)).then(function (res) {
-          return res.json();
-        }).then(function (body) {
-          if (!body || !body.job) {
-            return;
-          }
-          cartJob.id = body.job.id;
-          cartJob.status = body.job.status;
-          cartJob.last = body.job;
-          showCartJobStatus(jobStatusLine(body.job, cartCountNow()));
-          updateCartJobButtons(body.job, cartCountNow());
-          refreshActioned();
-          if (body.job.status !== "applying") {
-            stopCartJobPoll();
-            refreshCart();
-          }
-        }).catch(function () {});
-      }, 1000);
+      cartJob.pollDone = new Promise(function (resolve) {
+        function tick() {
+          fetch("/cart/jobs/" + encodeURIComponent(id)).then(function (res) {
+            return res.json();
+          }).then(function (body) {
+            if (!body || !body.job) {
+              return;
+            }
+            cartJob.id = body.job.id;
+            cartJob.status = body.job.status;
+            cartJob.last = body.job;
+            showCartJob(body.job);
+            updateCartJobButtons(body.job, cartCountNow());
+            refreshActioned();
+            if (body.job.status !== "applying") {
+              stopCartJobPoll();
+              refreshCart().then(function () {
+                resolve(body.job);
+              });
+            }
+          }).catch(function () {});
+        }
+        tick();
+        cartJob.poll = setInterval(tick, 1000);
+      });
+      return cartJob.pollDone;
     }
 
     function checkoutTrashAtSource() {
@@ -1899,13 +2497,16 @@
         cartJob.id = job.id;
         cartJob.status = job.status;
         cartJob.last = job;
-        showCartJobStatus(jobStatusLine(job, 0));
+        showCartJob(job);
         updateApplySourceButton();
-        refreshCart();
         if (job.status === "applying") {
-          startCartJobPoll(job.id);
+          return startCartJobPoll(job.id).then(function () {
+            return out;
+          });
         }
-        return out;
+        return refreshCart().then(function () {
+          return out;
+        });
       }).catch(function () {
         cartJob.busy = false;
         showCartJobStatus("Deletion checkout needs overview serve with pimdir.");
@@ -1924,11 +2525,97 @@
       return row.from + " through " + row.until;
     }
 
+    function allActionedRows() {
+      if (lastActionedRows !== null) {
+        return lastActionedRows;
+      }
+      return overviewModel().actioned || [];
+    }
+
+    function actionedRowsForMonth(rows, key) {
+      rows = rows || [];
+      if (!key || key === "all") {
+        return rows;
+      }
+      var out = [];
+      for (var i = 0; i < rows.length; i++) {
+        if ((rows[i].month_key || "") === key) {
+          out.push(rows[i]);
+        }
+      }
+      return out;
+    }
+
+    function actionedCountForMonth(rows, key) {
+      var slice = actionedRowsForMonth(rows, key);
+      var n = 0;
+      for (var i = 0; i < slice.length; i++) {
+        n += slice[i].count || 0;
+      }
+      return n;
+    }
+
+    function writeActionedTabCounts(rows) {
+      var buttons = document.querySelectorAll(".month-tabs button[data-month]");
+      for (var i = 0; i < buttons.length; i++) {
+        var key = buttons[i].getAttribute("data-month") || "";
+        var el = buttons[i].querySelector(".tab-count");
+        if (el) {
+          el.setAttribute("data-actioned-count", String(actionedCountForMonth(rows, key)));
+        }
+      }
+      paintMonthTabCounts();
+    }
+
+    function fillActionedTable(bodyId, secId, rows) {
+      var body = document.getElementById(bodyId);
+      var sec = document.getElementById(secId);
+      if (!body || !sec) {
+        return;
+      }
+      body.textContent = "";
+      for (var r = 0; r < rows.length; r++) {
+        var row = rows[r];
+        var tr = document.createElement("tr");
+        tr.setAttribute("data-hashes", (row.hashes || []).join(","));
+        tr.setAttribute("data-sender", row.sender || "");
+        if (row.month_key) {
+          tr.setAttribute("data-month", row.month_key);
+        }
+        var tdS = document.createElement("td");
+        tdS.textContent = row.sender || "";
+        var tdC = document.createElement("td");
+        tdC.textContent = String(row.count || 0);
+        var tdW = document.createElement("td");
+        tdW.textContent = actionedWhen(row);
+        var tdO = document.createElement("td");
+        tdO.textContent = row.outcome || "";
+        tr.appendChild(tdS);
+        tr.appendChild(tdC);
+        tr.appendChild(tdW);
+        tr.appendChild(tdO);
+        body.appendChild(tr);
+      }
+      sec.hidden = rows.length === 0;
+    }
+
+    function paintActionedView(key) {
+      var rows = actionedRowsForMonth(allActionedRows(), key);
+      fillActionedTable("actioned-body", "sec-actioned", rows);
+      paintActionedCharts("sec-actioned-report", "actioned-outcome-bars", "actioned-sender-bars", rows);
+    }
+
+    function paintActionedFull() {
+      var rows = allActionedRows();
+      fillActionedTable("actioned-full-body", "sec-actioned-full", rows);
+      paintActionedCharts("sec-actioned-full-report", "actioned-full-outcome-bars", "actioned-full-sender-bars", rows);
+    }
+
     function applyActioned(rows) {
       var set = {};
-      rows = rows || [];
-      for (var i = 0; i < rows.length; i++) {
-        var hs = (rows[i] && rows[i].hashes) || [];
+      lastActionedRows = rows || [];
+      for (var i = 0; i < lastActionedRows.length; i++) {
+        var hs = (lastActionedRows[i] && lastActionedRows[i].hashes) || [];
         for (var j = 0; j < hs.length; j++) {
           if (hs[j]) {
             set[hs[j]] = true;
@@ -1938,7 +2625,7 @@
       var nodes = document.querySelectorAll("[data-hashes], [data-hash]");
       for (var n = 0; n < nodes.length; n++) {
         var el = nodes[n];
-        if (el.closest && el.closest("#sec-actioned")) {
+        if (el.closest && (el.closest("#sec-actioned") || el.closest("#sec-actioned-full") || el.closest(".page-report"))) {
           continue;
         }
         var liveN = liveHashCount(el, set);
@@ -1960,36 +2647,20 @@
           }
         }
       }
-      var body = document.getElementById("actioned-body");
-      var sec = document.getElementById("sec-actioned");
-      if (body && sec) {
-        body.textContent = "";
-        for (var r = 0; r < rows.length; r++) {
-          var row = rows[r];
-          var tr = document.createElement("tr");
-          tr.setAttribute("data-hashes", (row.hashes || []).join(","));
-          tr.setAttribute("data-sender", row.sender || "");
-          var tdS = document.createElement("td");
-          tdS.textContent = row.sender || "";
-          var tdC = document.createElement("td");
-          tdC.textContent = String(row.count || 0);
-          var tdW = document.createElement("td");
-          tdW.textContent = actionedWhen(row);
-          var tdO = document.createElement("td");
-          tdO.textContent = row.outcome || "";
-          tr.appendChild(tdS);
-          tr.appendChild(tdC);
-          tr.appendChild(tdW);
-          tr.appendChild(tdO);
-          body.appendChild(tr);
-        }
-        sec.hidden = rows.length === 0;
-      }
-      paintActionedCharts(rows);
+      paintActionedView(currentMonthKey());
+      paintActionedFull();
       lastActioned = set;
+      writeActionedTabCounts(lastActionedRows);
       syncLiveChrome(set);
       hideEmptyFluffSenders();
     }
+
+    onBoardMonth = function (key) {
+      paintActionedView(key);
+    };
+    paintActionedView(currentMonthKey());
+    paintActionedFull();
+    writeActionedTabCounts(allActionedRows());
 
     function fillReportBars(el, items) {
       if (!el) {
@@ -2030,10 +2701,10 @@
       }
     }
 
-    function paintActionedCharts(rows) {
-      var sec = document.getElementById("sec-actioned-report");
-      var outcomeEl = document.getElementById("actioned-outcome-bars");
-      var senderEl = document.getElementById("actioned-sender-bars");
+    function paintActionedCharts(secId, outcomeId, senderId, rows) {
+      var sec = document.getElementById(secId);
+      var outcomeEl = document.getElementById(outcomeId);
+      var senderEl = document.getElementById(senderId);
       rows = rows || [];
       var outcomes = {};
       var senders = {};
@@ -2156,7 +2827,7 @@
       var nodes = root.querySelectorAll("[data-hashes], [data-hash]");
       for (var i = 0; i < nodes.length; i++) {
         var el = nodes[i];
-        if (el.closest && el.closest("#sec-actioned")) {
+        if (el.closest && (el.closest("#sec-actioned") || el.closest("#sec-actioned-full"))) {
           continue;
         }
         var parts = hashParts(el);
@@ -2227,7 +2898,7 @@
     }
 
     function syncKindTree(panel, actioned) {
-      var tree = panel.querySelector(".kind-tree");
+      var tree = panel.querySelector(".page-overview .kind-tree");
       if (!tree) {
         return;
       }
@@ -2290,7 +2961,10 @@
         var tabLive = uniqueLiveIn(panel, actioned);
         var tabCount = document.querySelector('.month-tabs button[data-month="' + key + '"] .tab-count');
         if (tabCount) {
-          tabCount.textContent = String(tabLive);
+          if (!tabCount.getAttribute("data-full-count")) {
+            tabCount.setAttribute("data-full-count", tabCount.textContent || "0");
+          }
+          tabCount.setAttribute("data-live-count", String(tabLive));
         }
         var replyLive = 0;
         var decideLive = 0;
@@ -2393,6 +3067,7 @@
         }
         syncKindTree(panel, actioned);
       }
+      paintMonthTabCounts();
     }
 
     function refreshActioned() {
@@ -2443,19 +3118,21 @@
         cartJob.id = out.data.job.id;
         cartJob.status = out.data.job.status;
         cartJob.last = out.data.job;
-        showCartJobStatus(jobStatusLine(out.data.job, cartCountNow()));
+        showCartJob(out.data.job);
         updateCartJobButtons(out.data.job, cartCount);
         if (out.data.job.status === "applying") {
-          startCartJobPoll(out.data.job.id);
+          if (!cartJob.poll) {
+            startCartJobPoll(out.data.job.id);
+          }
         } else {
           stopCartJobPoll();
         }
       }).catch(function () {});
     }
 
-    var cartPanel = document.getElementById("delete-cart");
-    var cartToggle = document.getElementById("cart-toggle");
-    var cartClose = document.getElementById("cart-close");
+    var cartPanel = document.getElementById("stage-panel");
+    var stageToggle = document.getElementById("stage-toggle");
+    var stageClose = document.getElementById("stage-close");
     var cartWidthKey = "sir-mail-overview-cart-width";
     var cartWidthMin = 240;
     var cartWidthMaxFrac = 0.6;
@@ -2527,45 +3204,99 @@
     restoreCartWidth();
     wireCartResize();
 
-    function setCartOpen(on) {
+    function setStageTab(tab) {
+      stageTab = tab === "trash" ? "trash" : "read";
+      var readBtn = document.getElementById("stage-tab-read");
+      var trashBtn = document.getElementById("stage-tab-trash");
+      var ackList = document.getElementById("ack-list");
+      var trashList = document.getElementById("cart-list");
+      if (readBtn) {
+        readBtn.setAttribute("aria-selected", stageTab === "read" ? "true" : "false");
+      }
+      if (trashBtn) {
+        trashBtn.setAttribute("aria-selected", stageTab === "trash" ? "true" : "false");
+      }
+      if (ackList) {
+        ackList.hidden = stageTab !== "read";
+      }
+      if (trashList) {
+        trashList.hidden = stageTab !== "trash";
+      }
+      updateStageHelp();
+      clearStageJob(document.getElementById("ack-job-status"));
+      clearStageJob(document.getElementById("cart-job-status"));
+    }
+
+    function setStageOpen(on, tab) {
       if (!cartPanel) {
         return;
       }
-      if (on) {
-        var other = document.getElementById("ack-cart");
-        if (other) {
-          other.hidden = true;
-        }
-        var ackBtn = document.getElementById("ack-toggle");
-        if (ackBtn) {
-          ackBtn.setAttribute("aria-expanded", "false");
-        }
+      if (tab) {
+        setStageTab(tab);
       }
       cartPanel.hidden = !on;
       document.body.classList.toggle("cart-open", on);
-      if (cartToggle) {
-        cartToggle.setAttribute("aria-expanded", on ? "true" : "false");
+      if (stageToggle) {
+        stageToggle.setAttribute("aria-expanded", on ? "true" : "false");
       }
       if (on) {
-        refreshCart();
-        startCartLinePoll();
-        writeNav({ side: "cart" });
+        if (stageTab === "trash") {
+          refreshCart();
+          startCartLinePoll();
+          writeNav({ side: "trash" });
+        } else {
+          stopCartLinePoll();
+          refreshAck();
+          writeNav({ side: "read" });
+        }
       } else {
         stopCartLinePoll();
-        if (readNav().side === "cart") {
+        var side = readNav().side;
+        if (side === "cart" || side === "ack" || side === "trash" || side === "read") {
           writeNav({ side: "" });
         }
       }
     }
 
-    if (cartToggle && cartPanel) {
-      cartToggle.addEventListener("click", function () {
-        setCartOpen(cartPanel.hidden);
+    function setCartOpen(on) {
+      if (on) {
+        setStageOpen(true, "trash");
+        return;
+      }
+      if (cartPanel && !cartPanel.hidden && stageTab === "trash") {
+        setStageOpen(false);
+      }
+    }
+
+    if (stageToggle && cartPanel) {
+      stageToggle.addEventListener("click", function () {
+        if (!cartPanel.hidden) {
+          setStageOpen(false);
+          return;
+        }
+        var openTab = "read";
+        if (cartCountNow() && !ackCountNow()) {
+          openTab = "trash";
+        } else if (stageTab === "trash") {
+          openTab = "trash";
+        }
+        setStageOpen(true, openTab);
       });
     }
-    if (cartClose && cartPanel) {
-      cartClose.addEventListener("click", function () {
-        setCartOpen(false);
+    if (stageClose && cartPanel) {
+      stageClose.addEventListener("click", function () {
+        setStageOpen(false);
+      });
+    }
+    var stageTabs = document.querySelector(".stage-tabs");
+    if (stageTabs) {
+      stageTabs.addEventListener("click", function (ev) {
+        var btn = ev.target.closest && ev.target.closest("[data-stage-tab]");
+        if (!btn) {
+          return;
+        }
+        ev.preventDefault();
+        setStageOpen(true, btn.getAttribute("data-stage-tab"));
       });
     }
     var cartList = document.getElementById("cart-list");
@@ -2686,6 +3417,9 @@
           return;
         }
         if (opts.fromPanel) {
+          if (advancePreviewAfterStage()) {
+            return;
+          }
           dismissPanel();
         }
       }).catch(function () {
@@ -2712,9 +3446,6 @@
       postAck(itemsFromEl(tr), tr.querySelector(".ack-mark"));
     }
 
-    var ackPanel = document.getElementById("ack-cart");
-    var ackToggle = document.getElementById("ack-toggle");
-    var ackClose = document.getElementById("ack-close");
     var ackJob = { id: "", status: "", poll: null, last: null, busy: false };
     var ackJobConfirm = "seen-at-source";
     var ackJobStatusEl = document.getElementById("ack-job-status");
@@ -2759,6 +3490,8 @@
       if (countEl) {
         countEl.textContent = String(n);
       }
+      updateStageCount();
+      updateStageHelp();
       applyAcked(data);
       if (!list) {
         return;
@@ -2766,10 +3499,7 @@
       list.innerHTML = "";
       var items = (data && data.items) || [];
       if (!items.length) {
-        var empty = document.createElement("p");
-        empty.className = "cart-empty";
-        empty.textContent = "Nothing staged yet.";
-        list.appendChild(empty);
+        paintStageEmpty(list, "read");
         return;
       }
       for (var i = 0; i < items.length; i++) {
@@ -2790,17 +3520,19 @@
     }
 
     function showAckJobStatus(text) {
-      if (!ackJobStatusEl) {
-        return;
-      }
+      clearStageJob(ackJobStatusEl);
       var t = String(text || "").trim();
-      if (!t) {
-        ackJobStatusEl.hidden = true;
-        ackJobStatusEl.textContent = "";
+      if (!t || t.indexOf("Checking out") === 0) {
         return;
       }
-      ackJobStatusEl.hidden = false;
-      ackJobStatusEl.textContent = t;
+      showApplySourceStripe(t, "error");
+    }
+
+    function showAckJob(job) {
+      clearStageJob(ackJobStatusEl);
+      if (job && job.status !== "applying") {
+        maybePaintApplyStripe();
+      }
     }
 
     function ackJobCountsLine(job) {
@@ -2834,26 +3566,36 @@
     }
 
     function startAckJobPoll(id) {
+      if (ackJob.poll && ackJob.pollDone) {
+        return ackJob.pollDone;
+      }
       stopAckJobPoll();
-      ackJob.poll = setInterval(function () {
-        fetch("/ack/jobs/" + encodeURIComponent(id)).then(function (res) {
-          return res.json();
-        }).then(function (body) {
-          if (!body || !body.job) {
-            return;
-          }
-          ackJob.id = body.job.id;
-          ackJob.status = body.job.status;
-          ackJob.last = body.job;
-          showAckJobStatus(ackJobStatusLine(body.job));
-          updateAckJobButtons(body.job, ackCountNow());
-          refreshActioned();
-          if (body.job.status !== "applying") {
-            stopAckJobPoll();
-            refreshAck();
-          }
-        }).catch(function () {});
-      }, 1000);
+      ackJob.pollDone = new Promise(function (resolve) {
+        function tick() {
+          fetch("/ack/jobs/" + encodeURIComponent(id)).then(function (res) {
+            return res.json();
+          }).then(function (body) {
+            if (!body || !body.job) {
+              return;
+            }
+            ackJob.id = body.job.id;
+            ackJob.status = body.job.status;
+            ackJob.last = body.job;
+            showAckJob(body.job);
+            updateAckJobButtons(body.job, ackCountNow());
+            refreshActioned();
+            if (body.job.status !== "applying") {
+              stopAckJobPoll();
+              refreshAck().then(function () {
+                resolve(body.job);
+              });
+            }
+          }).catch(function () {});
+        }
+        tick();
+        ackJob.poll = setInterval(tick, 1000);
+      });
+      return ackJob.pollDone;
     }
 
     function refreshAckJob(cartCount) {
@@ -2872,10 +3614,12 @@
         ackJob.id = out.data.job.id;
         ackJob.status = out.data.job.status;
         ackJob.last = out.data.job;
-        showAckJobStatus(ackJobStatusLine(out.data.job));
+        showAckJob(out.data.job);
         updateAckJobButtons(out.data.job, cartCount);
         if (out.data.job.status === "applying") {
-          startAckJobPoll(out.data.job.id);
+          if (!ackJob.poll) {
+            startAckJobPoll(out.data.job.id);
+          }
         }
       }).catch(function () {});
     }
@@ -2890,28 +3634,22 @@
     }
 
     function setAckOpen(on) {
-      if (!ackPanel) {
+      if (on) {
+        setStageOpen(true, "read");
         return;
       }
-      if (on) {
-        setCartOpen(false);
-      }
-      ackPanel.hidden = !on;
-      document.body.classList.toggle("cart-open", on || (cartPanel && !cartPanel.hidden));
-      if (ackToggle) {
-        ackToggle.setAttribute("aria-expanded", on ? "true" : "false");
-      }
-      if (on) {
-        refreshAck();
-        writeNav({ side: "ack" });
-      } else if (readNav().side === "ack") {
-        writeNav({ side: "" });
+      if (cartPanel && !cartPanel.hidden && stageTab === "read") {
+        setStageOpen(false);
       }
     }
 
-    function postAck(items, markBtn) {
+    function postAck(items, markBtn, opts) {
+      opts = opts || {};
       items = enrichItems(items);
       if (!items.length) {
+        if (opts.fromPanel) {
+          setAckEnabled(false);
+        }
         return;
       }
       if (markBtn) {
@@ -2930,6 +3668,9 @@
           if (markBtn) {
             markBtn.disabled = false;
           }
+          if (opts.fromPanel) {
+            statusEl.textContent = (out.data && out.data.error) || "Could not add to Acked.";
+          }
           return;
         }
         renderAck(out.data);
@@ -2937,16 +3678,25 @@
         refreshAckJob((out.data && out.data.count) || 0);
         refreshCart();
         refreshActioned();
+        if (opts.fromPanel) {
+          if (advancePreviewAfterStage()) {
+            return;
+          }
+          dismissPanel();
+        }
       }).catch(function () {
         if (markBtn) {
           markBtn.disabled = false;
+        }
+        if (opts.fromPanel) {
+          statusEl.textContent = "Serve this report to use Acked.";
         }
       });
     }
 
     function checkoutSeenAtSource() {
       ackJob.busy = true;
-      showAckJobStatus("Checking out Acked list…");
+      showAckJobStatus("Checking out Read list…");
       updateApplySourceButton();
       return fetch("/ack/checkout", {
         method: "POST",
@@ -2977,13 +3727,16 @@
         ackJob.id = job.id;
         ackJob.status = job.status;
         ackJob.last = job;
-        showAckJobStatus(ackJobStatusLine(job));
+        showAckJob(job);
         updateApplySourceButton();
-        refreshAck();
         if (job.status === "applying") {
-          startAckJobPoll(job.id);
+          return startAckJobPoll(job.id).then(function () {
+            return out;
+          });
         }
-        return out;
+        return refreshAck().then(function () {
+          return out;
+        });
       }).catch(function () {
         ackJob.busy = false;
         showAckJobStatus("Acked checkout needs overview serve with pimdir.");
@@ -2993,20 +3746,23 @@
     }
 
     function applyAtSource() {
-      if (applySourceBtn && applySourceBtn.disabled) {
+      if (applySourceState().disabled) {
         return;
       }
+      applySession = true;
       var doAck = ackHasWork(ackCountNow());
       var doCart = cartHasWork(cartCountNow());
+      applyWantedAck = doAck;
+      applyWantedCart = doCart;
       if (!doAck && !doCart) {
         return;
       }
       var parts = [];
       if (doAck) {
-        parts.push("Acked as read");
+        parts.push("Read as seen");
       }
       if (doCart) {
-        parts.push("Cart to Trash");
+        parts.push("Trash at source");
       }
       showApplySourceStripe("Applying " + parts.join(" and ") + "…");
       var chain = Promise.resolve();
@@ -3016,7 +3772,7 @@
       if (doCart) {
         chain = chain.then(function (ackOut) {
           if (doAck && ackOut && !ackOut.ok && ackOut.status !== 202 && ackOut.status !== 200) {
-            showApplySourceStripe((ackOut.data && ackOut.data.error) || "Acked checkout failed. Cart was not applied.");
+            showApplySourceStripe((ackOut.data && ackOut.data.error) || "Acked checkout failed. Cart was not applied.", "error");
             updateApplySourceButton();
             return ackOut;
           }
@@ -3025,17 +3781,14 @@
       }
       chain.then(function (last) {
         if (last && !last.ok && last.status !== 202 && last.status !== 200) {
-          showApplySourceStripe((last.data && last.data.error) || "Apply at source failed.");
+          showApplySourceStripe((last.data && last.data.error) || "Apply at source failed.", "error");
           updateApplySourceButton();
           return;
         }
-        showApplySourceStripe("Applied at source. Sync in the header pushes Gmail.");
-        if (applySourceStripe) {
-          applySourceStripe.classList.remove("is-progress");
-        }
+        maybePaintApplyStripe();
         updateApplySourceButton();
       }).catch(function () {
-        showApplySourceStripe("Apply at source needs overview serve with pimdir.");
+        showApplySourceStripe("Apply at source needs overview serve with pimdir.", "error");
         updateApplySourceButton();
       });
     }
@@ -3043,17 +3796,11 @@
     if (applySourceBtn) {
       applySourceBtn.addEventListener("click", applyAtSource);
     }
+    var stageApplyBtn = document.getElementById("stage-apply");
+    if (stageApplyBtn) {
+      stageApplyBtn.addEventListener("click", applyAtSource);
+    }
 
-    if (ackToggle && ackPanel) {
-      ackToggle.addEventListener("click", function () {
-        setAckOpen(ackPanel.hidden);
-      });
-    }
-    if (ackClose && ackPanel) {
-      ackClose.addEventListener("click", function () {
-        setAckOpen(false);
-      });
-    }
     var ackList = document.getElementById("ack-list");
     if (ackList) {
       ackList.addEventListener("click", function (ev) {
@@ -3099,12 +3846,36 @@
         postCart(lastItems, { fromPanel: true });
       });
     }
+    if (ackBtn) {
+      ackBtn.addEventListener("click", function () {
+        var items = lastItems;
+        if (previewHash) {
+          items = [{
+            object_hash: previewHash,
+            sender: (lastItems[0] && lastItems[0].sender) || "",
+            subject: (lastItems[0] && lastItems[0].subject) || "",
+            date: (lastItems[0] && lastItems[0].date) || ""
+          }];
+        }
+        postAck(items, ackBtn, { fromPanel: true });
+      });
+    }
+    if (prevBtn) {
+      prevBtn.addEventListener("click", function () {
+        stepPreview(-1);
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener("click", function () {
+        stepPreview(1);
+      });
+    }
     refreshCart();
     refreshAck();
     var storedSide = readNav().side;
-    if (storedSide === "cart") {
+    if (storedSide === "cart" || storedSide === "trash") {
       setCartOpen(true);
-    } else if (storedSide === "ack") {
+    } else if (storedSide === "ack" || storedSide === "read") {
       setAckOpen(true);
     }
     refreshMailSync();
@@ -3201,5 +3972,27 @@
     window.addEventListener("click", onFluffSenderClick, true);
     window.addEventListener("click", onDeleteListClick, true);
     window.addEventListener("click", onOutsideIntent);
+    window.addEventListener("keydown", function (ev) {
+      if (panel.hidden) {
+        return;
+      }
+      if (ev.key === "Escape") {
+        dismissPanel();
+        return;
+      }
+      var tag = ev.target && ev.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+        return;
+      }
+      if (ev.key === "ArrowLeft") {
+        ev.preventDefault();
+        stepPreview(-1);
+        return;
+      }
+      if (ev.key === "ArrowRight") {
+        ev.preventDefault();
+        stepPreview(1);
+      }
+    });
   }
 })();

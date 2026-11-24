@@ -32,40 +32,52 @@
         <button type="button" role="tab" data-page="report" aria-selected="false">Report</button>
       </div>
       <div class="header-actions">
-      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch light or dark theme">Light / dark</button>
-      <button type="button" class="theme-toggle" id="mail-sync" aria-label="Sync mail with the configured account">
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch light or dark theme" data-tooltip="Switch light or dark theme">
+        <svg class="theme-sun" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+          <circle cx="8" cy="8" r="3.25" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path fill="currentColor" d="M8 4.75A3.25 3.25 0 0 0 8 11.25Z"/>
+          <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M8 1.7v1.2M8 13.1v1.2M1.7 8h1.2M13.1 8h1.2M3.4 3.4l.85.85M11.75 11.75l.85.85M3.4 12.6l.85-.85M11.75 4.25l.85-.85"/>
+        </svg>
+      </button>
+      <button type="button" class="theme-toggle" id="mail-sync" aria-label="Sync mail with the configured account" data-tooltip="Sync mail with the configured account">
       <span class="mail-sync-spinner" hidden aria-hidden="true"></span>
-      <span class="mail-sync-copy">
-        <span class="mail-sync-label">Sync</span>
-        {{if .GeneratedAt}}<time class="mail-sync-when" id="mail-sync-when" datetime="{{.GeneratedAt}}" data-local="board">{{.Generated}}</time>{{end}}
-      </span>
+      <svg class="mail-sync-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M12.2 4.3A5 5 0 1 0 13 8.6"/>
+        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M12.1 2.4v3.1H9"/>
+      </svg>
+      {{if .GeneratedAt}}<time class="mail-sync-when" id="mail-sync-when" datetime="{{.GeneratedAt}}" data-local="board">{{.Generated}}</time>{{end}}
       </button>
       </div>
     </div>
     <div class="month-row">
     <div class="month-tabs" role="tablist" aria-label="Month">
       {{range .MainTabs}}{{if eq .Key "all"}}
-      <button type="button" role="tab" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count">{{.Count}}</span></button>
+      <button type="button" role="tab" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count" data-full-count="{{.Count}}" data-actioned-count="{{.ActionedCount}}">{{.Count}}</span></button>
       {{end}}{{end}}
       {{if .MinorTabs}}
       <details class="month-more">
         <summary class="month-more-toggle" aria-label="Previous months"><span class="month-more-label">…</span></summary>
         <div class="month-more-menu">
           {{range .MinorTabs}}
-          <button type="button" role="tab" class="minor" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count">{{.Count}}</span></button>
+          <button type="button" role="tab" class="minor" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count" data-full-count="{{.Count}}" data-actioned-count="{{.ActionedCount}}">{{.Count}}</span></button>
           {{end}}
         </div>
       </details>
       {{end}}
       {{range .MainTabs}}{{if ne .Key "all"}}
-      <button type="button" role="tab" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count">{{.Count}}</span></button>
+      <button type="button" role="tab" data-month="{{.Key}}"{{if .Selected}} aria-selected="true"{{else}} aria-selected="false"{{end}}>{{.Label}} <span class="tab-count" data-full-count="{{.Count}}" data-actioned-count="{{.ActionedCount}}">{{.Count}}</span></button>
       {{end}}{{end}}
     </div>
     <div class="month-meta">
     <div class="board-actions">
-      <button type="button" class="theme-toggle" id="ack-toggle" aria-expanded="false">Acked <span id="ack-count">0</span></button>
-      <button type="button" class="theme-toggle" id="cart-toggle" aria-expanded="false">Cart <span id="cart-count">0</span></button>
-      <button type="button" class="theme-toggle" id="apply-source" hidden disabled aria-label="Apply at source" title="Mark Acked as read and move Cart to Trash at the mail source">
+      <button type="button" class="theme-toggle" id="stage-toggle" aria-expanded="false" aria-label="Staging, 0" data-tooltip="Open Read and Trash staging">
+        <svg class="stage-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+          <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M2.6 6.4h10.8v6.1c0 .8-.7 1.5-1.5 1.5H4.1c-.8 0-1.5-.7-1.5-1.5V6.4Z"/>
+          <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M2.6 6.4l2.1-3.1h6.6l2.1 3.1M6.2 10.2h3.6"/>
+        </svg>
+        <span id="stage-count">0</span>
+      </button>
+      <button type="button" class="theme-toggle" id="apply-source" hidden disabled aria-label="Apply at source" data-tooltip="Mark Read as seen and move Trash at the mail source">
         <span class="apply-source-spinner" hidden aria-hidden="true"></span>
         <svg class="apply-source-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
           <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M8 10.5V2.5M5 5l3-3 3 3"/>
@@ -82,7 +94,7 @@
   <main>
     <section id="sec-actioned-report" class="panel page-actioned"{{if not .ActionedOutcome}} hidden{{end}}>
       <h2>Actioned</h2>
-      <p class="actioned-hint">Messages that left the live months.</p>
+      <p class="actioned-hint">This month. Messages that left the live board.</p>
       <div class="grid-2">
         <div class="chart-wrap">
           <h3 class="sub">By outcome</h3>
@@ -104,13 +116,13 @@
     </section>
     <section id="sec-actioned" class="panel actioned-board page-actioned"{{if not .Model.Actioned}} hidden{{end}}>
       <h2>By sender</h2>
-      <p class="actioned-hint">Trashed at the source or already in Trash. Not counted on the live months.</p>
+      <p class="actioned-hint">This month. Trashed at the source or already in Trash.</p>
       <div class="table-wrap">
         <table class="data" id="actioned-table">
           <thead><tr><th>Sender</th><th>Messages</th><th>When</th><th>Outcome</th></tr></thead>
           <tbody id="actioned-body">
             {{range .Model.Actioned}}
-            <tr data-hashes="{{.HashAttr}}" data-sender="{{.Sender}}">
+            <tr data-hashes="{{.HashAttr}}" data-sender="{{.Sender}}"{{if .MonthKey}} data-month="{{.MonthKey}}"{{end}}>
               <td>{{.Sender}}</td>
               <td>{{.Count}}</td>
               <td>{{.WhenLabel}}</td>
@@ -182,10 +194,11 @@
         </div>
         {{end}}{{end}}
       </section>
+      </div>
 
       {{if .HasThemes}}
-      <section class="panel" id="sec-themes-{{.Key}}">
-        <h2>What arrived</h2>
+      <section class="panel page-overview" id="sec-themes-{{.Key}}">
+        <h2>What is pending</h2>
         {{with .KindTree}}
         <div class="chart-wrap chart-card-aqua kind-tree">
           <div class="ktree-head">
@@ -198,10 +211,10 @@
           </ul>
         </div>
         {{end}}
-        {{if .HeatmapSVG}}<div class="chart-wrap">{{.HeatmapSVG}}</div>{{end}}
       </section>
       {{end}}
 
+      <div class="page-overview">
       {{if .HasFluff}}
       <section class="panel" id="sec-fluff-{{.Key}}">
         <h2>What it costs you</h2>
@@ -226,6 +239,7 @@
             <div class="tile"><div class="label">Fluff minutes</div><div class="value">{{printf "%.1f" .Section.Summary.FluffMinutes}}</div></div>
           </div>
           <div class="chart-wrap">{{.SparklineSVG}}</div>
+          {{if .HeatmapSVG}}<div class="chart-wrap">{{.HeatmapSVG}}</div>{{end}}
           <div class="sr-only">
             <table>
               <caption>Classified count by month</caption>
@@ -251,6 +265,24 @@
             </table>
           </div>
         </section>
+
+        {{if .HasHappened}}
+        <section class="panel" id="sec-happened-{{.Key}}">
+          <h2>What happened</h2>
+          {{with .HappenedKindTree}}
+          <div class="chart-wrap chart-card-aqua kind-tree">
+            <div class="ktree-head">
+              <h3 class="ktree-title">Kind tree</h3>
+              <p class="ktree-hint">Top kind, then area, then message type. Bars share one scale; the percentage is each row's part of the row above it. {{.Count}} messages.</p>
+            </div>
+            <ul class="ktree" role="tree">
+              {{range .Children}}{{template "knode" .}}{{end}}
+              {{if .Small}}{{template "ktail" .}}{{end}}
+            </ul>
+          </div>
+          {{end}}
+        </section>
+        {{end}}
 
         <section class="panel" id="sec-pipeline-{{.Key}}">
           <h2>How the pipeline ran</h2>
@@ -363,6 +395,48 @@
     </div>
     {{end}}
 
+    <section id="sec-actioned-full-report" class="panel page-report"{{if not .ActionedOutcome}} hidden{{end}}>
+      <h2>Actioned</h2>
+      <p class="actioned-hint">Every month. Not filtered by the month tabs.</p>
+      <div class="grid-2">
+        <div class="chart-wrap">
+          <h3 class="sub">By outcome</h3>
+          <div id="actioned-full-outcome-bars" class="report-bars">
+            {{range .ActionedOutcome}}
+            <div class="report-bar-row"><span class="report-bar-lab">{{.Label}}</span><span class="report-bar-track"><span class="report-bar-fill" style="width: {{.Pct}}%"></span></span><span class="report-bar-n">{{.Count}}</span></div>
+            {{end}}
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <h3 class="sub">By sender</h3>
+          <div id="actioned-full-sender-bars" class="report-bars">
+            {{range .ActionedSenders}}
+            <div class="report-bar-row"><span class="report-bar-lab">{{.Label}}</span><span class="report-bar-track"><span class="report-bar-fill" style="width: {{.Pct}}%"></span></span><span class="report-bar-n">{{.Count}}</span></div>
+            {{end}}
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="sec-actioned-full" class="panel actioned-board page-report"{{if not .Model.Actioned}} hidden{{end}}>
+      <h2>By sender</h2>
+      <p class="actioned-hint">Every month. Trashed at the source or already in Trash.</p>
+      <div class="table-wrap">
+        <table class="data" id="actioned-full-table">
+          <thead><tr><th>Sender</th><th>Messages</th><th>When</th><th>Outcome</th></tr></thead>
+          <tbody id="actioned-full-body">
+            {{range .Model.Actioned}}
+            <tr data-hashes="{{.HashAttr}}" data-sender="{{.Sender}}"{{if .MonthKey}} data-month="{{.MonthKey}}"{{end}}>
+              <td>{{.Sender}}</td>
+              <td>{{.Count}}</td>
+              <td>{{.WhenLabel}}</td>
+              <td>{{.Outcome}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     {{if or .Model.Shapes .Model.ErrorRows .Model.All.Pipeline.PromptHashes}}
     <div class="page-report">
       {{if .Model.Shapes}}
@@ -420,6 +494,7 @@
       <p>Schema v{{.Model.SchemaVersion}} · CLI {{.Model.CLIVersion}}{{if .Model.Provenance.GitRevision}} · {{.Model.Provenance.GitRevision}}{{end}}</p>
     </section>
   </main>
+  <button type="button" id="intent-backdrop" hidden aria-label="Dismiss message"></button>
   <aside id="intent-panel" hidden>
     <div class="intent-panel-head">
       <h2 id="intent-title">Message</h2>
@@ -433,28 +508,71 @@
       <ul class="intent-outliers" id="intent-outliers"></ul>
     </div>
     <div class="intent-actions">
-      <label class="worth-read"><input type="checkbox" id="intent-worth" disabled> Worth reading</label>
-      <button type="button" class="theme-toggle" id="intent-mark" disabled>Mark as deletable</button>
+      <div class="intent-actions-main">
+        <label class="worth-read">
+          <svg class="intent-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M4.2 2.8h7.6v10.4L8 11.1 4.2 13.2V2.8Z"/>
+          </svg>
+          <input type="checkbox" id="intent-worth" disabled> Worth reading
+        </label>
+        <button type="button" class="theme-toggle" id="intent-ack" disabled>
+          <svg class="intent-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M3.4 8.3 6.6 11.4 12.6 4.6"/>
+          </svg>
+          Acked
+        </button>
+        <button type="button" class="theme-toggle" id="intent-mark" disabled>
+          <svg class="intent-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M3.2 5.2h9.6M6.1 5.2V3.6h3.8v1.6M4.7 5.2l.7 7.2h5.2l.7-7.2"/>
+          </svg>
+          Deletable
+        </button>
+      </div>
+      <div class="intent-nav">
+        <button type="button" class="theme-toggle" id="intent-prev" disabled>
+          <svg class="intent-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M9.7 3.4 5.3 8l4.4 4.6"/>
+          </svg>
+          Previous
+        </button>
+        <button type="button" class="theme-toggle" id="intent-next" disabled>
+          Next
+          <svg class="intent-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M6.3 3.4 10.7 8 6.3 12.6"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </aside>
-  <aside id="ack-cart" hidden>
+  <aside id="stage-panel" hidden>
+    <div id="cart-resize" class="cart-resize" role="separator" aria-orientation="vertical" aria-label="Resize staging panel"></div>
     <div class="intent-panel-head">
-      <h2>Acked</h2>
-      <button type="button" class="theme-toggle" id="ack-close">Close</button>
+      <div class="stage-tabs" role="tablist" aria-label="Staging">
+        <button type="button" role="tab" id="stage-tab-read" data-stage-tab="read" aria-selected="true">Read <span id="ack-count">0</span></button>
+        <button type="button" role="tab" id="stage-tab-trash" data-stage-tab="trash" aria-selected="false">Trash <span id="cart-count">0</span></button>
+      </div>
+      <div class="stage-head-actions">
+        <button type="button" class="theme-toggle" id="stage-apply" disabled aria-label="Apply at source" data-tooltip="Mark Read as seen and move Trash at the mail source">
+          <span class="apply-source-spinner" hidden aria-hidden="true"></span>
+          <svg class="apply-source-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M8 10.5V2.5M5 5l3-3 3 3"/>
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M2.5 9.5v3c0 .8.7 1.5 1.5 1.5h8c.8 0 1.5-.7 1.5-1.5v-3"/>
+          </svg>
+        </button>
+        <button type="button" class="theme-toggle" id="stage-close" aria-label="Close" data-tooltip="Close">
+          <svg class="stage-close-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"/>
+          </svg>
+        </button>
+      </div>
     </div>
-    <p class="intent-status" id="ack-help">Staging until Apply at source in the header. That marks Acked as read (stays in Inbox) and moves Cart to Trash; then Sync pushes Gmail.</p>
-    <p class="intent-status" id="ack-job-status" hidden></p>
+    <p class="intent-status" id="stage-help" hidden>Apply does Read and Trash together.</p>
+    <p class="intent-status" id="ack-help" hidden>These stay in Inbox and get marked as seen.</p>
+    <p class="intent-status" id="cart-help" hidden>These move to Trash. The job keeps the order.</p>
+    <div class="stage-job" id="ack-job-status" hidden></div>
+    <div class="stage-job" id="cart-job-status" hidden></div>
     <div id="ack-list" class="cart-list"></div>
-  </aside>
-  <aside id="delete-cart" hidden>
-    <div id="cart-resize" class="cart-resize" role="separator" aria-orientation="vertical" aria-label="Resize deletion cart"></div>
-    <div class="intent-panel-head">
-      <h2>Deletion cart</h2>
-      <button type="button" class="theme-toggle" id="cart-close">Close</button>
-    </div>
-    <p class="intent-status" id="cart-help">Staging until Apply at source in the header. That marks Acked as read and moves this cart to Trash; the job keeps the order. Then Sync pushes Gmail.</p>
-    <p class="intent-status" id="cart-job-status" hidden></p>
-    <div id="cart-list" class="cart-list"></div>
+    <div id="cart-list" class="cart-list" hidden></div>
   </aside>
   <script type="application/json" id="overview-model">{{.ModelJSON}}</script>
   <script>{{.InlineJS}}</script>

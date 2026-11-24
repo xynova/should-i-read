@@ -43,6 +43,8 @@ type TabView struct {
 	Label string
 	// Count is the number of classified messages in the tab.
 	Count int
+	// ActionedCount is how many messages in this tab were actioned.
+	ActionedCount int
 	// Minor is true for the unknown month and months older than this and last month.
 	Minor bool
 	// Selected is true for the latest main calendar month with mail, else All.
@@ -53,6 +55,7 @@ type TabView struct {
 	ActionLists []ActionList
 	DeleteList  DeleteListView
 	HasThemes   bool
+	HasHappened bool
 	HasFluff    bool
 
 	SparklineSVG      template.HTML
@@ -60,11 +63,13 @@ type TabView struct {
 	UrgencyHistSVG    template.HTML
 	HeatmapSVG        template.HTML
 	// KindTree is the folded top kind, area and message type tree.
-	KindTree      *KindNode
-	HopFlowSVG    template.HTML
-	SkipRateSVG   template.HTML
-	CosineHistSVG template.HTML
-	JudgeHistSVG  template.HTML
+	KindTree *KindNode
+	// HappenedKindTree is the full-month tree, including actioned mail.
+	HappenedKindTree *KindNode
+	HopFlowSVG       template.HTML
+	SkipRateSVG      template.HTML
+	CosineHistSVG    template.HTML
+	JudgeHistSVG     template.HTML
 
 	UrgencyBucketRows []bucketRow
 	CosineBucketRows  []bucketRow
@@ -166,6 +171,7 @@ func buildTabs(m mailoverview.Model) []TabView {
 	sel := defaultTabKey(views)
 	for i := range views {
 		views[i].Selected = views[i].Key == sel
+		views[i].ActionedCount = mailoverview.ActionedCountForMonth(m.Actioned, views[i].Key)
 	}
 	return views
 }
@@ -179,7 +185,8 @@ func sectionView(key, label string, sec mailoverview.MonthSection, refYear int) 
 		Tiles:       attentionTiles(sec.Attention),
 		ActionLists: actionLists(sec.Attention, refYear),
 		DeleteList:  groupDeleteSenders(sec.Attention.QuietList, refYear, key),
-		HasThemes:   len(sec.Themes) > 0 || len(sec.KindTree.Paths) > 0,
+		HasThemes:   len(sec.KindTree.Paths) > 0,
+		HasHappened: len(sec.HappenedKindTree.Paths) > 0,
 		HasFluff:    len(sec.Fluff.TopSenders) > 0,
 	}
 	sectionViewSparkline(&v, sec)
@@ -188,6 +195,7 @@ func sectionView(key, label string, sec mailoverview.MonthSection, refYear int) 
 	sectionViewTrustHists(&v, sec.Trust)
 	sectionViewHeatmap(&v, sec.Heatmap)
 	v.KindTree = buildKindTree(sec.KindTree.Paths)
+	v.HappenedKindTree = buildKindTree(sec.HappenedKindTree.Paths)
 	sectionViewPipeline(&v, sec.Pipeline)
 	return v
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,6 +13,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xynova/should-i-read/internal/clui"
 	"github.com/xynova/should-i-read/internal/config"
@@ -115,7 +120,7 @@ func newOverviewPageServer(parent context.Context, repoRoot string, cfg config.C
 		Hashes:   page.Hashes,
 		Events:   events,
 	}
-	if err := wireOverviewAfterSync(pageSrv, applyCtx, repoRoot, cfg, f, st, mail, events, jobs, ackJobs); err != nil {
+	if err := wireOverviewAfterSync(pageSrv, applyCtx, parent, repoRoot, cfg, f, st, mail, events, jobs, ackJobs); err != nil {
 		applyCancel()
 		closer()
 		return nil, nop, nop, err
@@ -180,6 +185,7 @@ func openOverviewJobServices(applyCtx context.Context, repoRoot string, cfg conf
 func wireOverviewAfterSync(
 	pageSrv *mailoverview.IntentPageServer,
 	applyCtx context.Context,
+	serveCtx context.Context,
 	repoRoot string,
 	cfg config.Config,
 	f mailOverviewFlags,
@@ -222,6 +228,7 @@ func wireOverviewAfterSync(
 		Account:      cfg.Pimalaya.DefaultAccount,
 		Excludes:     cfg.Pimalaya.SyncExcludeCollections,
 		ApplyBaseCtx: applyCtx,
+		RunBaseCtx:   serveCtx,
 		Now:          time.Now,
 		Jobs:         jobs,
 		AckJobs:      ackJobs,
@@ -237,13 +244,9 @@ func wireOverviewAfterSync(
 
 func serveOverviewUntilStop(cmd *cobra.Command, addr string, page overviewPage, pageSrv *mailoverview.IntentPageServer, applyCancel context.CancelFunc) error {
 	const op = "cli.mail.overview.serve"
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           pageSrv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      60 * time.Second,
-	}
+	serveCtx, serveCancel := context.WithCancel(cmd.Context())
+	defer serveCancel()
+	srv := newOverviewHTTPServer(addr, pageSrv.Handler(), serveCtx)
 	listenErr := make(chan error, 1)
 	go func() {
 		listenErr <- srv.ListenAndServe()
@@ -265,15 +268,71 @@ func serveOverviewUntilStop(cmd *cobra.Command, addr string, page overviewPage, 
 	case <-sigCh:
 	case <-cmd.Context().Done():
 	}
-	applyCancel()
+	return shutdownOverviewHTTP(srv, applyCancel, serveCancel, listenErr)
+}
+
+func newOverviewHTTPServer(addr string, handler http.Handler, base context.Context) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		BaseContext:       func(net.Listener) context.Context { return base },
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      60 * time.Second,
+	}
+}
+
+func shutdownOverviewHTTP(srv *http.Server, applyCancel, serveCancel context.CancelFunc, listenErr <-chan error) (err error) {
+	const op = "cli.mail.overview.serve"
+	if srv == nil {
+		return sirerr.New(sirerr.CodeInvalid, op, "nil http server")
+	}
+	if applyCancel != nil {
+		applyCancel()
+	}
+	if serveCancel != nil {
+		serveCancel()
+	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), overviewServeShutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "shutdown")
+	tracer := otel.Tracer("github.com/xynova/should-i-read/internal/cli")
+	ctx, span := tracer.Start(shutdownCtx, "cli.mail.overview.serve.shutdown",
+		trace.WithAttributes(attribute.String("http.addr", srv.Addr)),
+	)
+	defer func() { endCLISpan(span, err) }()
+	err = finishOverviewHTTP(ctx, span, srv, listenErr)
+	return err
+}
+
+func finishOverviewHTTP(ctx context.Context, span trace.Span, srv *http.Server, listenErr <-chan error) error {
+	const op = "cli.mail.overview.serve"
+	err := srv.Shutdown(ctx)
+	if err != nil {
+		closeErr := srv.Close()
+		if closeErr != nil {
+			return sirerr.Wrap(errors.Join(err, closeErr), sirerr.CodeFailed, op, "shutdown")
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			return sirerr.Wrap(err, sirerr.CodeFailed, op, "shutdown")
+		}
+		if span != nil {
+			span.SetAttributes(attribute.Bool("shutdown.forced_close", true))
+		}
 	}
-	err := <-listenErr
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return sirerr.Wrap(err, sirerr.CodeFailed, op, "listen after shutdown")
+	listen := <-listenErr
+	if listen != nil && !errors.Is(listen, http.ErrServerClosed) {
+		return sirerr.Wrap(listen, sirerr.CodeFailed, op, "listen after shutdown")
 	}
 	return nil
+}
+
+func endCLISpan(span trace.Span, err error) {
+	if span == nil {
+		return
+	}
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	span.End()
 }

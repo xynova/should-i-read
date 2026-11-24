@@ -26,6 +26,24 @@ func TestContinueClassifyAfterSyncFetchZero(t *testing.T) {
 	}
 }
 
+func TestKeepSyncClassifySummary_currentMonth(t *testing.T) {
+	t.Parallel()
+	window := pimdir.CalendarMonthWindow(time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC))
+	if !keepSyncClassifySummary(pimdir.EmailSummary{Date: "2026-11-08T12:00:00Z"}, window) {
+		t.Fatal("expected November mail kept")
+	}
+	if keepSyncClassifySummary(pimdir.EmailSummary{Date: "2026-07-31T12:00:00Z"}, window) {
+		t.Fatal("expected July mail dropped")
+	}
+	if keepSyncClassifySummary(pimdir.EmailSummary{}, window) {
+		t.Fatal("expected undated mail dropped")
+	}
+	var open pimdir.DateWindow
+	if !keepSyncClassifySummary(pimdir.EmailSummary{Date: "2020-01-01T00:00:00Z"}, open) {
+		t.Fatal("zero window keeps every stamp")
+	}
+}
+
 func TestDropExcludedItems(t *testing.T) {
 	t.Parallel()
 	items := []mailreport.Item{

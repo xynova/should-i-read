@@ -25,8 +25,10 @@ const (
 	SyncStatusRunning = "running"
 	SyncStatusDone    = "done"
 	SyncStatusFailed  = "failed"
-	syncRunTimeout    = 2 * time.Hour
-	syncIDBytes       = 8
+	// syncRunTimeout is the per-click Neverest plus after-sync budget.
+	// It matches classifyJobTimeout so a stuck IMAP pull fails in minutes.
+	syncRunTimeout = 15 * time.Minute
+	syncIDBytes    = 8
 )
 
 var (
@@ -45,12 +47,15 @@ type SyncConfig struct {
 	Account      string
 	Excludes     []string
 	ApplyBaseCtx context.Context
-	Now          func() time.Time
-	Jobs         *maildelete.Service
-	AckJobs      *mailack.Service
-	ApplyingFn   func(context.Context) (bool, error)
-	Events       *hostevent.Bus
-	AfterSync    func(ctx context.Context, res *pimalaya.Result) (string, error)
+	// RunBaseCtx is the serve lifetime. Sync timeout starts per click from this
+	// parent so an expired Trash/Read apply budget cannot fail Sync immediately.
+	RunBaseCtx context.Context
+	Now        func() time.Time
+	Jobs       *maildelete.Service
+	AckJobs    *mailack.Service
+	ApplyingFn func(context.Context) (bool, error)
+	Events     *hostevent.Bus
+	AfterSync  func(ctx context.Context, res *pimalaya.Result) (string, error)
 }
 
 // SyncSnapshot is the in-memory sync state for HTTP and UI.
@@ -70,6 +75,7 @@ type SyncController struct {
 	account      string
 	excludes     []string
 	applyBaseCtx context.Context
+	runBaseCtx   context.Context
 	now          func() time.Time
 	jobs         *maildelete.Service
 	ackJobs      *mailack.Service
@@ -83,14 +89,23 @@ type SyncController struct {
 // CreateSyncController builds a controller from config.
 func CreateSyncController(cfg SyncConfig) (*SyncController, error) {
 	const op = "mailoverview.CreateSyncController"
-	if cfg.Now == nil || cfg.ApplyBaseCtx == nil {
+	runBase := cfg.RunBaseCtx
+	if runBase == nil {
+		runBase = cfg.ApplyBaseCtx
+	}
+	if cfg.Now == nil || runBase == nil {
 		return nil, sirerr.New(sirerr.CodeInvalid, op, "missing dependencies")
+	}
+	applyBase := cfg.ApplyBaseCtx
+	if applyBase == nil {
+		applyBase = runBase
 	}
 	c := &SyncController{
 		runner:       cfg.Runner,
 		account:      strings.TrimSpace(cfg.Account),
 		excludes:     append([]string(nil), cfg.Excludes...),
-		applyBaseCtx: cfg.ApplyBaseCtx,
+		applyBaseCtx: applyBase,
+		runBaseCtx:   runBase,
 		now:          cfg.Now,
 		jobs:         cfg.Jobs,
 		ackJobs:      cfg.AckJobs,
@@ -165,7 +180,7 @@ func (c *SyncController) Start(ctx context.Context) (snap SyncSnapshot, err erro
 	snap = c.snap
 	c.mu.Unlock()
 	if c.events != nil {
-		c.events.Publish(c.applyBaseCtx, hostevent.Event{
+		c.events.Publish(c.runBaseCtx, hostevent.Event{
 			Source: hostevent.SourceSync,
 			Kind:   "started",
 			Line:   "Syncing…",
@@ -181,8 +196,7 @@ func (c *SyncController) run(runID string) {
 	var line string
 	finalStatus := SyncStatusDone
 
-	base := c.applyBaseCtx
-	ctx, cancel := context.WithTimeout(base, syncRunTimeout)
+	ctx, cancel := context.WithTimeout(c.runBaseCtx, syncRunTimeout)
 	defer cancel()
 	ctx, span := startSyncSpan(ctx, runID, c.account, c.excludes)
 	defer func() {

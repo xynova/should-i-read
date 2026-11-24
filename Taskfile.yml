@@ -145,7 +145,8 @@ tasks:
     desc: Offline HTML + JSON mail overview (read-only ledger + pimdir)
     summary: |
       Builds the CLI if needed, then runs mail overview.
-      Pass flags after -- (for example --since 2025-10 --until 2025-11 --max-rows 2000).
+      Pass flags after -- (for example --since 2026-08 --until 2026-11 --max-rows 2000).
+      With no --since, the overview starts at the most recent August.
       Writes tmp/mail-overview-<ts>.html and .json; no Polypus or network.
       Highlight intent: go tool task mail:overview -- serve
     deps: [build]
